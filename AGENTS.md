@@ -104,7 +104,7 @@ Messages are thrown, not awaited.
 | `event-mapper.ts` | ACP events → pi events |
 | `engraving.ts` + `prompts/engraving.md` | optional operator personal engraving carrier |
 | `pi-context-augment.ts` | first-user pi context augment (`~/AGENTS.md`, cwd AGENTS, bridge narrative, date/cwd) |
-| `protocol.ts` / `protocol.js` | dependency-free shared wire constants (`<project-context` marker); `.ts` for tsc emit, `.js` for strip-types source runtime |
+| `protocol.js` | dependency-free shared wire constants (`<project-context` marker). Single source for both tsc-emit (root `allowJs: true`) and Node `--experimental-strip-types` (MCP bridges) paths. Authored as `.js` because strip-types resolves literal `.js` imports and root tsc cannot enable `allowImportingTsExtensions` without losing emit. |
 | `run.sh` | install, smoke, verify, sentinel |
 | `pi-extensions/` | entwurf spawn + control plane + shared core |
 | `pi/entwurf-targets.json` | spawn target allowlist |

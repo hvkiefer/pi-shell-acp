@@ -283,7 +283,7 @@ The two backends are intentionally not perfectly symmetric. Claude Code is the p
 | `event-mapper.ts` | ACP updates → pi events |
 | `engraving.ts` + `prompts/engraving.md` | optional operator personal engraving carrier |
 | `pi-context-augment.ts` | one-shot first-user pi context augment (`~/AGENTS.md`, cwd AGENTS, bridge narrative, date/cwd) |
-| `protocol.ts` / `protocol.js` | dependency-free shared wire constants (`<project-context` marker); `.ts` for tsc emit, `.js` for strip-types source runtime |
+| `protocol.js` | dependency-free shared wire constants (`<project-context` marker). Single source for both tsc-emit and Node `--experimental-strip-types` paths. |
 | `run.sh` | install, smoke, verify, sentinel |
 | `pi-extensions/` | entwurf spawn + control plane + shared core |
 | `pi/entwurf-targets.json` | default entwurf target allowlist |

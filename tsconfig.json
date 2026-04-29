@@ -10,6 +10,16 @@
 		// that requires `unknown`-narrowing or non-null assertion is a real
 		// fence — keep it visible. See AGENTS.md § Crash, Don't Warn.
 		"strict": true,
+		// allowJs: true so `protocol.js` can be the single source of the
+		// shared `<project-context` wire marker. The file is dependency-free
+		// and exists as `.js` (not `.ts`) because Node's
+		// --experimental-strip-types resolver, which loads the MCP bridges,
+		// resolves explicit `.js` imports literally and won't accept a `.ts`
+		// substitute for them. tsc includes the .js in the program and emits
+		// it through the check-models path. checkJs is intentionally left off:
+		// the file is a single string-literal export with no surface to
+		// strict-check, so flipping checkJs would only add noise.
+		"allowJs": true,
 		"skipLibCheck": true
 	},
 	// mcp/* is type-checked under mcp/tsconfig.json (strip-types-friendly
