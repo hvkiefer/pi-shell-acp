@@ -4,7 +4,7 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
-## 0.5.0 — 2026-04-30
+## 0.4.7 — 2026-04-30
 
 ### Added
 
