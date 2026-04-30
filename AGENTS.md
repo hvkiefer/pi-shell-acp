@@ -37,6 +37,10 @@ When an agent sees a warning, it interprets it as "I did something wrong" and st
    - **Tool surface**: Claude tools are explicit (`Read`, `Bash`, `Edit`, `Write`, plus `Skill` when configured) with deferred Claude tools disallowed by default. Codex mode/feature gates are pinned via `-c` flags and `codexDisabledFeatures`; MCP still enters only through `piShellAcpProvider.mcpServers`.
    - **Compaction vs isolation**: `PI_SHELL_ACP_ALLOW_COMPACTION=1` may relax compaction guards, but must not drop identity-isolation env (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`).
    - **Evidence discipline**: README/AGENTS claims must not outrun [VERIFY.md](./VERIFY.md)'s Evidence Levels and Claims Ledger. If a statement is design intent rather than verified behaviour, say so.
+10. **SDK surface calls must use the typed connection.** `(session.connection as any).METHOD()` is debt, not a workaround. ACP SDK methods (`prompt`, `cancel`, `loadSession`, `resumeSession`, `closeSession`, `unstable_setSessionModel`, …) are typed on `ClientSideConnection`; an `as any` cast there silently survives an SDK rename and ships a dead call. We learned this the hard way in 0.4.5 when SDK 0.20.0's `resumeSession` rename meant every bootstrap silently fell through to `load`, violating Hard Rule #2 for months. The fix is structural, not vigilance:
+    - Prefer `session.connection.method(...)` directly. Let tsc fail on rename.
+    - If a method genuinely isn't typed yet (rare, transitional), annotate the cast site with `// SDK_CAST_OK: <reason>` (permanent gap) or `// SDK_CAST_DEBT: <reason>` (tracked for removal at next deps bump).
+    - The `./run.sh check-sdk-surface` static gate enforces the marker. Pre-commit blocks unannotated `(connection as any)` casts in `acp-bridge.ts`.
 
 ## Verification
 
@@ -46,7 +50,7 @@ Two axes, both required.
 
 ```bash
 ./run.sh setup /path/to/consumer-project    # one-shot install + all gates
-pnpm typecheck && ./run.sh check-backends && ./run.sh check-models && ./run.sh check-mcp && ./run.sh check-dep-versions && ./run.sh check-registration
+pnpm typecheck && ./run.sh check-backends && ./run.sh check-models && ./run.sh check-mcp && ./run.sh check-dep-versions && ./run.sh check-sdk-surface && ./run.sh check-registration
 ./run.sh smoke-all /path/to/project         # Claude + Codex runtime
 ./run.sh verify-resume /path/to/project     # cross-process continuity
 ./run.sh check-bridge /path/to/project      # MCP bridge visibility + invocation

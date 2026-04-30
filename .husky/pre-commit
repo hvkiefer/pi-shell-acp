@@ -10,6 +10,7 @@
 #   - run.sh check-backends   (launch + meta + overlay assertions)
 #   - run.sh check-registration (per-runtime provider semantics)
 #   - run.sh check-dep-versions (pin drift across package.json/run.sh/README)
+#   - run.sh check-sdk-surface  (every (connection as any) cast in acp-bridge.ts annotated SDK_CAST_OK/DEBT)
 #
 # That is the single source of truth for "does this commit hold the bridge's
 # invariants". The hook just wires it in. Anything beyond this — runtime

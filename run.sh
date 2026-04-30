@@ -39,6 +39,7 @@ Usage:
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
+  ./run.sh check-sdk-surface          # static gate: every (connection as any) cast in acp-bridge.ts is annotated SDK_CAST_OK or SDK_CAST_DEBT
   ./run.sh check-models               # local deterministic check of MODELS contextWindow defaults (sonnet 200K, opus 1M) + override
   ./run.sh check-claude-sessions [project-dir]  # compare pi persisted sessions vs Claude SDK session visibility
   ./run.sh verify-resume [project-dir] # exact pi -> ACP -> Claude continuity check with visible acpSessionId diagnostics
@@ -1941,6 +1942,73 @@ EOF
   )
 }
 
+check_sdk_surface() {
+  # Static gate against silently-broken ACP SDK calls.
+  #
+  # Background: in 0.4.5 we discovered that `(session.connection as any)
+  # .unstable_resumeSession({...})` had been a dead call ever since SDK
+  # 0.20.0 promoted resumeSession/closeSession out of the `unstable_*`
+  # namespace. Capability check passed, method call threw TypeError,
+  # bootstrap fallback caught it, every session silently took the load
+  # path instead of resume — Hard Rule #2 ("resume > load > new") quietly
+  # violated for months. The `as any` cast hid the rename from tsc.
+  #
+  # The right floor: SDK methods are typed on ClientSideConnection. Either
+  # call them directly, or annotate the cast with a marker so the bypass
+  # is *visible* to a code review. Three-class marker policy:
+  #
+  #   // SDK_CAST_OK: <reason>     — permanent (genuine SDK gap)
+  #   // SDK_CAST_DEBT: <reason>   — tracked for removal (e.g. version bump)
+  #
+  # The gate scans `acp-bridge.ts` (the only file that touches the ACP
+  # connection object) for `connection as any)` and requires a marker on
+  # the same line or the immediately preceding line. Anything else fails.
+  #
+  # See AGENTS.md § Hard Rules #10 for the principle.
+  local file
+  file="$REPO_DIR/acp-bridge.ts"
+
+  if [ ! -f "$file" ]; then
+    fail "[check-sdk-surface] $file missing"
+    return 1
+  fi
+
+  local report
+  report=$(awk '
+    /SDK_CAST_OK|SDK_CAST_DEBT/ { last_marker = NR }
+    /connection as any\)/ {
+      # Marker must be on the same line (trailing comment) or the
+      # immediately preceding line. Multi-line casts should keep the
+      # marker adjacent to the cast site.
+      if (NR != last_marker && NR != last_marker + 1) {
+        printf "%s:%d: %s\n", FILENAME, NR, $0
+        bad = 1
+      }
+    }
+    END { exit bad ? 1 : 0 }
+  ' "$file")
+
+  if [ -n "$report" ]; then
+    echo "[check-sdk-surface] FAIL: undocumented (connection as any) casts:"
+    echo "$report"
+    echo ""
+    echo "  SDK methods are typed on ClientSideConnection (see"
+    echo "  node_modules/@agentclientprotocol/sdk/dist/acp.d.ts)."
+    echo "  Either drop the cast, or annotate with one of:"
+    echo "    // SDK_CAST_OK: <reason>"
+    echo "    // SDK_CAST_DEBT: <reason>"
+    return 1
+  fi
+
+  # grep -c always prints the count and exits 0 when matches > 0, 1 when 0.
+  # `|| true` keeps the substitution clean; the count is already in stdout.
+  local ok_count debt_count total
+  ok_count=$(grep -c "SDK_CAST_OK" "$file" 2>/dev/null || true)
+  debt_count=$(grep -c "SDK_CAST_DEBT" "$file" 2>/dev/null || true)
+  total=$(grep -c "connection as any)" "$file" 2>/dev/null || true)
+  echo "[check-sdk-surface] $total cast(s) present, $ok_count OK + $debt_count DEBT — all annotated"
+}
+
 check_registration() {
   local verify_dir
   verify_dir="$REPO_DIR/.tmp-verify"
@@ -2537,6 +2605,9 @@ case "$cmd" in
     ;;
   check-dep-versions)
     check_dep_versions
+    ;;
+  check-sdk-surface)
+    check_sdk_surface
     ;;
   check-claude-sessions)
     check_claude_sessions "$TARGET_PROJECT_DIR"
