@@ -1618,7 +1618,7 @@ function registerControlSessionsCommand(pi: ExtensionAPI, setSessions: (sessions
 		handler: async (_args, ctx) => {
 			if (pi.getFlag(ENTWURF_FLAG) !== true) {
 				if (ctx.hasUI) {
-					ctx.ui.notify("Session control not enabled (use --entwurf-control)", "warning");
+					ctx.ui.notify("Entwurf control not enabled — relaunch pi with --entwurf-control", "warning");
 				}
 				return;
 			}
@@ -1715,7 +1715,7 @@ function registerEntwurfSendCommand(pi: ExtensionAPI, state: SocketState, getSes
 		handler: async (args, ctx) => {
 			if (pi.getFlag(ENTWURF_FLAG) !== true) {
 				if (ctx.hasUI) {
-					ctx.ui.notify("Session control not enabled (use --entwurf-control)", "warning");
+					ctx.ui.notify("Entwurf control not enabled — relaunch pi with --entwurf-control", "warning");
 				}
 				return;
 			}
