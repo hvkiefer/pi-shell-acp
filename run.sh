@@ -1903,7 +1903,7 @@ try {
     'codex bridge env must keep CODEX_SQLITE_HOME even when compaction is allowed');
 
   // Gemini launch — PATH path (no override). Must resolve to
-  // `gemini --acp --admin-policy <overlay>/policies/admin.toml`. The admin-
+  // `gemini --acp --admin-policy <overlay-home>/.gemini/policies/admin.toml`. The admin-
   // policy flag loads our deny-all-then-explicit-allow TOML at priority
   // tier 5.x (Admin > User > Workspace > Extension > Default), narrowing
   // the gemini native tool surface to the pi baseline (read_file/write_file/
@@ -1916,7 +1916,7 @@ try {
     assert.equal(geminiLaunch.command, 'gemini',
       'gemini launch (PATH path) must invoke `gemini` directly');
     assert.deepEqual(geminiLaunch.args, ['--acp', '--admin-policy', GEMINI_OVERLAY_ADMIN_POLICY_PATH],
-      'gemini launch must pin `--acp --admin-policy <overlay>/policies/admin.toml` for tool-surface narrowing');
+      'gemini launch must pin `--acp --admin-policy <overlay-home>/.gemini/policies/admin.toml` for tool-surface narrowing');
     assert.equal(geminiLaunch.source, 'PATH:gemini --acp --admin-policy <overlay>');
 
     // Override path mirrors Codex: bash -lc with `${override} ${ourFlags}`
@@ -2206,8 +2206,10 @@ import { readFileSync } from 'node:fs';
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const claudePinned = pkg.dependencies['@agentclientprotocol/claude-agent-acp'];
 const codexPinned = pkg.dependencies['@zed-industries/codex-acp'];
+const geminiBundled = pkg.dependencies['@google/gemini-cli'] ?? pkg.optionalDependencies?.['@google/gemini-cli'];
 assert.ok(claudePinned, 'package.json must pin @agentclientprotocol/claude-agent-acp');
 assert.ok(codexPinned, 'package.json must pin @zed-industries/codex-acp');
+assert.equal(geminiBundled, undefined, 'package.json must not bundle @google/gemini-cli — gemini is an external PATH runtime');
 
 // `^` + `m` flag anchors to the start-of-line shell assignment so we don't
 // accidentally pick up the regex literal inside this very check function's
@@ -2225,7 +2227,7 @@ const readmeCodex = readme.match(/@zed-industries\/codex-acp@([0-9.]+)/)?.[1];
 assert.equal(readmeCodex, codexPinned,
   `README.md @zed-industries/codex-acp install pin (${readmeCodex}) must match package.json (${codexPinned})`);
 
-console.log('[check-dep-versions] 5 assertions ok');
+console.log('[check-dep-versions] 6 assertions ok');
 EOF
   )
 }

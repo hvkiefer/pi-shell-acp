@@ -1,6 +1,6 @@
 # pi-shell-acp
 
-Use Claude Code through the official Agent Client Protocol (ACP) path inside pi. Codex is supported as a second backend so the bridge's ACP boundary can be verified against a non-Anthropic ACP server. Gemini CLI is supported as a third backend (since 0.4.8) — pi-mono v0.71.0 removed its built-in Google provider, and Gemini CLI's `--acp` flag offers an official ACP server, so the bridge picks the path back up rather than going through API-key/Vertex provider paths.
+Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) backends inside pi.
 
 > **Status: Public, active development.**
 > This is real working code, but it is still young. Expect issues and verify it in your own workflow before relying on it all day.
@@ -8,8 +8,6 @@ Use Claude Code through the official Agent Client Protocol (ACP) path inside pi.
 > **Evidence calibration.** Claims about identity, tool visibility, and native-quality behaviour are tracked in [VERIFY.md](./VERIFY.md). Current public evidence is strongest at L1–L2 for identity/tool wiring; 8-hour/day native-quality claims remain unmeasured until L4/L5 runs.
 
 ![pi-shell-acp demo](docs/assets/pi-shell-acp-demo.gif)
-
-![pi-shell-acp in Doom Emacs](docs/assets/pi-shell-acp-doomemacs.gif)
 
 `pi-shell-acp` connects pi to Claude Code, Codex, and Gemini CLI through the same ACP path used by Zed's Claude Code integration — no OAuth proxy, no CLI transcript scraping, no Claude Code emulation. The bridge respects each backend's minimum identity boundary (the model is Claude, Codex, or Gemini) while shaping the pi-facing operating surface on top.
 
@@ -22,6 +20,7 @@ pi
 
 > **Direction note.** `pi-shell-acp` is the reverse of [`pi-acp`](https://github.com/svkozak/pi-acp): `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends.
 
+
 ## How to Read This Project
 
 If you see words like *entwurf* or *engraving* and wonder why a coding tool has philosophical vocabulary — this section is for you.
@@ -30,7 +29,9 @@ If you see words like *entwurf* or *engraving* and wonder why a coding tool has 
 
 **The solution.** ACP (Agent Client Protocol) is the protocol Zed uses to connect to Claude Code. `pi-shell-acp` uses the same path — pi stays the harness, Claude Code stays itself.
 
-**Why Codex too.** Codex already runs natively in pi, so the ACP path is not a workaround for Codex. It is supported here as a second backend kept to verify the bridge's ACP boundary against a non-Anthropic ACP server.
+**Why Codex too.** Codex already runs natively in pi, so the ACP path is not a workaround for Codex. It is supported here to verify the bridge's ACP boundary against a non-Anthropic backend.
+
+**Why Gemini too.** Gemini CLI exposes its own `--acp` server, so pi-shell-acp can carry it as a third backend. Release-specific migration context belongs in the changelog, not at the top of this README.
 
 **Why "entwurf" (not "delegate").** Pi's ecosystem already has users building their own delegation logic. To avoid naming collisions, this project uses *entwurf* — German for "draft" or "projection." When you invoke entwurf, you don't spawn a worker subprocess; you summon a sibling that holds the same tool. The difference matters: workers report to a master, siblings coordinate through messages.
 
@@ -95,23 +96,17 @@ gemini   # one-time interactive login (oauth-personal) or set GEMINI_API_KEY
 ./run.sh smoke-gemini /path/to/your-project
 ```
 
-The Gemini path uses the same `--acp` flag the Gemini CLI exposes natively — pi-shell-acp does not bundle a separate `*-acp` server package for Gemini the way it does for Claude/Codex, since the gemini CLI binary itself is the ACP server. Operators install the CLI globally (PATH-resolved at spawn time) and authenticate with their preferred method (`oauth-personal` for the Google subscription path, `gemini-api-key` for `GEMINI_API_KEY`, `vertex-ai`, or `gateway`). Override the launch command via `GEMINI_ACP_COMMAND` for `gemini --acp --debug` or wrapper scripts; bridge args (`--admin-policy <overlay>/policies/admin.toml`) are appended to the override too — the same pattern as `CODEX_ACP_COMMAND`, so tool-surface narrowing always wins.
+The Gemini CLI is an **external runtime dependency** — the `gemini` binary itself is the ACP server (no separate `*-acp` package). Use `GEMINI_ACP_COMMAND` to override the launch command; bridge args (`--acp`, `--admin-policy`) are appended either way.
 
-**Surface isolation (closed 2026-05-03 baseline).** Gemini CLI does not expose `*_CONFIG_DIR`-shaped env knobs, but it does honor `GEMINI_CLI_HOME` (`homedir()` swap) and `GEMINI_SYSTEM_MD` (native system-body file replacement). pi-shell-acp pins both at `~/.pi/agent/gemini-config-overlay/` (mirror of `CLAUDE_CONFIG_DIR` / `CODEX_HOME`). Five channels closed, baseline-verified:
+Operator-config isolation overlay shape: see `### Operating-surface contract — Gemini backend` below. Closure evidence and the 2026-05-03 baseline run: see [CHANGELOG.md 0.4.8](./CHANGELOG.md) and [BASELINE.md](./BASELINE.md).
 
-- **L1 — native system body**: `GEMINI_SYSTEM_MD = <overlay>/system.md` replaces the bundled "Instruction and Memory Files" body. The overlay file always carries a canary line (`GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`); a baseline operator can ask the model to quote it to confirm the carrier reaches the same prompt slot as Claude's `_meta.systemPrompt` and Codex's `developer_instructions`. 2026-05-03 baseline: model classified the canary under "actual system prompt (Developer Instruction)".
-- **L2 — operator memory path**: `GEMINI_CLI_HOME` redirect closes Gemini's native `~/.gemini/tmp/<cwd-slug>/memory/MEMORY.md`. (Earlier baseline reading of `tmp/junghan/` was a `Storage.getProjectIdentifier()` cwd slug, not a username field — the closure handles both readings.)
-- **L3 — tool surface**: `tools.core` 7-name allow + `--admin-policy` deny-all + same 7-name allow at priority tier 5.x. The 7 names are the read-class capability split (`read_file`, `list_directory`, `glob`, `grep_search`) + `write_file` + `replace` + `run_shell_command` — same 4 capability classes as Claude `Read/Bash/Edit/Write`, Gemini-specific naming. 2026-05-03 baseline: all 4 read-class tools invoke without `denied by admin policy`.
-- **L4 — `GEMINI.md` hierarchical discovery**: `context.fileName` sentinel + `memoryBoundaryMarkers: []` + `includeDirectoryTree: false` suppress the cwd → parent → home walk. Baseline: model reports no `GEMINI.md` awareness.
-- **MCP whitelist**: `mcp.allowed: [pi-tools-bridge, session-bridge]` + `excluded: ["*"]`. Baseline: model sees only those two.
-
-**Documented asymmetry — MCP function-schema advertise.** Gemini ACP accepts the bridge's stdio MCP servers via `mcpServers`, but does *not* register them as model-visible function-schema entries the way Claude and Codex do. Models route MCP calls through `run_shell_command` (CLI invocation) rather than direct function calls. This is a Gemini ACP surface property, not something the overlay can close — recorded here so operators do not assume entwurf/semantic-memory appears as native function schema on the gemini backend.
-
-Backend is inferred from the model: Anthropic models → `claude`, OpenAI models → `codex`, Gemini models → `gemini`. Set `backend` explicitly only when you want to pin it.
+Backend is inferred from the model: Anthropic → `claude`, OpenAI → `codex`, Gemini → `gemini`. Set `backend` explicitly only when you want to pin it.
 
 ### Emacs frontends
 
 pi-shell-acp works from ordinary terminals and from Emacs frontends that launch [pi-coding-agent](https://github.com/dnouri/pi-coding-agent). If your Emacs setup runs a dedicated server socket for agent work, pass the socket name with `--emacs-agent-socket`:
+
+![pi-shell-acp in Doom Emacs](docs/assets/pi-shell-acp-doomemacs.gif)
 
 ```elisp
 (setq pi-coding-agent-extra-args
@@ -202,12 +197,12 @@ Gemini ACP exposes neither `_meta.systemPrompt` nor a `-c developer_instructions
 
 | Layer | Setting | Purpose |
 |---|---|---|
-| Carrier | `GEMINI_SYSTEM_MD = <overlay>/system.md` | Replace native system body with operator engraving + carrier-isolation canary line |
+| Carrier | `GEMINI_SYSTEM_MD = <overlay-home>/.gemini/system.md` | Replace native system body with operator engraving + carrier-isolation canary line |
 | Config root | `GEMINI_CLI_HOME = ~/.pi/agent/gemini-config-overlay/` | Redirect `homedir()` so the binary reads from the pi-owned overlay, never from operator's `~/.gemini/` |
 | Tool registry + policy | `tools.core` 7-name allow + `--admin-policy` deny-all + same 7-name allow | 4 capability classes (Read-class split into `read_file`/`list_directory`/`glob`/`grep_search`, plus `write_file` / `replace` / `run_shell_command`) — defense in depth at registry and policy layers |
 | Memory / context | `context.fileName: <sentinel>` + `memoryBoundaryMarkers: []` + `includeDirectoryTree: false` | Suppress `GEMINI.md` cwd → parent → home discovery and cwd dir-tree auto-attach |
 | MCP allowlist | `mcp.allowed: ["pi-tools-bridge","session-bridge"]` + `mcp.excluded: ["*"]` | Only bridge-injected stdio MCPs surface to the model |
-| Misc closure | `agents.overrides.<id>.enabled: false` (10 subagents), `useWriteTodos: false`, `skills.enabled: false`, `hooksConfig.enabled: false`, `security.folderTrust.enabled: false`, `advanced.autoConfigureMemory: false` | Close gemini surfaces pi does not surface |
+| Misc closure | subagents / skills / hooks / folder-trust / write_todos / auto-memory all off via `settings.json` | Close gemini surfaces pi does not surface (full key list in CHANGELOG 0.4.8) |
 
 Auth files (`oauth_creds.json`, `google_accounts.json`, `installation_id`, `mcp-oauth-tokens-v2.json`) are surfaced via symlink from the operator's real `~/.gemini/`; everything else (history, projects.json, tmp memory, settings.json with operator prefs, trustedFolders.json) is overlay-private. The overlay is rebuilt on every gemini session bootstrap (idempotent). Explicit `GEMINI_CLI_HOME` export wins, mirroring `CLAUDE_CONFIG_DIR` / `CODEX_HOME`.
 
@@ -265,7 +260,7 @@ pi-shell-acp intentionally separates **system/developer carriers** from **rich p
 
 - Claude carrier: `_meta.systemPrompt = <string>` → string-form preset replacement. This carrier must stay small; large custom system prompts can route Claude Code OAuth sessions to metered "extra usage" billing.
 - Codex carrier: `-c developer_instructions="<...>"` at child spawn time → codex's developer-role config slot.
-- Gemini carrier: `GEMINI_SYSTEM_MD = <overlay>/system.md` → file replacement of native system body. File equivalent of Claude `_meta.systemPrompt` and Codex `developer_instructions`; the overlay always appends a carrier-isolation canary line (`GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`) so a baseline operator can verify the file actually reaches the model's system prompt slot.
+- Gemini carrier: `GEMINI_SYSTEM_MD = <overlay-home>/.gemini/system.md` → file replacement of native system body. File equivalent of Claude `_meta.systemPrompt` and Codex `developer_instructions`; the overlay always appends a carrier-isolation canary line (`GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`) so a baseline operator can verify the file actually reaches the model's system prompt slot.
 - A/B: `PI_SHELL_ACP_ENGRAVING_PATH=/path/to/alt.md`.
 
 ### First-user pi context augment
@@ -319,20 +314,20 @@ Operationally: when the backend window is near its limit, choose a visible actio
 
 ### Backend capability notes
 
-The three backends are intentionally symmetric where the protocol allows. Claude Code is the primary daily-use ACP target; Codex was added to evaluate the bridge's ACP boundary against a non-Anthropic backend; Gemini joined as a third independent ACP server with the same shape of operator-config isolation overlay and tool-surface narrowing. Where the protocol forces an asymmetry (e.g. carrier surface — Claude has `_meta.systemPrompt`, Codex has `-c developer_instructions`, Gemini has `GEMINI_SYSTEM_MD` file), the table calls it out explicitly rather than papering over it.
+The three backends share the same operating-surface shape (carrier, overlay, tool narrowing, MCP injection); each row calls out where the protocol forces a different concrete mechanism.
 
 | Capability | Claude Code | Codex | Gemini CLI |
 |---|---|---|---|
 | ACP subprocess | `claude-agent-acp` | `codex-acp` | `gemini --acp` (CLI binary's own ACP mode) |
-| Continuity path | `resumeSession` when available | `loadSession` when available | `loadSession` when available (no `resumeSession` advertised) |
-| Engraving delivery | `_meta.systemPrompt = <string>` (preset replacement, in-protocol) | `-c developer_instructions="<...>"` (developer-role injection, child arg) | `GEMINI_SYSTEM_MD = <overlay>/system.md` (file replacement of native body, env+file) |
-| Config overlay | `CLAUDE_CONFIG_DIR` whitelist + `autoMemoryEnabled: false` + empty `projects/`, `sessions/` | `CODEX_HOME` + `CODEX_SQLITE_HOME` whitelist + empty `memories/`, `sessions/`, `log/`, `shell_snapshots/` + binary-managed `state_5.sqlite*` / `logs_2.sqlite*` | `GEMINI_CLI_HOME` whitelist + 14 settings keys (subagents off, skills/hooks/folder-trust/write_todos off, `tools.core` 7-name capability split, `mcp.allowed` 2 + `excluded:["*"]`, `context.fileName` sentinel + `memoryBoundaryMarkers:[]`) + empty `tmp/`, `history/`, `projects/` + binary-managed `state.json`, `projects.json` |
-| Tool surface narrowing | `tools: ["Read","Bash","Edit","Write"]` (+`Skill` when configured) + `disallowedTools` (deferred Claude tools) | `codexDisabledFeatures: image_generation, tool_suggest, tool_search, multi_agent, apps, memories` (+ `-c features.<key>=false`) | `tools.core` 7-name allow + `--admin-policy` deny-all + same 7-name allow at priority tier 5.x. Capability classes: Read = `read_file`/`list_directory`/`glob`/`grep_search`, Write = `write_file`, Edit = `replace`, Exec = `run_shell_command` |
-| Hierarchical memory file discovery | n/a — Claude Code does not auto-load `CLAUDE.md` chain in the bridge | n/a — codex does not advertise an equivalent | `GEMINI.md` cwd → parent → home discovery suppressed via `context.fileName` sentinel + `memoryBoundaryMarkers: []` + `includeDirectoryTree: false` |
-| MCP injection (transport) | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` (stdio passthrough; Gemini also advertises http/sse capability for non-pi MCPs but the bridge does not surface them) |
-| MCP function-schema advertise | yes — MCP tools registered as `mcp__<server>__<tool>` function entries | yes — MCP tools registered as `mcp__<server>__<tool>` function entries | **no** — Gemini ACP accepts MCP servers via `mcpServers` but does not register them as model-visible function-schema entries; models route through `run_shell_command` instead. Documented asymmetry, not closable from the overlay |
-| Backend auto-compaction | disabled by default (`DISABLE_AUTO_COMPACT=1` + `DISABLE_COMPACT=1`) | disabled by default (`-c model_auto_compact_token_limit=i64::MAX`; appended to `CODEX_ACP_COMMAND` override path too) | n/a — Gemini ACP exposes no equivalent toggle; pi remains the single context-management authority by default |
+| Continuity path | `resumeSession` when available | `loadSession` when available | `loadSession` when available |
+| Engraving carrier | `_meta.systemPrompt` (string, in-protocol) | `-c developer_instructions` (child arg) | `GEMINI_SYSTEM_MD` (file replacing native body) |
+| Config overlay | `CLAUDE_CONFIG_DIR` | `CODEX_HOME` + `CODEX_SQLITE_HOME` | `GEMINI_CLI_HOME` + `settings.json` 14-key closure (also suppresses `GEMINI.md` discovery) |
+| Tool surface narrowing | `tools` allowlist + `disallowedTools` | `codexDisabledFeatures` + `-c features.*` | `tools.core` allowlist + `--admin-policy` deny-all + class allow (4 Read-class names + Write/Edit/Exec) |
+| MCP injection | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` (transport accepted; see asymmetry below) |
+| Backend auto-compaction | `DISABLE_AUTO_COMPACT=1` + `DISABLE_COMPACT=1` | `-c model_auto_compact_token_limit=i64::MAX` | n/a — no equivalent toggle |
 | Operator context cap override | `PI_SHELL_ACP_CLAUDE_CONTEXT=<int>` | covered by codex-acp's own narrowing (272K) | `PI_SHELL_ACP_GEMINI_CONTEXT=<int>` |
+
+**Documented asymmetry — Gemini MCP function-schema advertise.** Gemini ACP accepts MCP servers via `mcpServers` but does not register them as model-visible function-schema entries the way Claude and Codex do. Models route MCP calls through `run_shell_command` instead. Not closable from the overlay; see CHANGELOG 0.4.8 + BASELINE.md for the verification context.
 
 `PI_SHELL_ACP_ALLOW_COMPACTION=1` strips only the compaction-guard env vars (`DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT`); identity-isolation env (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`, `GEMINI_SYSTEM_MD`) stays regardless — those are invariants required by the operator-config-isolation design, not policy choices the compaction toggle controls.
 
@@ -367,9 +362,9 @@ The maintainer uses pi-shell-acp for most pi work unless a task needs a differen
 
 ## Roadmap
 
-- **0.4.x — Documentation / evidence calibration.** Keep README, AGENTS.md, CHANGELOG.md, BASELINE.md, and VERIFY.md aligned with the current carrier design and Evidence Levels / Claims Ledger. Session-level verification data is published incrementally to [`junghanacs/pi-shell-acp-sessions`](https://huggingface.co/datasets/junghanacs/pi-shell-acp-sessions) using a dogfood-friendly fork at [`junghan0611/pi-share-hf`](https://github.com/junghan0611/pi-share-hf) (originally [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf)). The verification model is dogfooding: pi-shell-acp's own sessions are redacted and reviewed by pi-shell-acp's own provider surface, not by an external API key, so ACP-bridge behaviour can be reviewed at the session-record level, not only as narrative.
-- **0.5.0 — Visible recap-as-new-question and provider handoff.** Replace silent compaction with explicit recap as the long-session strategy. Long sessions should end with a structured, operator-visible recap that seeds a fresh session, rather than a silently rewritten transcript. The same mechanism should cover model/provider switches: native pi providers share pi's visible transcript, but `native → pi-shell-acp` crosses into a separate ACP backend session, so the new backend does not automatically know the earlier native conversation. 0.5.0 should add an explicit handoff recap for these transitions instead of hidden transcript hydration. The design must specify who generates the recap, where it is stored, how the old ACP mapping is closed, how provider-switch handoff is triggered, and how VERIFY.md proves no hidden transcript hydration occurred.
-- **0.6.0 — OpenClaw native provider.** Drop-in like ACPx — built-in provider, no extra ACP command surface, no entwurf needed (OpenClaw uses pi natively, so the bridge only has to wire the provider; the rest is pi's existing tool model).
+- **0.4.x — Documentation / evidence calibration.** Keep README, AGENTS.md, CHANGELOG.md, BASELINE.md, and VERIFY.md aligned. Publish redacted session-level evidence to [`junghanacs/pi-shell-acp-sessions`](https://huggingface.co/datasets/junghanacs/pi-shell-acp-sessions) via [`junghan0611/pi-share-hf`](https://github.com/junghan0611/pi-share-hf).
+- **0.5.0 — Visible recap-as-new-question and provider handoff.** Replace silent compaction with explicit, operator-visible recaps. Cover long sessions and `native → pi-shell-acp` provider switches without hidden transcript hydration.
+- **0.6.0 — OpenClaw native provider.** Drop-in native pi provider; no extra ACP command surface and no entwurf needed.
 
 ## Verification surfaces
 

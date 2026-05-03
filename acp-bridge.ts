@@ -2303,7 +2303,7 @@ function detectSessionCapabilities(initializeResult: InitializeResponse): Bridge
 //
 // geminiSystemPromptText IS part of compatibility checks for the same
 // reason: it is materialized as a file the gemini child reads at launch
-// (`GEMINI_SYSTEM_MD=<overlay>/system.md`, written by ensureGeminiConfigOverlay
+// (`GEMINI_SYSTEM_MD=<overlay-home>/.gemini/system.md`, written by ensureGeminiConfigOverlay
 // at spawn time). Reusing an existing gemini child against a changed
 // engraving would leave the previously-written system.md content in front
 // of the model.

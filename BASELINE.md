@@ -59,7 +59,7 @@ Configuration:
 
 Observed isolation closure:
 
-- **L1 — native system body**: PASS. Model classified `GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1` under "actual system prompt (Developer Instruction)" — confirming `GEMINI_SYSTEM_MD = <overlay>/system.md` reaches the same prompt slot Claude reaches via `_meta.systemPrompt` and Codex via `-c developer_instructions`. The earlier 2026-05-01 baseline observation of native "Instruction and Memory Files" rule verbatim quotation is gone in this run.
+- **L1 — native system body**: PASS. Model classified `GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1` under "actual system prompt (Developer Instruction)" — confirming `GEMINI_SYSTEM_MD = <overlay-home>/.gemini/system.md` reaches the same prompt slot Claude reaches via `_meta.systemPrompt` and Codex via `-c developer_instructions`. The earlier 2026-05-01 baseline observation of native "Instruction and Memory Files" rule verbatim quotation is gone in this run.
 - **L2 — operator memory path**: PASS. Model reports paths under the overlay (`/home/junghan/.pi/agent/gemini-config-overlay/.gemini/tmp/<cwd-slug>`), not under `~/.gemini/tmp/<user>/memory/MEMORY.md` as in the 2026-05-01 run. **L2 reinterpretation note**: the substring `junghan` in the earlier observation was `Storage.getProjectIdentifier()` slugging the `/home/junghan` cwd, not a username field — the closure (`GEMINI_CLI_HOME` redirect) handles both readings, and the operator's real `~/.gemini/{history, projects.json, tmp/<slug>/memory, trustedFolders.json, settings.json}` is now never read.
 - **L3 — tool surface**: PASS. Model invoked all 4 read-class tools (`read_file`, `list_directory`, `glob`, `grep_search`) without `denied by admin policy`. The 7-name allow (4 read-class + `write_file` + `replace` + `run_shell_command`) maps to 4 capability classes — same operating-surface boundary as Claude `Read/Bash/Edit/Write`, with gemini-specific naming and the read-class split admitted honestly.
 - **L4 — `GEMINI.md` hierarchical discovery**: PASS. Model reports no `GEMINI.md` awareness (no cwd `./GEMINI.md`, no `~/GEMINI.md`, no parent-chain walk). `context.fileName` sentinel + `memoryBoundaryMarkers: []` working.
@@ -67,7 +67,7 @@ Observed isolation closure:
 
 Documented asymmetry (not closable from the overlay):
 
-- **MCP function-schema advertise**: Gemini ACP accepts the bridge's stdio MCP servers via `mcpServers` but does **not** register them as model-visible function-schema entries. Models route MCP calls through `run_shell_command` (CLI invocation of the underlying skills) instead of direct function calls. The model's response distinguished this honestly: "MCP / Custom Tools 는 function schema에 직접 등록되어 있지 않으므로 `run_shell_command`를 통해 해당 CLI 도구를 호출". Recorded in README backend-capability matrix as a backend asymmetry, not a leak.
+- **MCP function-schema advertise**: Gemini ACP accepts the bridge's stdio MCP servers via `mcpServers` but does **not** register them as model-visible function-schema entries. In this baseline, the model described MCP / custom-tool access as shell-mediated rather than direct function calls: "MCP / Custom Tools 는 function schema에 직접 등록되어 있지 않으므로 `run_shell_command`를 통해 해당 CLI 도구를 호출". Recorded in README backend-capability matrix as an observed backend asymmetry, not a leak.
 
 OpenRouter comparison (non-bridged Gemini 3.1 Pro through pi native):
 
