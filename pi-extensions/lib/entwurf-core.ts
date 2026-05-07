@@ -177,76 +177,79 @@ export class EntwurfRegistryError extends Error {
 	}
 }
 
-let cachedRegistry: EntwurfRegistry | EntwurfRegistryError | null = null;
+// Positive-only cache. We intentionally do NOT cache EntwurfRegistryError —
+// caching a missing/broken registry once would make the same MCP/pi process
+// refuse every subsequent entwurf spawn even after the operator fixed the
+// file (e.g. ran `./run.sh setup:links` to relink the canonical registry).
+// That negative-cache trap was the root cause of the v0.4.x oracle install
+// regression: a stale operator file produced an EntwurfRegistryError on
+// first call, and the cached error survived the symlink repair.
+//
+// We keep a positive cache for hot-path performance, but invalidate it via
+// the file's mtime so that operator edits to entwurf-targets.json are
+// picked up on the next call without process restart.
+interface CachedRegistry {
+	registry: EntwurfRegistry;
+	mtimeMs: number;
+}
+let cachedRegistry: CachedRegistry | null = null;
 
 export function loadEntwurfTargets(): EntwurfRegistry {
-	if (cachedRegistry instanceof EntwurfRegistryError) throw cachedRegistry;
-	if (cachedRegistry) return cachedRegistry;
-
-	if (!fs.existsSync(ENTWURF_TARGETS_PATH)) {
-		const err = new EntwurfRegistryError(
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(ENTWURF_TARGETS_PATH);
+	} catch {
+		// Missing — never cache. Operator may relink at any time and the next
+		// call must see the new file.
+		throw new EntwurfRegistryError(
 			`Entwurf target registry not found at ${ENTWURF_TARGETS_PATH}. ` +
 				`Without it, every entwurf spawn is refused. Run \`./run.sh setup:links\` ` +
 				`or create the file manually (see pi-shell-acp/pi/entwurf-targets.json for the canonical shape).`,
 		);
-		cachedRegistry = err;
-		throw err;
+	}
+
+	if (cachedRegistry && cachedRegistry.mtimeMs === stat.mtimeMs) {
+		return cachedRegistry.registry;
 	}
 
 	let raw: unknown;
 	try {
 		raw = JSON.parse(fs.readFileSync(ENTWURF_TARGETS_PATH, "utf-8"));
 	} catch (e) {
-		const err = new EntwurfRegistryError(
+		throw new EntwurfRegistryError(
 			`Failed to parse ${ENTWURF_TARGETS_PATH}: ${e instanceof Error ? e.message : String(e)}`,
 		);
-		cachedRegistry = err;
-		throw err;
 	}
 
 	if (typeof raw !== "object" || raw === null || !("entwurfTargets" in raw)) {
-		const err = new EntwurfRegistryError(
+		throw new EntwurfRegistryError(
 			`Invalid registry shape in ${ENTWURF_TARGETS_PATH}: expected { entwurfTargets: [...] }`,
 		);
-		cachedRegistry = err;
-		throw err;
 	}
 
 	const targetsRaw = (raw as { entwurfTargets: unknown }).entwurfTargets;
 	if (!Array.isArray(targetsRaw)) {
-		const err = new EntwurfRegistryError(`Invalid entwurfTargets in ${ENTWURF_TARGETS_PATH}: must be an array`);
-		cachedRegistry = err;
-		throw err;
+		throw new EntwurfRegistryError(`Invalid entwurfTargets in ${ENTWURF_TARGETS_PATH}: must be an array`);
 	}
 
 	const targets: EntwurfTarget[] = [];
 	for (let i = 0; i < targetsRaw.length; i++) {
 		const t = targetsRaw[i];
 		if (typeof t !== "object" || t === null) {
-			const err = new EntwurfRegistryError(`Entry #${i} is not an object`);
-			cachedRegistry = err;
-			throw err;
+			throw new EntwurfRegistryError(`Entry #${i} is not an object`);
 		}
 		const obj = t as Record<string, unknown>;
 		if (typeof obj.provider !== "string" || !obj.provider.trim()) {
-			const err = new EntwurfRegistryError(`Entry #${i}: provider must be a non-empty string`);
-			cachedRegistry = err;
-			throw err;
+			throw new EntwurfRegistryError(`Entry #${i}: provider must be a non-empty string`);
 		}
 		if (typeof obj.model !== "string" || !obj.model.trim()) {
-			const err = new EntwurfRegistryError(`Entry #${i}: model must be a non-empty string`);
-			cachedRegistry = err;
-			throw err;
+			throw new EntwurfRegistryError(`Entry #${i}: model must be a non-empty string`);
 		}
 		if (typeof obj.enabled !== "boolean") {
-			const err = new EntwurfRegistryError(`Entry #${i}: enabled must be a boolean`);
-			cachedRegistry = err;
-			throw err;
+			throw new EntwurfRegistryError(`Entry #${i}: enabled must be a boolean`);
 		}
 		if (obj.explicitOnly !== undefined && typeof obj.explicitOnly !== "boolean") {
-			const err = new EntwurfRegistryError(`Entry #${i}: explicitOnly must be boolean if present`);
-			cachedRegistry = err;
-			throw err;
+			throw new EntwurfRegistryError(`Entry #${i}: explicitOnly must be boolean if present`);
 		}
 		targets.push({
 			provider: obj.provider.trim(),
@@ -256,8 +259,9 @@ export function loadEntwurfTargets(): EntwurfRegistry {
 		});
 	}
 
-	cachedRegistry = { entwurfTargets: targets };
-	return cachedRegistry;
+	const registry: EntwurfRegistry = { entwurfTargets: targets };
+	cachedRegistry = { registry, mtimeMs: stat.mtimeMs };
+	return registry;
 }
 
 /** Test-only hook to reset the in-memory cache (e.g. between test runs). */

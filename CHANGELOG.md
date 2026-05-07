@@ -4,6 +4,31 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.4.12 — 2026-05-07
+
+### Fixed — Entwurf registry recovery (oracle install regression root cause)
+
+`pi-extensions/lib/entwurf-core.ts` `loadEntwurfTargets` no longer caches `EntwurfRegistryError`. The previous shape stored both successful registries and validation errors in a single slot, so a missing/parse-failed registry on first call poisoned every subsequent call from the same MCP/pi process — even after the operator repaired the file. The oracle install regression manifested exactly this way: a stale operator-copied `~/.pi/agent/entwurf-targets.json` produced an `EntwurfRegistryError`, and the cached error survived a symlink relink within the same Gemini session, so every entwurf spawn kept failing until session restart.
+
+The cache is now positive-only with `mtime`-based invalidation. A successful registry is hot-cached for spawn performance, but operator edits to the file are picked up on the next `loadEntwurfTargets()` call without restarting pi or the MCP bridge.
+
+### Changed — Fail-fast install policy for `entwurf-targets.json`
+
+`run.sh ensure_agent_dir_symlinks` no longer silently preserves a stale `~/.pi/agent/entwurf-targets.json`. The v0.4.x policy treated any pre-existing file or differently-pointing symlink as an "operator override" and let install pass; that hid the oracle drift for several releases until the symptom surfaced as a sentinel failure.
+
+The new policy honors only two explicit exits:
+
+- `./run.sh setup:links --force` — back up a stale regular file (timestamped `.bak`) or relink a wrong symlink to the canonical `pi/entwurf-targets.json`.
+- `PI_ENTWURF_TARGETS_PATH=/path/to/custom.json` — entwurf-core opts out of `~/.pi/agent/entwurf-targets.json` entirely, freeing the slot from policy.
+
+A regular file byte-identical to the canonical (via `cmp`) is still treated as "already correct, silent". A symlink already pointing at the canonical is also silent. Drift in either form (stale regular file or symlink to a different path) prints a `diff` plus the two exits and exits 1, which propagates through `set -euo pipefail` to fail `install` / `setup` immediately rather than at smoke or sentinel time.
+
+This is observably breaking for any operator running on a v0.4.x install with a drifted local file; the failure message names both repair paths explicitly.
+
+### Added
+
+- `./run.sh setup:links [--force]` — repair `~/.pi/agent/entwurf-targets.json` without re-running the full `setup` flow. The `EntwurfRegistryError` message has named this command since v0.4.x but the subcommand did not exist; this release closes that gap so the error guidance is now executable.
+
 ## 0.4.11 — 2026-05-07
 
 ### Gemini capability parity restored — skills + MCP advertise + invocation

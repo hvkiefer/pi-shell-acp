@@ -46,6 +46,7 @@ Usage:
   ./run.sh verify-resume [project-dir] # exact pi -> ACP -> Claude continuity check with visible acpSessionId diagnostics
   ./run.sh sync-auth                  # copy ~/.pi/agent/auth.json anthropic OAuth credentials to pi-shell-acp alias
   ./run.sh install [project-dir]      # install this local package into project .pi/settings.json
+  ./run.sh setup:links [--force]      # repair ~/.pi/agent/entwurf-targets.json link (use --force to replace a stale operator file or wrong symlink; a .bak is taken)
   ./run.sh remove [project-dir]       # remove pi-shell-acp entries from project .pi/settings.json
 
 Notes:
@@ -197,28 +198,77 @@ PY
 #     surface during plain `pi --model ...` runs but blocks delegation
 #     immediately when the operator first calls entwurf).
 #
-# Idempotent — preserves an operator's existing file/symlink without
-# overwriting. Lazy load means new symlinks are picked up on next entwurf
-# call without restarting any running pi process.
+# Fail-fast policy (added v0.5.0): drift between canonical and the
+# operator's link/file is treated as a bug to fix, not noise to preserve.
+# The v0.4.x oracle install regression came from a stale operator-copied
+# entwurf-targets.json that previous installs silently kept "as operator
+# file"; the only signal was a sentinel failure several minutes later.
+#
+# Two explicit exits are honored:
+#   1. `./run.sh setup:links --force` — back up + overwrite with canonical
+#   2. `PI_ENTWURF_TARGETS_PATH=/path/to/custom.json` — tells entwurf-core
+#      to read elsewhere, freeing this slot from any policy obligation
+#
+# Idempotent for the happy path. Lazy registry load means a corrected
+# file/symlink is picked up on the next entwurf call without restarting
+# pi or the MCP bridge process.
 ensure_agent_dir_symlinks() {
   local agent_dir="$HOME/.pi/agent"
   mkdir -p "$agent_dir"
 
   local target="$REPO_DIR/pi/entwurf-targets.json"
   local link="$agent_dir/entwurf-targets.json"
+  local force="${1:-}"
+
+  if [ ! -f "$target" ]; then
+    fail "canonical registry missing at $target — repo install is broken"
+    exit 1
+  fi
 
   if [ -L "$link" ]; then
-    if [ "$(readlink "$link")" = "$target" ]; then
-      :  # already correct, silent
-    else
-      echo "install: preserved $link (operator override -> $(readlink "$link"))"
+    local current
+    current=$(readlink "$link")
+    if [ "$current" = "$target" ]; then
+      return 0  # already correct, silent
     fi
-  elif [ -e "$link" ]; then
-    echo "install: preserved $link (operator file)"
-  elif [ -f "$target" ]; then
-    ln -s "$target" "$link"
-    echo "install: linked $link -> $target"
+    if [ "$force" = "--force" ]; then
+      rm -f "$link"
+      ln -s "$target" "$link"
+      echo "install: relinked $link -> $target (was -> $current)"
+      return 0
+    fi
+    fail "stale entwurf-targets symlink at $link"
+    echo "       points to: $current" >&2
+    echo "       expected:  $target" >&2
+    echo "       Fix with one of:" >&2
+    echo "         ./run.sh setup:links --force      # relink to canonical" >&2
+    echo "         export PI_ENTWURF_TARGETS_PATH=$current  # honor your override explicitly" >&2
+    exit 1
   fi
+
+  if [ -e "$link" ]; then
+    if cmp -s "$link" "$target"; then
+      return 0  # operator copy is byte-identical to canonical, silent
+    fi
+    if [ "$force" = "--force" ]; then
+      local backup="${link}.bak.$(date +%Y%m%d-%H%M%S)"
+      mv "$link" "$backup"
+      ln -s "$target" "$link"
+      echo "install: replaced stale $link with symlink -> $target (backup: $backup)"
+      return 0
+    fi
+    fail "stale entwurf-targets file at $link (drifts from canonical)"
+    echo "       canonical: $target" >&2
+    echo "       diff (link vs canonical):" >&2
+    diff -u "$link" "$target" | sed 's/^/         /' >&2 || true
+    echo "       Fix with one of:" >&2
+    echo "         ./run.sh setup:links --force      # back up + replace with symlink to canonical" >&2
+    echo "         export PI_ENTWURF_TARGETS_PATH=$link  # honor your file as an explicit override" >&2
+    exit 1
+  fi
+
+  ln -s "$target" "$link"
+  echo "install: linked $link -> $target"
 }
 
 remove_local_package() {
@@ -3060,6 +3110,12 @@ case "$cmd" in
     ;;
   install)
     install_local_package "$TARGET_PROJECT_DIR"
+    ;;
+  setup:links)
+    # Repair / refresh ~/.pi/agent/entwurf-targets.json without re-running
+    # the full setup flow. Pass --force to overwrite a stale operator file
+    # or a wrong symlink (a backup is taken for regular files).
+    ensure_agent_dir_symlinks "${2:-}"
     ;;
   remove)
     remove_local_package "$TARGET_PROJECT_DIR"
