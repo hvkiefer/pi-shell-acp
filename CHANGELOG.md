@@ -4,6 +4,28 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.4.13 — 2026-05-07
+
+### Fixed — `skillPlugins` fail-fast contract (silent silent-drop closed)
+
+`index.ts` now validates each `skillPlugins` entry at settings parse time. Each path must be absolute, point at an existing directory, and contain `.claude-plugin/plugin.json`; any violation throws `settingsConfigError` and aborts session bootstrap. The previous shape parsed the field as a string array and forwarded it directly into `claudeCodeOptions.plugins` (`acp-bridge.ts:1059`), so a typo, a relative path, or a directory missing the manifest was silently dropped by the Claude Agent SDK at session-spawn time — leaving the operator's skill invisible without a failure signal. That is exactly the "warnings make agents flail; broken tool state must surface as broken tool state" anti-pattern from §Code Principle, just landing one layer up the stack.
+
+This is a bugfix, not a behavior change: the README:149 line "Explicit Claude plugin roots (`.claude-plugin/plugin.json` + `skills/*/SKILL.md`)" was already the documented contract, and §Code Principle was already the documented enforcement style. The bridge simply was not enforcing them. Operators with valid `skillPlugins` paths see no change. Operators with an invalid path now get a precise error at session start that names the missing piece, instead of a Claude session that boots without their skill.
+
+Backend scoping: this validator runs at settings parse time regardless of the configured backend, but only `buildClaudeSessionMeta` actually consumes `skillPlugins`. Codex and Gemini ignore the field entirely — they expose skills through `~/.codex/skills/` and `~/.gemini/skills/` passthrough — so the stricter validation cannot regress those backends. It only stops a malformed Claude install from booting silently.
+
+### Added — Skill install surface, owned by pi-shell-acp
+
+- README "Custom Skills" section — first-class install guide that previously lived as a single table cell on the `skillPlugins` row of the settings reference. Covers minimum plugin shape, where to put the directory (with the explicit "do not put plugin roots under `~/.pi/agent/`" guard), settings shape, the new fail-fast contract, and the verification one-liner that points at VERIFY §1A `Q-SKILL-CALLABLE`.
+- `pi/skill-plugin-example/` — self-contained minimum plugin layout the bridge accepts. Two files (`.claude-plugin/plugin.json` + `skills/hello/SKILL.md`) plus a directory shape; consumers copy and rename. Lives inside this repo so a first-time consumer never has to navigate to agent-config to find a working starting point.
+- README backend capability matrix — split the single "Skill surface" row into two rows ("Skill install surface (declarative)" vs "Skill runtime callable surface"). The previous shape conflated `skillPlugins` (a Claude-only declarative install field) with the per-backend `~/.{backend}/skills/` passthrough (a runtime callable surface available on all three), which made it hard for a consumer to map their question onto the right mechanism.
+
+### Changed — Reference consumer link tone (surface ownership tightened)
+
+The README "Reference consumer" line previously read "for a real production setup — skills, prompts, themes on top of pi-shell-acp — see agent-config", which positioned agent-config as the install starting point and routed careful readers into agent-config's own directory conventions (especially `~/.pi/agent/claude-plugin/`) as if they were pi-shell-acp contracts. The line now points at the new `§Custom Skills` for the install surface and explicitly names agent-config's path layout as agent-config's own convention, not a bridge contract. Same link, repositioned authority.
+
+This is a documentation-side correction of the surface ownership leak that had `skillPlugins` as a row in a settings table while the install narrative lived in a separate consumer repo.
+
 ## 0.4.12 — 2026-05-07
 
 ### Fixed — Entwurf registry recovery (oracle install regression root cause)

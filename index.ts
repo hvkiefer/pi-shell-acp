@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { McpServer } from "@agentclientprotocol/sdk";
 import {
 	type AssistantMessage,
@@ -479,6 +479,7 @@ function readSettingsFile(filePath: string): ProviderSettings {
 
 	const tools = parseStringArray(settings, "tools", filePath);
 	const skillPlugins = parseStringArray(settings, "skillPlugins", filePath);
+	if (skillPlugins) validateSkillPluginPaths(skillPlugins, filePath);
 	const permissionAllow = parseStringArray(settings, "permissionAllow", filePath);
 	const disallowedTools = parseStringArray(settings, "disallowedTools", filePath);
 	const codexDisabledFeatures = parseStringArray(settings, "codexDisabledFeatures", filePath);
@@ -505,6 +506,48 @@ function parseStringArray(settings: Record<string, unknown>, key: string, filePa
 		throw settingsConfigError(filePath, `${key} must be an array of strings`);
 	}
 	return value as string[];
+}
+
+// `skillPlugins` is the Claude-backend install surface for custom skills. The
+// bridge owns the contract — entries must be absolute paths to existing
+// directories that contain `.claude-plugin/plugin.json`. Anything else is
+// silently dropped by the Claude Agent SDK at session-spawn time, which leaves
+// the operator's skill invisible without any failure signal — exactly the
+// "warnings make agents flail" anti-pattern §Code Principle calls out. Fail
+// fast here so a typo in a path or a missing plugin manifest surfaces before
+// the session spawns.
+//
+// Backend scoping: this validator runs at settings parse time regardless of
+// the configured backend, but only the Claude path in `buildClaudeSessionMeta`
+// actually consumes `skillPlugins`. Codex and Gemini ignore the field entirely
+// (they expose skills through `~/.{backend}/skills/` passthrough instead), so
+// strict validation here cannot regress Codex/Gemini sessions — it only stops
+// a malformed Claude install from booting silently.
+function validateSkillPluginPaths(paths: string[], filePath: string): void {
+	for (let index = 0; index < paths.length; index++) {
+		const pluginPath = paths[index];
+		const label = `skillPlugins[${index}]`;
+		if (!isAbsolute(pluginPath)) {
+			throw settingsConfigError(filePath, `${label} must be an absolute path (got ${JSON.stringify(pluginPath)})`);
+		}
+		let stat: ReturnType<typeof statSync>;
+		try {
+			stat = statSync(pluginPath);
+		} catch (_error) {
+			throw settingsConfigError(filePath, `${label} does not exist: ${pluginPath}`);
+		}
+		if (!stat.isDirectory()) {
+			throw settingsConfigError(filePath, `${label} must point at a directory: ${pluginPath}`);
+		}
+		const manifestPath = join(pluginPath, ".claude-plugin", "plugin.json");
+		if (!existsSync(manifestPath)) {
+			throw settingsConfigError(
+				filePath,
+				`${label} is missing .claude-plugin/plugin.json — expected ${manifestPath}. ` +
+					`See README §Custom Skills for the minimum plugin shape.`,
+			);
+		}
+	}
 }
 
 // Once-per-process flag so the warning fires on first bootstrap but does not

@@ -200,9 +200,62 @@ Tool/permission notifications are on in reference config for ACP debugging; set 
 ./run.sh verify-resume .    # cross-process continuity with acpSessionId diagnostics
 ```
 
+### Custom Skills
+
+Add custom skills to a Claude session through the `skillPlugins` setting. **`skillPlugins` is a Claude-backend-only install surface.** Codex and Gemini expose skills through their native `~/.codex/skills/` and `~/.gemini/skills/` passthrough instead; `skillPlugins` is not consulted by those backends.
+
+#### Minimum plugin shape
+
+A `skillPlugins` entry must point at an absolute path to a directory containing the Claude Agent SDK plugin layout:
+
+```
+<your-plugin-root>/
+├── .claude-plugin/
+│   └── plugin.json          # required — metadata manifest
+└── skills/
+    └── <skill-name>/
+        └── SKILL.md         # one per skill, YAML frontmatter + body
+```
+
+A self-contained minimum example lives in [`pi/skill-plugin-example/`](./pi/skill-plugin-example/). Copy that directory anywhere on disk, point `skillPlugins` at the absolute path, and replace the `hello` skill with your own.
+
+#### Where to put the directory
+
+Anywhere on disk; the bridge does not constrain the location, only that the path is absolute. Suggested: keep plugin roots under your own project tree (`<your-project>/.claude-plugin/...`) or under `~/.config/pi-skills/<plugin-name>/`. **Do not** place plugin roots under `~/.pi/agent/` — that path is pi's internal cache area, not a consumer-facing convention.
+
+#### Settings shape
+
+```json
+{
+  "piShellAcpProvider": {
+    "skillPlugins": [
+      "/absolute/path/to/your-plugin-root"
+    ]
+  }
+}
+```
+
+`Skill` is auto-added to `tools` and `Skill(*)` to `permissionAllow` whenever `skillPlugins` is non-empty.
+
+#### Fail-fast contract
+
+The bridge validates each `skillPlugins` entry at settings parse time and throws when:
+
+- the path is not absolute
+- the path does not exist or is not a directory
+- the directory is missing `.claude-plugin/plugin.json`
+
+The Claude session does not start until the violation is fixed. This matches [§Code Principle](./AGENTS.md#code-principle--crash-dont-warn) (`crash, don't warn`): a malformed plugin must surface as a malformed plugin, not as a silently-missing skill.
+
+The bridge does not validate the contents of `plugin.json` or the bodies of `SKILL.md` files — those are the Claude Agent SDK's contract.
+
+#### Verifying install
+
+After updating `skillPlugins`, start a fresh Claude session and ask the model to list its available skills. The skill names declared in your `SKILL.md` frontmatter should **appear among the visible skills** in the response (alongside any other built-in or operator-installed skills — the model is not expected to return only your skills). For the operator-driven version of this check see [VERIFY.md §1A `Q-SKILL-CALLABLE`](./VERIFY.md).
+
 ### Reference consumer
 
-For a real production setup — skills, prompts, themes on top of pi-shell-acp — see [agent-config](https://github.com/junghan0611/agent-config).
+The minimum install for skills is documented in §Custom Skills above. For an example of how a real consumer arranges many skills, prompts, and themes on top of pi-shell-acp, see [agent-config](https://github.com/junghan0611/agent-config). Its directory layout — for instance the `~/.pi/agent/claude-plugin/` location — is agent-config's own convention, not a pi-shell-acp contract.
 
 ## Entwurf Orchestration
 
@@ -275,7 +328,8 @@ The three backends share the same operating-surface shape (carrier, overlay, too
 | Engraving carrier | `_meta.systemPrompt` (string, in-protocol) | `-c developer_instructions` (child arg) | `GEMINI_SYSTEM_MD` (file replacing native body) |
 | Config overlay | `CLAUDE_CONFIG_DIR` | `CODEX_HOME` + `CODEX_SQLITE_HOME` | `GEMINI_CLI_HOME` + `settings.json` 16-key closure (suppresses `GEMINI.md` discovery + L5 memory containment) |
 | Tool surface narrowing | `tools` allowlist + `disallowedTools` | `codexDisabledFeatures` + `-c features.*` | `tools.core` allowlist (Read-class split + Write/Edit/Exec + `activate_skill`) + `--admin-policy` deny-all + class allow |
-| Skill surface | `tools` includes `Skill` + `~/.claude/skills/` passthrough | `~/.codex/skills/` passthrough | `tools.core` includes `activate_skill` + `~/.gemini/skills/` passthrough |
+| Skill install surface (declarative) | `skillPlugins` → `.claude-plugin/plugin.json` plugin roots (see §Custom Skills) | not exposed by pi-shell-acp — use `~/.codex/skills/` passthrough | not exposed by pi-shell-acp — use `~/.gemini/skills/` passthrough |
+| Skill runtime callable surface | `Skill` tool + `~/.claude/skills/` passthrough | `~/.codex/skills/` passthrough | `activate_skill` + `~/.gemini/skills/` passthrough |
 | MCP injection | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` | `piShellAcpProvider.mcpServers` (merged into `settings.merged.mcpServers` by `acpSessionManager.newSessionConfig`; advertised by `discoverMcpTools` via the same path as native `tools.core`) |
 | Backend auto-compaction | `DISABLE_AUTO_COMPACT=1` + `DISABLE_COMPACT=1` | `-c model_auto_compact_token_limit=i64::MAX` | n/a — no equivalent toggle |
 | Operator context cap override | `PI_SHELL_ACP_CLAUDE_CONTEXT=<int>` | covered by codex-acp's own narrowing (272K) | `PI_SHELL_ACP_GEMINI_CONTEXT=<int>` |
