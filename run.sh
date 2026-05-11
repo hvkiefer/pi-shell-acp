@@ -30,9 +30,9 @@ Usage:
   ./run.sh smoke-all [project-dir]    # required triple-backend runtime smoke gate (gemini auto-skips if absent)
   ./run.sh smoke-continuity [project-dir] # strict dual-backend persisted bootstrap gate (Claude=resume, Codex=load)
   ./run.sh smoke-cancel [project-dir] # strict cancel/abort cleanup observability gate (Claude + Codex)
-  ./run.sh smoke-model-switch [project-dir] # strict dual-backend model switch observability gate (reuse 3 branches)
+  ./run.sh smoke-model-switch [project-dir] # strict dual-backend model switch observability gate (reuse mismatch -> respawn)
   ./run.sh smoke-entwurf-resume [project-dir] # bridge-level entwurf-style continuity gate (Claude=resume, Codex=load)
-  ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + test.sh + ACP visibility/invocation (claude+codex)
+  ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + test.sh + ACP visibility/invocation (claude+codex+gemini)
   ./run.sh check-native-async         # pi-native async entwurf spawn smoke (pi -e pi-extensions/entwurf.ts)
   ./run.sh sentinel [args...]         # entwurf 6-cell diagonal matrix (sync+resume × parent×target)
   ./run.sh session-messaging [args...] # 4-case session-messaging smoke (native/ACP cross-matrix)
@@ -162,7 +162,12 @@ servers = provider.setdefault("mcpServers", {})
 if not isinstance(servers, dict):
     raise SystemExit("piShellAcpProvider.mcpServers is not an object")
 
-BUNDLED = ("pi-tools-bridge", "session-bridge")
+BUNDLED = ("pi-tools-bridge",)
+# 0.4.14: session-bridge MCP was retracted (issue #7 — unified entwurf surface).
+# Install path now only wires pi-tools-bridge. Existing operator settings that
+# carry the old bundled session-bridge entry are pruned below during install;
+# `./run.sh remove` also keeps session-bridge in its cleanup tuple so legacy
+# entries are removed on uninstall too.
 for name in BUNDLED:
     desired_cmd = f"{repo_dir}/mcp/{name}/start.sh"
     desired = {"command": desired_cmd, "args": []}
@@ -181,6 +186,21 @@ for name in BUNDLED:
     else:
         cmd_repr = existing.get("command") if isinstance(existing, dict) else existing
         print(f"install: preserved piShellAcpProvider.mcpServers.{name} (user override: {cmd_repr})")
+
+# 0.4.14 migration: also prune any session-bridge entry that this install wrote
+# in a prior version. We only remove entries whose command matches the bundled
+# start.sh path (user-customized commands are left alone).
+LEGACY_BUNDLED = ("session-bridge",)
+for name in LEGACY_BUNDLED:
+    existing = servers.get(name)
+    if not isinstance(existing, dict):
+        continue
+    cmd = existing.get("command")
+    if not isinstance(cmd, str):
+        continue
+    if cmd == f"{repo_dir}/mcp/{name}/start.sh" or cmd.endswith(f"/pi-shell-acp/mcp/{name}/start.sh"):
+        del servers[name]
+        print(f"install: pruned legacy piShellAcpProvider.mcpServers.{name} (retracted in 0.4.14, issue #7)")
 
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"install: updated {settings_path}")
@@ -777,55 +797,16 @@ async function runOneTurn(session, label) {
   console.error(`[smoke-model-switch] ${label} turn ok`);
 }
 
-// --- scenario 1: reuse applied ---
-{
-  const sessionKey = `smoke-ms-applied:${backend}`;
-  const sessionA = await ensureBridgeSession(makeParams(sessionKey, modelA));
-  await runOneTurn(sessionA, 'applied/turn1');
-  // second call on same key with different modelId -> reuse branch
-  await ensureBridgeSession(makeParams(sessionKey, modelB));
-  await closeBridgeSession(sessionKey, { closeRemote: true, invalidatePersisted: true });
-  console.error('[smoke-model-switch] applied scenario done');
+const sessionKey = `smoke-ms-respawn:${backend}`;
+const sessionA = await ensureBridgeSession(makeParams(sessionKey, modelA));
+await runOneTurn(sessionA, 'respawn/turn1');
+const sessionB = await ensureBridgeSession(makeParams(sessionKey, modelB));
+if (sessionB === sessionA) {
+  throw new Error('respawn scenario: expected new session but got same reference');
 }
-
-// --- scenario 2: reuse unsupported -> new_session fallback ---
-{
-  const sessionKey = `smoke-ms-unsupported:${backend}`;
-  const sessionA = await ensureBridgeSession(makeParams(sessionKey, modelA));
-  await runOneTurn(sessionA, 'unsupported/turn1');
-  // force unsupported by shadowing the prototype method with a non-function own property
-  Object.defineProperty(sessionA.connection, 'unstable_setSessionModel', {
-    value: undefined,
-    configurable: true,
-    writable: true,
-  });
-  const sessionB = await ensureBridgeSession(makeParams(sessionKey, modelB));
-  if (sessionB === sessionA) {
-    throw new Error('unsupported scenario: expected new session but got same reference');
-  }
-  await runOneTurn(sessionB, 'unsupported/turn2-post-fallback');
-  await closeBridgeSession(sessionKey, { closeRemote: true, invalidatePersisted: true });
-  console.error('[smoke-model-switch] unsupported scenario done');
-}
-
-// --- scenario 3: reuse failed -> new_session fallback ---
-{
-  const sessionKey = `smoke-ms-failed:${backend}`;
-  const sessionA = await ensureBridgeSession(makeParams(sessionKey, modelA));
-  await runOneTurn(sessionA, 'failed/turn1');
-  sessionA.connection.unstable_setSessionModel = async () => {
-    throw new Error('smoke-forced-setmodel-failure');
-  };
-  const sessionB = await ensureBridgeSession(makeParams(sessionKey, modelB));
-  if (sessionB === sessionA) {
-    throw new Error('failed scenario: expected new session but got same reference');
-  }
-  await runOneTurn(sessionB, 'failed/turn2-post-fallback');
-  await closeBridgeSession(sessionKey, { closeRemote: true, invalidatePersisted: true });
-  console.error('[smoke-model-switch] failed scenario done');
-}
-
-console.error('[smoke-model-switch] all scenarios ok');
+await runOneTurn(sessionB, 'respawn/turn2-post-respawn');
+await closeBridgeSession(sessionKey, { closeRemote: true, invalidatePersisted: true });
+console.error('[smoke-model-switch] respawn scenario done');
 EOF
   ) || rc=$?
 
@@ -836,32 +817,24 @@ EOF
     exit 1
   fi
 
-  # required reuse branches, all with matching backend
-  local required=(
-    "^\[pi-shell-acp:model-switch\] path=reuse outcome=applied .*backend=$backend .*toModel=$model_b"
-    "^\[pi-shell-acp:model-switch\] path=reuse outcome=unsupported .*backend=$backend .*fallback=new_session"
-    "^\[pi-shell-acp:model-switch\] path=reuse outcome=failed .*backend=$backend .*fallback=new_session .*reason=smoke-forced-setmodel-failure"
-  )
-  for pattern in "${required[@]}"; do
-    if ! grep -qE "$pattern" "$log_file"; then
-      echo "[smoke-model-switch/$backend] missing log matching: $pattern" >&2
-      cat "$log_file" >&2
-      rm -f "$log_file"
-      exit 1
-    fi
-  done
-
-  # fallback must produce a new bootstrap path=new after unsupported/failed
-  local fallback_bootstraps
-  fallback_bootstraps=$(grep -cE "^\[pi-shell-acp:bootstrap\] path=new backend=$backend" "$log_file" || true)
-  if [[ "$fallback_bootstraps" -lt 4 ]]; then
-    echo "[smoke-model-switch/$backend] expected >=4 bootstrap path=new lines, got $fallback_bootstraps" >&2
+  local pattern="^\\[pi-shell-acp:model-switch\\] path=reuse outcome=respawn .*backend=$backend .*toModel=$model_b .*fallback=new_session .*reason=pi_agent_id_env_requires_respawn"
+  if ! grep -qE "$pattern" "$log_file"; then
+    echo "[smoke-model-switch/$backend] missing log matching: $pattern" >&2
     cat "$log_file" >&2
     rm -f "$log_file"
     exit 1
   fi
 
-  echo "[smoke-model-switch/$backend] ok (applied+unsupported+failed logged, fallbacks re-bootstrapped)"
+  local new_bootstraps
+  new_bootstraps=$(grep -cE "^\\[pi-shell-acp:bootstrap\\] path=new backend=$backend" "$log_file" || true)
+  if [[ "$new_bootstraps" -lt 2 ]]; then
+    echo "[smoke-model-switch/$backend] expected >=2 bootstrap path=new lines, got $new_bootstraps" >&2
+    cat "$log_file" >&2
+    rm -f "$log_file"
+    exit 1
+  fi
+
+  echo "[smoke-model-switch/$backend] ok (reuse mismatch respawned and re-bootstrapped)"
   rm -f "$log_file"
 }
 
@@ -876,8 +849,8 @@ smoke_model_switch() {
   echo "[smoke-model-switch] repo:    $REPO_DIR"
 
   smoke_model_switch_single "$project_dir" claude claude-sonnet-4-6 claude-opus-4-7
-  smoke_model_switch_single "$project_dir" codex gpt-5.2 gpt-5.2-codex
-  echo "[smoke-model-switch] Claude + Codex model switch observability: ok"
+  smoke_model_switch_single "$project_dir" codex gpt-5.2 gpt-5.4
+  echo "[smoke-model-switch] Claude + Codex model switch respawn observability: ok"
 }
 
 smoke_entwurf_resume_single() {
@@ -1770,7 +1743,7 @@ try {
   //   - operator agent skills under ~/.gemini/skills/ → passthrough symlink
   //     (matches Claude `OVERLAY_PASSTHROUGH` and Codex `OVERLAY_PASSTHROUGH_CODEX`)
   //   - activate_skill native tool → tools.core allowlist
-  //   - bridge stdio MCP servers (pi-tools-bridge, session-bridge) → ACP `newSession.mcpServers`
+  //   - bridge stdio MCP server (pi-tools-bridge) → ACP `newSession.mcpServers`
   //     merged into settings.merged.mcpServers by acpSessionManager.newSessionConfig
   //     and registered into the ToolRegistry by discoverMcpTools
   //     (mcp-client.ts:1235 — bypasses the tools.core gate)
@@ -1856,8 +1829,8 @@ try {
       'overlay settings.json must enable agent skills (matches Claude `tools` containing `Skill` and Codex `OVERLAY_PASSTHROUGH_CODEX` containing `skills`)');
     assert.equal(overlaySettings.hooksConfig?.enabled, false,
       'overlay settings.json must disable the hooks system');
-    assert.deepEqual(overlaySettings.mcp?.allowed, ['pi-tools-bridge', 'session-bridge'],
-      'overlay settings.json mcp.allowed must whitelist the bridge MCP servers');
+    assert.deepEqual(overlaySettings.mcp?.allowed, ['pi-tools-bridge'],
+      'overlay settings.json mcp.allowed must whitelist the bridge MCP servers (single entry since 0.4.14, issue #7)');
     assert.equal('excluded' in (overlaySettings.mcp ?? {}), false,
       'overlay settings.json must NOT carry mcp.excluded — `isInSettingsList` (mcpServerEnablement.ts:65) does only exact-match, no wildcards, so `["*"]` was decorative and misleading');
     assert.equal('model' in overlaySettings, false,
@@ -2704,7 +2677,8 @@ pi_tools_bridge_require_tools() {
 
   # Bridge exposes a deliberately narrow set: session_search / knowledge_search
   # are intentionally NOT here — those are skill-side concerns (see mcp/pi-tools-bridge/src/index.ts header).
-  for tool in entwurf_send entwurf_peers entwurf entwurf_resume; do
+  # 0.4.14: entwurf_self joined the surface alongside the four legacy tools.
+  for tool in entwurf_send entwurf_peers entwurf entwurf_resume entwurf_self; do
     if [[ "$raw" != *"$tool"* ]]; then
       echo "$raw" >&2
       fail "pi-tools-bridge: $backend_label missing tool $tool"
@@ -2727,7 +2701,15 @@ validate_pi_tools_bridge_backend() {
   pi_tools_bridge_require_tools "$raw" "$backend_label" || return 1
   ok "pi-tools-bridge visibility via pi-shell-acp ($backend_label: $raw)"
 
-  if ! raw=$(cd "$REPO_DIR" && pi -e "$REPO_DIR" --provider pi-shell-acp --model "$model" -p 'entwurf_send 도구가 보이면 반드시 그 도구를 실제로 1회 호출해. target은 __definitely_does_not_exist__, message는 "ping", mode는 follow_up 으로 해. functions.send_input 같은 다른 도구는 절대 쓰지 마. 응답은 두 줄만: 1) TOOL:<사용한 도구명 또는 NONE> 2) RESULT:<성공/실패 핵심 메시지 한 줄>. 도구가 안 보이면 TOOL:NONE / RESULT:not visible 로만 답해.' ); then
+  # 0.4.14 invocation prompt — uses the new `sessionId` argument name (not the
+  # pre-0.4.14 `target`). The sessionId is a synthetic UUID that will not have a
+  # socket on disk, so entwurf_send is expected to reach the resolveControlSocket
+  # boundary and surface "No pi control socket" as isError. The envelope wiring
+  # (PI_AGENT_ID / PI_SESSION_ID) is in place because the parent pi session ran
+  # under pi-shell-acp ACP with --entwurf-control, so the wiring-break branch is
+  # NOT what we're testing here; this is the schema-valid, envelope-valid,
+  # missing-peer branch.
+  if ! raw=$(cd "$REPO_DIR" && pi -e "$REPO_DIR" --provider pi-shell-acp --model "$model" -p 'entwurf_send 도구가 보이면 반드시 그 도구를 실제로 1회 호출해. sessionId 는 00000000-0000-4000-8000-deadbeefdead, message 는 "ping", mode 는 follow_up 으로 해. functions.send_input 같은 다른 도구는 절대 쓰지 마. 응답은 두 줄만: 1) TOOL:<사용한 도구명 또는 NONE> 2) RESULT:<성공/실패 핵심 메시지 한 줄>. 도구가 안 보이면 TOOL:NONE / RESULT:not visible 로만 답해.' ); then
     fail "pi-tools-bridge: $backend_label invocation smoke failed"
     return 1
   fi
@@ -2745,10 +2727,10 @@ validate_pi_tools_bridge_backend() {
   fi
 
   # Robustness: the model paraphrases the tool error in many ways. The most
-  # reliable anchor is the bogus target name itself — if it appears in the
+  # reliable anchor is the bogus sessionId itself — if it appears in the
   # response, the model engaged with the actual tool result. Phrase patterns
   # are kept as fallbacks for older outputs / different model behavior.
-  if [[ "$raw" != *"__definitely_does_not_exist__"* ]] && \
+  if [[ "$raw" != *"deadbeefdead"* ]] && \
      [[ "$raw" != *"No pi control socket"* ]] && \
      [[ "$raw" != *"control socket"* ]] && \
      [[ "$raw" != *"컨트롤 소켓"* ]] && \
@@ -2796,7 +2778,7 @@ function finishOk(trimmed) {
     process.exit(1);
   }
   const names = tools.map((t) => t?.name).sort();
-  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send'];
+  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send', 'entwurf_self'];
   for (const name of expected) {
     if (!names.includes(name)) {
       console.error(`missing MCP tool: ${name}`);
@@ -2951,7 +2933,7 @@ session_messaging_run() {
 # setup_all — full pi-shell-acp install.
 #
 # Installs the bridge + entwurf orchestration surface (entwurf registry,
-# MCP pi-tools-bridge, session-bridge) into a target project and verifies
+# MCP pi-tools-bridge) into a target project and verifies
 # end-to-end against both ACP backends. As of the entwurf migration this
 # repo owns the orchestration — there is no separate "consuming harness"
 # install for the entwurf/registry pieces.

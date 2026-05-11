@@ -121,10 +121,30 @@ interface RpcEvent {
 }
 
 // Unified command structure
+//
+// `sender` carries the 0.4.14 transparency envelope (agentId / sessionId / cwd
+// / timestamp). All four fields are mandatory whenever `sender` is present —
+// see handleCommand("send") for the reject path. `wants_reply` is a separate
+// etiquette marker (NOT part of the envelope), default false — see
+// handleCommand("send") + parseSenderInfo and the SenderInfo block below for
+// the full semantics: human-conversation hint only, no wait, no polling, no
+// delivery tracking. `<sender_info>` JSON synthesis happens at the receiver
+// side so callers never have to mangle the message body; pi-tools-bridge
+// passes the envelope through and the receiving pi prepends the canonical
+// XML-style payload before handing the customMessage to pi.sendMessage.
+export interface SenderEnvelope {
+	sessionId: string;
+	agentId: string;
+	cwd: string;
+	timestamp: string; // ISO 8601 UTC
+}
+
 interface RpcSendCommand {
 	type: "send";
 	message: string;
 	mode?: "steer" | "follow_up";
+	sender?: SenderEnvelope;
+	wants_reply?: boolean;
 	id?: string;
 }
 
@@ -431,29 +451,41 @@ function stripSenderInfo(text: string): string {
 	return text.replace(SENDER_INFO_PATTERN, "").trim();
 }
 
-// Sender identity broadcast — INTENTIONAL asymmetry vs addressing.
+// Sender envelope — what the <sender_info> JSON inside an entwurf-message carries.
 //
-// Addressing on this surface has been sessionId-only since 0.5.0 (see header):
-// peers MUST be addressed by UUID, alias surface is gone. But the *outgoing*
-// <sender_info> payload still carries sessionName because its job is the
-// opposite — give a human-friendly hint to whichever AI receives the
-// message ("from `garden` (4f8a…)") so the reply renders sensibly. The
-// recipient never uses sessionName to address back; reply paths look up the
-// sessionId and call entwurf_send/entwurf_resume with that.
+// Addressing on this surface has been sessionId-only since 0.5.0 (see header).
+// Envelope fields are display-only — they never feed address resolution. The
+// 0.4.14 transparency rewrite expanded the envelope from "{sessionId, sessionName}"
+// to a fully attributed shape so the operator immediately sees WHO sent (agentId,
+// sessionId), FROM WHERE (cwd), and WHEN (timestamp). cwd serves the role
+// sessionName used to play — "which 담당자 is this" — but anchored to the
+// physical workspace rather than a free-form alias. agentId is the single
+// identity field ("pi-shell-acp/<model>"); different school × model = different
+// agent, never split into two fields.
 //
-// Two separate roles, two separate surfaces:
-//   - addressing:  sessionId-only (this is the one that races / decays)
-//   - identity broadcast / display: sessionId + optional sessionName
+// wants_reply is an etiquette marker (default false). It is NOT a transport
+// contract — no wait, no polling, no delivery tracking. The sender is saying
+// "this is a conversational message, please respond when you can"; the
+// receiver renders a small "(wants reply)" badge so the human at either end
+// can see it at a glance. Default false because most peer messages are
+// notifications/handoffs/forwards — an always-true default would degrade
+// into ack spam. The receiving model decides whether to reply based on the
+// message itself, not on this flag; the flag only surfaces intent.
 //
-// If you ever feel the urge to "harmonize" by stripping sessionName from
-// SenderInfo, don't — you would lose the human-readable trail in renders
-// and in cross-session logs without gaining any race-safety, because
-// sessionName never feeds an address resolution path here. Confirm by
-// grepping for `sessionName` callers: every one is either a JSON write
-// into the broadcast payload or a display-only render.
+// Envelope fields (sessionId / agentId / cwd / timestamp) are mandatory at
+// send time. A missing envelope field means wiring is broken (no
+// PI_AGENT_ID inject from acp-bridge.ts, no PI_SESSION_ID from
+// entwurf-control, MCP child detached from pi process.env, …). Crash-loud:
+// throw at entwurf_send, reject at handleCommand("send"). wants_reply is
+// not part of the wiring check — its absence just means "no etiquette
+// marker", which is the default and not an error. Silent fallback for
+// envelope fields is banned — see AGENTS.md Code Principle "Never warn. Throw."
 interface SenderInfo {
 	sessionId?: string;
-	sessionName?: string;
+	agentId?: string;
+	cwd?: string;
+	timestamp?: string; // ISO 8601 UTC; rendered in KST
+	wants_reply?: boolean;
 }
 
 function parseSenderInfo(text: string): SenderInfo | null {
@@ -464,20 +496,47 @@ function parseSenderInfo(text: string): SenderInfo | null {
 
 	if (raw.startsWith("{")) {
 		try {
-			const parsed = JSON.parse(raw) as { sessionId?: unknown; sessionName?: unknown };
-			const sessionId = typeof parsed.sessionId === "string" ? parsed.sessionId.trim() : "";
-			const sessionName = typeof parsed.sessionName === "string" ? parsed.sessionName.trim() : "";
-			if (sessionId || sessionName) {
-				return {
-					sessionId: sessionId || undefined,
-					sessionName: sessionName || undefined,
-				};
+			const parsed = JSON.parse(raw) as {
+				sessionId?: unknown;
+				agentId?: unknown;
+				cwd?: unknown;
+				timestamp?: unknown;
+				wants_reply?: unknown;
+				// Legacy field — pre-rename transcripts may carry reply_requested
+				// in the JSON. Accept as fallback so old payloads still render
+				// the badge correctly. Removed from the send-side schema.
+				reply_requested?: unknown;
+			};
+			const pickString = (v: unknown): string | undefined => {
+				if (typeof v !== "string") return undefined;
+				const t = v.trim();
+				return t.length > 0 ? t : undefined;
+			};
+			const wantsReplyRaw =
+				typeof parsed.wants_reply === "boolean"
+					? parsed.wants_reply
+					: typeof parsed.reply_requested === "boolean"
+						? parsed.reply_requested
+						: undefined;
+			const info: SenderInfo = {
+				sessionId: pickString(parsed.sessionId),
+				agentId: pickString(parsed.agentId),
+				cwd: pickString(parsed.cwd),
+				timestamp: pickString(parsed.timestamp),
+				wants_reply: wantsReplyRaw,
+			};
+			// Return only when at least one field carries a value; otherwise let
+			// the caller render the unadorned label rather than a phantom header.
+			if (info.sessionId || info.agentId || info.cwd || info.timestamp || info.wants_reply !== undefined) {
+				return info;
 			}
 		} catch {
 			// Ignore JSON parse errors, fall back to legacy parsing.
 		}
 	}
 
+	// Legacy: pre-envelope notes left bare "session <uuid>" in the payload.
+	// Keep parsing so old transcripts still render the sender id.
 	const legacyIdMatch = raw.match(/session\s+([a-f0-9-]{6,})/i);
 	if (legacyIdMatch) {
 		return { sessionId: legacyIdMatch[1] };
@@ -486,13 +545,53 @@ function parseSenderInfo(text: string): SenderInfo | null {
 	return null;
 }
 
-function formatSenderInfo(info: SenderInfo | null): string | null {
-	if (!info) return null;
-	const { sessionName, sessionId } = info;
-	if (sessionName && sessionId) return `${sessionName} (${sessionId})`;
-	if (sessionName) return sessionName;
-	if (sessionId) return sessionId;
-	return null;
+// Build a sender envelope for messages originating from the local pi session.
+// Used by every caller-side send path (mcp tool, /entwurf-send slash command,
+// --entwurf-send-message startup flag). Returns undefined when any field
+// cannot be resolved — pi-native callers should fall back to body-less sends
+// rather than synthesize partial envelopes that would render as "(unknown ...)"
+// at the receiver. The MCP-side bridge (mcp/pi-tools-bridge entwurf_send) is
+// strict — it throws when its own env wiring is incomplete — because it
+// represents the public 0.4.14 transparency contract.
+//
+// agentId preference order:
+//   1. PI_AGENT_ID env (injected by pi-shell-acp acp-bridge.ts as "pi-shell-acp/<model>")
+//   2. `<ctx.model.provider>/<ctx.model.id>` reconstructed from the live pi context
+//   3. undefined → envelope omitted
+function buildLocalSenderEnvelope(ctx: ExtensionContext): SenderEnvelope | undefined {
+	const sessionId = ctx.sessionManager.getSessionId();
+	if (!sessionId) return undefined;
+	const cwd = ctx.cwd;
+	if (!cwd) return undefined;
+	const envAgent = process.env.PI_AGENT_ID?.trim();
+	const ctxAgent = ctx.model?.provider && ctx.model?.id ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+	const agentId = envAgent && envAgent.length > 0 ? envAgent : ctxAgent;
+	if (!agentId) return undefined;
+	return {
+		sessionId,
+		agentId,
+		cwd,
+		timestamp: new Date().toISOString(),
+	};
+}
+
+// Format a UTC ISO timestamp as `YYYY-MM-DD HH:MM:SS KST`. We avoid pulling
+// Intl into the hot render path — it's heavy and locale-fragile — and instead
+// compute KST manually (UTC+9, no DST). Returns the raw input unchanged when
+// the parse fails so the operator at least sees the original string.
+function formatTimestampKst(iso: string | undefined): string | undefined {
+	if (!iso) return undefined;
+	const ms = Date.parse(iso);
+	if (Number.isNaN(ms)) return iso;
+	const kst = new Date(ms + 9 * 60 * 60 * 1000);
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	const y = kst.getUTCFullYear();
+	const mo = pad(kst.getUTCMonth() + 1);
+	const d = pad(kst.getUTCDate());
+	const h = pad(kst.getUTCHours());
+	const mi = pad(kst.getUTCMinutes());
+	const s = pad(kst.getUTCSeconds());
+	return `${y}-${mo}-${d} ${h}:${mi}:${s} KST`;
 }
 
 const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => {
@@ -508,11 +607,41 @@ const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => 
 		}
 	}
 
+	// Build the header lines. Missing envelope fields are rendered as
+	// "(unknown ...)" so wiring breaks are visible rather than hidden —
+	// transparency over silence.
+	//
+	// The label is "[entwurf received ⟵]" with a left-pointing arrow so the
+	// receiving operator immediately sees the directionality (this is an
+	// incoming message). The corresponding sender-side surface in
+	// mcp/pi-tools-bridge/entwurf_send renders "[entwurf sent →]" — same
+	// transport, opposite arrows, no confusion about who-said-what when the
+	// transcript is read end-to-end.
+	//
+	// wants_reply defaults to false (etiquette marker, not protocol contract).
+	// We show the badge only when the sender explicitly set it true; an
+	// undefined or false value omits the badge entirely. This keeps routine
+	// peer messages quiet and reserves the badge for messages where the sender
+	// genuinely wants a conversational response back.
 	const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[${message.customType}]\x1b[22m`);
-	const senderText = formatSenderInfo(senderInfo);
-	const label = senderText ? `${labelBase} ${theme.fg("dim", `from ${senderText}`)}` : labelBase;
-	box.addChild(new Text(label, 0, 0));
+	const labelBase = theme.fg("customMessageLabel", `\x1b[1m[entwurf received ⟵]\x1b[22m`);
+
+	if (senderInfo) {
+		const kst = formatTimestampKst(senderInfo.timestamp) ?? "(unknown time)";
+		const replyBadge = senderInfo.wants_reply === true ? "  (wants reply)" : "";
+		const headerLine = `${labelBase} ${theme.fg("dim", `${kst}${replyBadge}`)}`;
+		box.addChild(new Text(headerLine, 0, 0));
+
+		const agentId = senderInfo.agentId ?? "(unknown agent)";
+		const cwd = senderInfo.cwd ? abbreviateHome(senderInfo.cwd) : "(unknown cwd)";
+		box.addChild(new Text(theme.fg("dim", `from: ${agentId} @ ${cwd}`), 0, 0));
+
+		const sessionId = senderInfo.sessionId ?? "(unknown sessionId)";
+		box.addChild(new Text(theme.fg("dim", `sessionId: ${sessionId}`), 0, 0));
+	} else {
+		box.addChild(new Text(labelBase, 0, 0));
+	}
+
 	box.addChild(new Spacer(1));
 	box.addChild(
 		new Markdown(text, 0, 0, getMarkdownTheme(), {
@@ -649,24 +778,93 @@ async function handleCommand(
 			return;
 		}
 
+		// Validate sender envelope when present. All four fields are mandatory —
+		// any single absence is a wiring break (no PI_AGENT_ID, no PI_SESSION_ID,
+		// detached MCP child, …) and must surface immediately rather than render
+		// as "(unknown ...)" on the receiver side. Transparency over silence.
+		//
+		// When sender is omitted entirely we accept the send (a fallback for
+		// non-bridge paths or future surfaces that haven't been migrated yet) but
+		// the renderer will just show the bare label — the operator will notice
+		// the missing header. The pi-tools-bridge entwurf_send already throws
+		// when its env is incomplete, so the common bridge path never reaches
+		// this `sender === undefined` branch.
+		const sender = command.sender;
+		if (sender !== undefined) {
+			const missing: string[] = [];
+			if (!sender || typeof sender !== "object") {
+				respond(false, "send", undefined, "sender must be an object");
+				return;
+			}
+			if (typeof sender.sessionId !== "string" || sender.sessionId.trim().length === 0) missing.push("sessionId");
+			if (typeof sender.agentId !== "string" || sender.agentId.trim().length === 0) missing.push("agentId");
+			if (typeof sender.cwd !== "string" || sender.cwd.trim().length === 0) missing.push("cwd");
+			if (typeof sender.timestamp !== "string" || sender.timestamp.trim().length === 0) missing.push("timestamp");
+			if (missing.length > 0) {
+				respond(false, "send", undefined, `sender envelope missing required field(s): ${missing.join(", ")}`);
+				return;
+			}
+		}
+
+		// wants_reply defaults to false (etiquette marker, not transport contract).
+		// It surfaces a "(wants reply)" badge on the receiver render so the
+		// human/agent at either end sees that the sender wants a conversational
+		// response; there is no wait, no poll, no delivery tracking. Most peer
+		// messages (notifications, handoff packets, status pings) leave this
+		// unset — an always-true default would degrade into ack spam. Whether
+		// the receiver actually replies is decided by the message body, not by
+		// this flag.
+		const wantsReply = typeof command.wants_reply === "boolean" ? command.wants_reply : false;
+
+		// Synthesize <sender_info> JSON at the receiver side. Caller code paths
+		// (pi-tools-bridge entwurf_send, registerControlSendTool, runStartupControlSend)
+		// pass the envelope structurally and never touch the message body — the
+		// canonical XML-style payload is constructed here once. We emit
+		// wants_reply only when the sender explicitly set it true; an undefined
+		// or false value omits the field entirely so the receiver renders nothing.
+		const senderInfoBlock = sender
+			? `\n\n<sender_info>${JSON.stringify({
+					sessionId: sender.sessionId,
+					agentId: sender.agentId,
+					cwd: sender.cwd,
+					timestamp: sender.timestamp,
+					...(wantsReply ? { wants_reply: true } : {}),
+				})}</sender_info>`
+			: "";
+
 		const mode = command.mode ?? "steer";
 		const isIdle = ctx.isIdle();
 		const customMessage = {
 			customType: SESSION_MESSAGE_TYPE,
-			content: message,
+			content: message + senderInfoBlock,
 			display: true,
 		};
 
-		if (isIdle) {
-			pi.sendMessage(customMessage, { triggerTurn: true });
-		} else {
-			pi.sendMessage(customMessage, {
-				triggerTurn: true,
-				deliverAs: mode === "follow_up" ? "followUp" : "steer",
-			});
+		// Crash-loud: a pi.sendMessage throw (queue refusal, internal invariant
+		// violation, …) used to fall through unhandled and silently drop the
+		// connection — the caller would see only a vague timeout. We catch and
+		// surface the failure on the RPC channel so the sender knows the message
+		// did NOT enter the receiver's queue.
+		try {
+			if (isIdle) {
+				pi.sendMessage(customMessage, { triggerTurn: true });
+			} else {
+				pi.sendMessage(customMessage, {
+					triggerTurn: true,
+					deliverAs: mode === "follow_up" ? "followUp" : "steer",
+				});
+			}
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			respond(false, "send", undefined, `pi.sendMessage failed: ${msg}`);
+			return;
 		}
 
-		respond(true, "send", { delivered: true, mode: isIdle ? "direct" : mode });
+		respond(true, "send", {
+			delivered: true,
+			deliveredAs: isIdle ? "direct" : mode === "follow_up" ? "followUp" : "steer",
+			wants_reply: wantsReply,
+		});
 		return;
 	}
 
@@ -1138,7 +1336,6 @@ Messages include sender session info for replies.`,
 			const targetSessionId = sessionId;
 			const displayTarget = sessionId;
 			const socketPath = getSocketPath(targetSessionId);
-			const senderSessionId = state.context?.sessionManager.getSessionId();
 
 			try {
 				// Handle each action
@@ -1190,18 +1387,19 @@ Messages include sender session info for replies.`,
 					};
 				}
 
-				const senderSessionName = state.context?.sessionManager.getSessionName()?.trim();
-				const senderInfo = senderSessionId
-					? `\n\n<sender_info>${JSON.stringify({
-							sessionId: senderSessionId,
-							sessionName: senderSessionName || undefined,
-						})}</sender_info>`
-					: "";
+				// 0.4.14 envelope path: sender metadata travels in the RPC `sender`
+				// field; the receiver synthesizes the canonical <sender_info> JSON
+				// from it. Body stays clean. When the local pi context cannot supply
+				// a complete envelope (missing model, etc.) we send without one and
+				// the receiver renders a bare label rather than partial header — see
+				// buildLocalSenderEnvelope for the policy.
+				const sender = state.context ? buildLocalSenderEnvelope(state.context) : undefined;
 
 				const sendCommand: RpcSendCommand = {
 					type: "send",
-					message: params.message + senderInfo,
+					message: params.message,
 					mode: params.mode ?? "steer",
+					sender,
 				};
 
 				// Determine wait behavior
@@ -1549,23 +1747,19 @@ async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: ExtensionCon
 		return;
 	}
 
-	const senderInfo = includeSenderInfo
-		? (() => {
-				const senderSessionId = ctx.sessionManager.getSessionId();
-				const senderSessionName = ctx.sessionManager.getSessionName()?.trim();
-				return senderSessionId
-					? `\n\n<sender_info>${JSON.stringify({
-							sessionId: senderSessionId,
-							sessionName: senderSessionName || undefined,
-						})}</sender_info>`
-					: "";
-			})()
-		: "";
+	// 0.4.14: --entwurf-send-include-sender-info is retained as an opt-in toggle
+	// for the startup CLI path so existing scripts that explicitly disabled the
+	// header keep behaving identically. When enabled, the sender envelope is
+	// built from local context (sessionId / agentId / cwd / timestamp) and
+	// passed structurally — the receiver synthesizes the <sender_info> JSON. No
+	// body mangling here either.
+	const sender = includeSenderInfo ? buildLocalSenderEnvelope(ctx) : undefined;
 
 	const sendCommand: RpcSendCommand = {
 		type: "send",
-		message: message + senderInfo,
+		message,
 		mode,
+		sender,
 	};
 
 	try {
@@ -1752,21 +1946,19 @@ function registerEntwurfSendCommand(pi: ExtensionAPI, state: SocketState, getSes
 				return;
 			}
 
-			const senderSessionId = state.context?.sessionManager.getSessionId();
-			const senderSessionName = state.context?.sessionManager.getSessionName()?.trim();
-			const senderInfo = senderSessionId
-				? `\n\n<sender_info>${JSON.stringify({
-						sessionId: senderSessionId,
-						sessionName: senderSessionName || undefined,
-					})}</sender_info>`
-				: "";
+			// 0.4.14 envelope path — see buildLocalSenderEnvelope above. The
+			// /entwurf-send slash command is a human-initiated peer message, so
+			// we always attempt to attach the envelope (no opt-out toggle here);
+			// when local context can't supply every field we send without one.
+			const sender = state.context ? buildLocalSenderEnvelope(state.context) : undefined;
 
 			// Default mode: follow_up — human-initiated peer message lands after
 			// the target's current turn instead of yanking it mid-stream.
 			const result = await sendRpcCommand(resolved.socketPath, {
 				type: "send",
-				message: message + senderInfo,
+				message,
 				mode: "follow_up",
+				sender,
 			});
 			if (!result.response.success) {
 				if (ctx.hasUI) {

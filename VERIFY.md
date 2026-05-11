@@ -2,6 +2,8 @@
 
 Replicant-testing-replicant verification guide for `pi-shell-acp`.
 
+> **0.4.14 current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing five tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`. Older rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation.
+
 This document is a **working document, not a metrics document**.
 Even if scripts break, an agent that follows these steps and reads the results should be able to immediately determine:
 
@@ -163,7 +165,7 @@ pi --model pi-shell-acp/claude-sonnet-4-6 -p 'ok만 답하세요'
 
 Expected:
 - step 1 — pi prints package install messages; `pi list` afterwards shows `git:github.com/junghan0611/pi-shell-acp` under `User packages` with a path under `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp`.
-- step 2 — `install: added piShellAcpProvider.mcpServers.pi-tools-bridge` + `install: added piShellAcpProvider.mcpServers.session-bridge` + `install: updated <project>/.pi/settings.json`.
+- step 2 — `install: added piShellAcpProvider.mcpServers.pi-tools-bridge` + `install: updated <project>/.pi/settings.json`.
 - step 3 — curated model surface prints (claude-sonnet-4-6, claude-opus-4-7, gpt-5.4, gpt-5.5).
 - step 4 — bridge response of `ok`.
 
@@ -266,8 +268,8 @@ If the verifier strictly needs a fresh ACP session inside this sequence, switch 
 Three axes to compare a fresh self-awareness report against:
 
 1. **Same backend, different install path.** Path A (`pi install git:…`) on one machine vs Path B (`git clone + pi install ./`) on another. Same answer expected — the install path must be invisible to the bridged model.
-2. **Same backend, different machine.** Two `pi-shell-acp/claude-sonnet-4-6` instances (e.g. local + Oracle). Identical native tool list, identical MCP server list, identical 8 MCP tool functions.
-3. **Different backend, same bridge.** `pi-shell-acp/claude-sonnet-4-6` vs `pi-shell-acp/gpt-5.4` (or any Codex target). Same harness identification (`pi-shell-acp`), same MCP servers (`pi-tools-bridge` + `session-bridge`), same 8 MCP tool functions — but **different** native tool surface (Claude: `Bash/Read/Edit/Write/Skill`; Codex: `exec_command/write_stdin/apply_patch/update_plan/request_user_input/list_mcp_resources/read_mcp_resource/...`) and **different** MCP namespace convention (`pi-tools-bridge` with hyphens vs `pi_tools_bridge` with underscores — see §8.4 verified property).
+2. **Same backend, different machine.** Two `pi-shell-acp/claude-sonnet-4-6` instances (e.g. local + Oracle). Identical native tool list, identical MCP server list, identical 5 MCP tool functions.
+3. **Different backend, same bridge.** `pi-shell-acp/claude-sonnet-4-6` vs `pi-shell-acp/gpt-5.4` (or any Codex target). Same harness identification (`pi-shell-acp`), same MCP server (`pi-tools-bridge`), same 5 MCP tool functions — but **different** native tool surface (Claude: `Bash/Read/Edit/Write/Skill`; Codex: `exec_command/write_stdin/apply_patch/update_plan/request_user_input/list_mcp_resources/read_mcp_resource/...`) and **different** MCP namespace convention (`pi-tools-bridge` with hyphens vs `pi_tools_bridge` with underscores — see §8.4 verified property).
 
 Pass:
 
@@ -313,18 +315,18 @@ Fail:
 
 The interesting evidence layer for Codex is **direct MCP tool calls** — calling the bridged tools and confirming they return real data, not just that the model claims they exist. Self-report can echo-chamber across instances; an actual tool invocation cannot be dismissed as self-report alone. (A uniformly wrong shared bridge could still produce uniformly wrong tool-call payloads — see "Evidence Levels" L2 vs L3 — so this is one rung up the ladder, not the top.)
 
-> **Calibration note (2026-04-29).** A previous version of this section suggested using `list_mcp_resources` as the objective channel. That tool reports MCP-server *resources* (data records), not the server / tool registry. `pi-tools-bridge` and `session-bridge` expose only tools, no resources, so `list_mcp_resources` returns `{"resources":[]}` — empty is the correct answer there, not an absence-of-bridge signal. Use the recipe below instead.
+> **Calibration note (2026-04-29, updated for 0.4.14).** A previous version of this section suggested using `list_mcp_resources` as the objective channel. That tool reports MCP-server *resources* (data records), not the server / tool registry. `pi-tools-bridge` exposes tools only, no resources, so `list_mcp_resources` returns `{"resources":[]}` — empty is the correct answer there, not an absence-of-bridge signal. Use the recipe below instead.
 
-Codex objective wiring recipe (verified 2026-04-29):
+Codex objective wiring recipe (verified 2026-04-29; current surface updated 0.4.14):
 
 1. Call `mcp__pi_tools_bridge__entwurf_peers` with no args.
    - Pass: response includes `controlDir`, integer `count`, and a `sessions` array with real `sessionId` UUIDs and absolute `socketPath` values.
-2. Call `mcp__session_bridge__session_info` with no args.
-   - Pass: response includes `Session ID` (UUID), `Session Name` (`pi-shell-acp` for a bridged session), and an absolute socket path under `~/.claude/session-bridge/`.
+2. Call `mcp__pi_tools_bridge__entwurf_self` with no args.
+   - Pass: response includes the current envelope fields — `sessionId`, `agentId`, `cwd`, `timestamp` — plus an absolute `socketPath` under `~/.pi/entwurf-control/`.
 
 Both calls succeeding with real payloads is stronger evidence than any number of self-reports — the bridge is not just visible-in-prompt, it is wired and operational, and the data flowing back is consistent with on-disk state.
 
-Asymmetry note: Claude Code does not expose an equivalent native introspection tool through the same path. Claude verification stays on self-report + indirect evidence (`entwurf_peers` / `session_info` are still callable on the Claude side, but the agent must initiate the call rather than the verifier — pass criteria identical). The asymmetry is itself an operational fact: Codex sessions can produce objective wiring evidence directly; Claude sessions can only do so by being asked to call the same tools and return raw output.
+Asymmetry note: Claude Code does not expose an equivalent native introspection tool through the same path. Claude verification stays on self-report + indirect evidence (`entwurf_peers` / `entwurf_self` are still callable on the Claude side, but the agent must initiate the call rather than the verifier — pass criteria identical). The asymmetry is itself an operational fact: Codex sessions can produce objective wiring evidence directly; Claude sessions can only do so by being asked to call the same tools and return raw output.
 
 ### 1A.2 Layer 1 — Does It Use Native Tools Naturally on Basic Coding Tasks?
 
@@ -341,7 +343,7 @@ Fail:
 
 ### 1A.3 Layer 2 — Does It Understand the pi-facing MCP Tool Boundary?
 
-Intent: **Prevent tool confusion.** By default, pi custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`) not being visible is normal — they appear only when the `pi-tools-bridge` MCP adapter is explicitly registered in settings. What matters is "does the session honestly say whether it can see them, and not pretend it can when it can't."
+Intent: **Prevent tool confusion.** By default, pi custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) not being visible is normal — they appear only when the `pi-tools-bridge` MCP adapter is explicitly registered in settings. What matters is "does the session honestly say whether it can see them, and not pretend it can when it can't."
 
 Pass:
 - Says tools it cannot see are not visible (e.g., "entwurf tool not visible", "pi custom tools not visible")
@@ -594,7 +596,7 @@ Observation points:
 
 ### 8.4 pi Custom Tool Visibility Check — Current Key Suspect Point
 
-What we're looking at here is not native tools like `bash`, `read`, `grep`, but **whether pi's custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers` — the narrow set exposed by `mcp/pi-tools-bridge/` as of `035254b`) are visible when going through ACP**.
+What we're looking at here is not native tools like `bash`, `read`, `grep`, but **whether pi's custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` — the narrow 0.4.14 set exposed by `mcp/pi-tools-bridge/`) are visible when going through ACP**.
 
 > **Branching note — which PASS case applies depends on the project's `piShellAcpProvider.mcpServers`.**
 >
@@ -669,27 +671,14 @@ If this test fails:
 
 The sole MCP responsibility of `pi-shell-acp` is: inject the pi-facing MCPs registered in `piShellAcpProvider.mcpServers` equally into all ACP session requests (`newSession` / `resumeSession` / `loadSession`). What this test verifies is not a "general MCP manager" but "does the one MCP that pi actually wants visible appear consistently across all three paths."
 
-Register one experimental pi-facing MCP (e.g., `session-bridge`) in the project settings. For example, `<PROJECT>/.pi/settings.json`:
-
-```jsonc
-{
-  "piShellAcpProvider": {
-    "mcpServers": {
-      "session-bridge": {
-        "command": "node",
-        "args": ["/path/to/consumer-project/mcp/session-bridge/server.js"]
-      }
-    }
-  }
-}
-```
+Register one explicit pi-facing MCP in the project settings. In the current release, the canonical check is the bundled `pi-tools-bridge` entry already written by `./run.sh install`.
 
 **Basic visibility (1 turn):**
 
 From the same project, throw a prompt like "list the visible MCP server names separated by commas" to the `pi-shell-acp/claude-sonnet-4-6` target via one sync `entwurf`.
 
 Pass:
-- The registered MCP (e.g., `session-bridge`) appears in the response list
+- The registered MCP (`pi-tools-bridge` in the default 0.4.14 setup) appears in the response list
 - Unregistered MCPs are not visible (confirms no automatic `~/.mcp.json` loading)
 
 **resume/load/new consistency (multi-turn):**
@@ -844,20 +833,18 @@ In other words, this document is not a completion declaration but an **operation
 
 ### 12.3 Model Switch Observability (green)
 
-The `unstable_setSessionModel` path flows a single diagnostic line so operators can read it directly in stderr. Same `key=value` format as bootstrap/cancel lines.
+Model mismatch on the **reuse path** no longer attempts in-place `unstable_setSessionModel`. 0.4.14 treats school × model as one identity; a reused MCP child would keep its old `PI_AGENT_ID` env and broadcast stale identity through `entwurf_send` / `entwurf_self`. The required outcome is explicit respawn.
 
 ```text
-[pi-shell-acp:model-switch] path=bootstrap|reuse outcome=applied|unsupported|failed sessionKey=... backend=... acpSessionId=... fromModel=... toModel=... reason=... fallback=new_session|none
+[pi-shell-acp:model-switch] path=bootstrap|reuse outcome=applied|unsupported|failed|respawn sessionKey=... backend=... acpSessionId=... fromModel=... toModel=... reason=... fallback=new_session|none
 ```
 
 Semantics (actual rules, not just observability):
 
 - `path=bootstrap` — the `enforceRequestedSessionModel` path immediately after new/resume/load. If `requestedModelId` is present, enforcement is always attempted. `resolveModelIdFromSessionResponse()` uses requested as fallback when the backend does not return currentModelId, so skipping with "current == requested" judgment is wrong. Here, `outcome=failed` still throws as before and fails the entire bootstrap (fail-fast maintained).
 - `path=reuse` — when `modelId` changes in a compatible existing session in `ensureBridgeSession`.
-  - `outcome=applied`: `setModel` succeeded, same session maintained
-  - `outcome=unsupported fallback=new_session`: `setModel` not a function → `closeBridgeSession` + `startNewBridgeSession`
-  - `outcome=failed fallback=new_session reason=...`: `setModel` throws → `closeBridgeSession` + `startNewBridgeSession`
-  - Both fallback paths are followed by `[pi-shell-acp:bootstrap] path=new`.
+  - `outcome=respawn fallback=new_session reason=pi_agent_id_env_requires_respawn`: required 0.4.14 path. Close the old bridge session, invalidate the persisted mapping, then start a fresh bridge session.
+  - In-place `outcome=applied|unsupported|failed` on the reuse path is now stale for release verification.
 
 Smoke:
 
@@ -867,15 +854,11 @@ Smoke:
 
 Pass criteria (both Claude/Codex per backend):
 
-- `[pi-shell-acp:model-switch] path=reuse outcome=applied` line exists
-- `[pi-shell-acp:model-switch] path=reuse outcome=unsupported fallback=new_session` line exists
-- `[pi-shell-acp:model-switch] path=reuse outcome=failed fallback=new_session reason=...` line exists
-- After both fallbacks, `[pi-shell-acp:bootstrap] path=new` appears once each, confirming new session reboot actually occurred
-- After fallback, a short one-turn prompt with the new session succeeds with `stopReason=end_turn`
+- `[pi-shell-acp:model-switch] path=reuse outcome=respawn ... fallback=new_session reason=pi_agent_id_env_requires_respawn` line exists
+- A following `[pi-shell-acp:bootstrap] path=new` line exists, confirming the fresh spawn actually happened
+- A short one-turn prompt with the post-respawn session succeeds with `stopReason=end_turn`
 
-The bootstrap branch only adds logging, and deterministic smoke centers on the 3 reuse branches. Bootstrap `unsupported` / `failed` are conservatively maintained as the current operational default (unsupported is skip, failed is throw).
-
-Operational default is resilient (reuse is stderr diagnostic + new-session fallback, pi session continues); smoke is fail-fast (any violation causes total failure).
+Operational default is resilient (stderr diagnostic + explicit respawn, pi session continues); smoke is fail-fast (any violation causes total failure).
 
 ### 12.4 Cancel / Abort Cleanup Observability (green)
 
@@ -1006,7 +989,7 @@ Each load-bearing claim this document or its parent docs make, with the highest 
 | Claim | Level reached | Current evidence | Remaining blind spot | Next test |
 |---|---|---|---|---|
 | Bridge identity (`pi-shell-acp`) is recognized correctly across Claude / Codex / multiple hosts | **L1** | History 2026-04-27, 2026-04-29 (both axis-3 directions) | Same prompt carrier on both sides — could share a uniform error | L4: ask a non-bridged direct Claude / Codex the same questions in parallel |
-| MCP servers (`pi-tools-bridge` + `session-bridge`) and their 8 tool functions are wired and operational | **L2** | 2026-04-29 reverse run: `entwurf_peers` + `session_info` returned real on-disk payloads | Bridge implementation could be uniformly wrong for both sides | L3: corroborate `controlDir` listing, socket aliveness via `lsof`, session JSONL contents directly from a non-bridge shell |
+| MCP server (`pi-tools-bridge`) and its 5 tool functions are wired and operational | **L2** | 2026-05-11 live gate: `entwurf_peers` + `entwurf_self` returned real on-disk payloads and `check-bridge` passed visibility+invocation on Claude/Codex/Gemini | Bridge implementation could be uniformly wrong for both sides | L3: corroborate `controlDir` listing, socket aliveness via `lsof`, session JSONL contents directly from a non-bridge shell |
 | Native tool surface stays backend-specific (no normalization) | **L1** | All 4 reports list backend-native tools only; no Claude session reports `apply_patch`, no Codex session reports `Bash` | Could be self-reporting fluency, not actual tool wiring | L2 / L3: invoke a backend-specific tool through the bridge and confirm a backend-specific side effect |
 | MCP namespace convention is the agent-visible backend marker (`pi-tools-bridge` for Claude, `pi_tools_bridge` for Codex) | **L1 / L2 mixed** | Self-report (L1) plus literal callable identifier in tool-call notices (L2) | Same as above — could be cosmetic | L3: cross-check with claude-agent-acp / codex-acp source / debug logs |
 | Bidirectional cross-vendor entwurf orchestration works | **L2** | 2026-04-29 reverse: Codex spawned Claude via `entwurf`, taskId issued, Claude transcript recovered | Spawn ledger consistency under failure / cancellation not exercised | L3: kill the spawned child mid-run, verify cleanup; L5: 100+ spawns over hours |
@@ -1033,7 +1016,7 @@ The current document is healthy at L0–L2. The honest gap is L3 → L5. Three e
 | Codex | Anthropic | done (L2) |
 | Codex | Codex | open (intra-Codex baseline) |
 
-For each cell, record alongside the transcript: raw MCP payload (`entwurf_peers`, `session_info`, plus `entwurf_send` to a known live peer), session JSONL on-disk hash, socket aliveness via `lsof`, `pgrep` baseline+delta, and bridge bootstrap diagnostic (`PI_ENTWURF_CHILD_STDERR_LOG`). That set of signals is L3 per cell.
+For each cell, record alongside the transcript: raw MCP payload (`entwurf_peers`, `entwurf_self`, plus `entwurf_send` to a known live peer), session JSONL on-disk hash, socket aliveness via `lsof`, `pgrep` baseline+delta, and bridge bootstrap diagnostic (`PI_ENTWURF_CHILD_STDERR_LOG`). That set of signals is L3 per cell.
 
 ### Direction 2 — long-haul soak (L5)
 

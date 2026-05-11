@@ -821,6 +821,13 @@ function streamShellAcp(
 	(async () => {
 		const output = createOutputMessage(model);
 		const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
+		// Forward the raw pi sessionId structurally to the backend child env
+		// (PI_SESSION_ID). Previously we relied on the entwurf-control
+		// extension writing process.env.PI_SESSION_ID before backend spawn,
+		// which was an ordering accident — `./run.sh check-bridge` and live
+		// entwurf_send failed when the extension hook ran after spawn. See
+		// EnsureBridgeSessionParams.piSessionId comment for the full story.
+		const piSessionId = (options as { sessionId?: string } | undefined)?.sessionId;
 		const sessionKey = resolveSessionKey(options, cwd);
 		const providerSettings = loadProviderSettings(cwd, model);
 		const emacsAgentSocket = getStringFlag(pi, EMACS_AGENT_SOCKET_FLAG);
@@ -917,6 +924,7 @@ function streamShellAcp(
 				cwd,
 				backend: providerSettings.backend,
 				modelId: model.id,
+				piSessionId,
 				systemPromptAppend: mergedSystemPromptAppend,
 				bootstrapPromptAugment,
 				codexDeveloperInstructions,

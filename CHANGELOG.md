@@ -4,6 +4,46 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.4.14 — 2026-05-11
+
+### Changed — issue #7 surface unification (session-bridge retracted)
+
+`session-bridge` is removed from the bundled 0.4.14 surface. `pi-shell-acp` now ships one MCP server only — `pi-tools-bridge` — and that server owns the full cross-session surface across Claude, Codex, and Gemini. The bundled tool set is now exactly five tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`.
+
+This is a release-surface retraction, not a history rewrite. Older docs and baseline rows that mention the two-server / eight-tool shape remain as historical evidence of what 0.4.8–0.4.13 exposed. Current README / AGENTS / VERIFY / BASELINE language now distinguishes that history from the 0.4.14 live surface.
+
+### Added — `entwurf_self` and sender-envelope transparency
+
+`entwurf_self` absorbs the old self-introspection role. It returns the current session envelope — `sessionId`, `agentId`, `cwd`, `timestamp` — plus the active control-socket path, making the session's own identity objectively checkable through the same MCP surface that messaging uses.
+
+`entwurf_send` now defaults to the same sender envelope on live peer messaging paths (MCP tool, slash command, in-process tool). The receiver renders who sent the message, from which cwd, and when. `agentId` is a single field (`pi-shell-acp/<model>`): school × model is one identity.
+
+Startup one-shot CLI intentionally keeps sender info opt-in (`--entwurf-send-include-sender-info`). A short-lived sender process exits immediately after delivery, so attaching a reply-shaped envelope by default would falsely imply a live reply path.
+
+### Fixed — structural `PI_SESSION_ID` / `PI_AGENT_ID` MCP env wiring
+
+The sender envelope no longer depends on ambient `process.env` timing. `index.ts` forwards `options.sessionId` structurally into `EnsureBridgeSessionParams.piSessionId`; `acp-bridge.ts` injects `PI_SESSION_ID` and `PI_AGENT_ID` into both the backend child env and the `pi-tools-bridge` stdio MCP entry via `enrichMcpServersWithEnvelope()`. This closes the live ACP failure GPT caught in `./run.sh check-bridge`: Codex/Gemini MCP children were not guaranteed to inherit the session envelope unless the env array was populated explicitly.
+
+### Changed — install/remove migration and Gemini MCP allowlist
+
+`./run.sh install` now writes only `pi-tools-bridge` and prunes the legacy bundled `session-bridge` entry from older installs when it matches the repo-managed launcher path. `pi/settings.reference.json` now lists only `pi-tools-bridge`. The Gemini overlay's MCP allowlist is correspondingly narrowed to `mcp.allowed:["pi-tools-bridge"]`.
+
+### Changed — model-switch reuse path now respawns
+
+Reuse-path model mismatch no longer attempts in-place `unstable_setSessionModel`. Doing so would leave the already-spawned MCP child broadcasting stale `PI_AGENT_ID`. 0.4.14 therefore requires `path=reuse outcome=respawn fallback=new_session reason=pi_agent_id_env_requires_respawn`, followed by a fresh bridge spawn. Bootstrap enforcement after a fresh spawn remains unchanged.
+
+### Changed — `wants_reply` etiquette marker (was `reply_requested`)
+
+Peer-message reply hint renamed from `reply_requested` to `wants_reply` and re-scoped from a transport contract into a human-conversation etiquette marker — no wait, no polling, no delivery tracking. Default flipped from `true` to `false`: most peer messages (notifications, handoff packets, status pings) leave it unset, and the receiver render shows the `(wants reply)` badge only when the sender explicitly opts in. `parseSenderInfo` keeps a legacy `reply_requested` fallback so pre-rename transcripts still render correctly.
+
+Receiver / sender direction is now visually unambiguous: `renderSessionMessage` uses `[entwurf received ⟵]` and the MCP `entwurf_send` tool result uses `[entwurf sent →]` (with `to:` / `from:` / `mode:` / preview block). Same transport, opposite arrows — end-to-end transcripts never blur who-said-what.
+
+The receiving model is no longer told it is "obliged" to ack; that wording (carried in the old `entwurf_send` description) recreated a topology gate the carrier paragraph split in `pi-context-augment.ts` removed. The receiver decides based on the message body; `wants_reply` only surfaces intent.
+
+### Verification
+
+Release-local gates closed on the unified surface: `pnpm typecheck`, `mcp/pi-tools-bridge/test.sh`, `./run.sh check-mcp`, `./run.sh check-backends`, and `./run.sh check-bridge` all passed green. `check-bridge` now expects the 5-tool `pi-tools-bridge` surface and validates visibility + invocation on Claude, Codex, and Gemini.
+
 ## 0.4.13 — 2026-05-07
 
 ### Fixed — `skillPlugins` fail-fast contract (silent silent-drop closed)

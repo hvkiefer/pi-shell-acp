@@ -3,20 +3,27 @@
  *
  * Ownership: this adapter lives inside `pi-shell-acp` alongside the rest of the
  * entwurf orchestration surface (pi-extensions/entwurf.ts + lib/entwurf-core.ts +
- * pi/entwurf-targets.json + mcp/session-bridge). See AGENTS.md §Entwurf Orchestration.
+ * pi/entwurf-targets.json). See AGENTS.md §Entwurf Orchestration.
  *
  * Historical note: this adapter previously lived in agent-config under the
  * "thin bridge, orchestration elsewhere" boundary. That boundary was superseded
- * during the entwurf migration — entwurf/registry/identity-lock/session-bridge
- * all consolidated into pi-shell-acp. agent-config is now a consumer, not the owner.
+ * during the entwurf migration — entwurf/registry/identity-lock all consolidated
+ * into pi-shell-acp. agent-config is now a consumer, not the owner.
+ *
+ * 0.4.14: the formerly-bundled `mcp/session-bridge/` was retracted (issue #7).
+ * It introduced a second "session" addressing namespace that confused agents
+ * into looking up pi entwurf-control session ids in the wrong directory. With
+ * Claude Code, Codex, and Gemini all reaching pi through pi-shell-acp ACP now,
+ * the entwurf-control surface is the single cross-session messaging path.
  *
  * Wiring: registered only via piShellAcpProvider.mcpServers in pi settings.
  * No ambient discovery. The bridge never auto-promotes pi extension tools.
  *
  * Currently exposed tools (scope is deliberately narrow — anything that can live
  * as a local skill should live as a skill, not here):
- *   - entwurf_send  → pi control.ts Unix-socket RPC
- *   - entwurf_peers    — active pi control sockets only (see control.ts getLiveSessions)
+ *   - entwurf_send    — pi control.ts Unix-socket RPC, transparency envelope
+ *   - entwurf_peers   — active pi control sockets only (see control.ts getLiveSessions)
+ *   - entwurf_self    — own session identity envelope (sessionId, agentId, cwd, timestamp)
  *   - entwurf         → pi-extensions/lib/entwurf-core (sync mode only)
  *   - entwurf_resume  — saved entwurf session revival by taskId (sync only)
  *
@@ -218,29 +225,167 @@ function textErr(msg: string) {
 
 const server = new McpServer({ name: "pi-tools-bridge", version: "0.1.0" });
 
+// 0.4.14 transparency envelope.
+//
+// Every entwurf_send carries a structured sender envelope so the receiver
+// renders WHO (agentId, sessionId), FROM WHERE (cwd), and WHEN (timestamp UTC,
+// displayed in KST). All four fields are mandatory — a missing field means
+// the wiring is broken (pi-shell-acp's acp-bridge.ts didn't inject PI_AGENT_ID,
+// entwurf-control didn't set PI_SESSION_ID, MCP child detached from the
+// process.env it should inherit, …). Crash-loud at the read site rather than
+// rendering "(unknown ...)" silently. See AGENTS.md Code Principle "Never
+// warn. Throw."
+class EntwurfEnvelopeWiringError extends Error {
+	constructor(missing: string[]) {
+		super(
+			`entwurf sender envelope wiring incomplete — missing env: ${missing.join(", ")}. ` +
+				"This MCP child should inherit PI_SESSION_ID (from entwurf-control) and PI_AGENT_ID " +
+				"(from pi-shell-acp/acp-bridge.ts). If you launched pi without --entwurf-control or " +
+				"outside the pi-shell-acp bridge, entwurf_send / entwurf_self are not callable from here.",
+		);
+	}
+}
+
+function buildSenderEnvelope(): { sessionId: string; agentId: string; cwd: string; timestamp: string } {
+	const sessionId = process.env.PI_SESSION_ID?.trim();
+	const agentId = process.env.PI_AGENT_ID?.trim();
+	const cwd = process.cwd();
+	const missing: string[] = [];
+	if (!sessionId) missing.push("PI_SESSION_ID");
+	if (!agentId) missing.push("PI_AGENT_ID");
+	if (!cwd) missing.push("cwd");
+	if (missing.length > 0) throw new EntwurfEnvelopeWiringError(missing);
+	return {
+		sessionId: sessionId as string,
+		agentId: agentId as string,
+		cwd,
+		timestamp: new Date().toISOString(),
+	};
+}
+
+function formatKstTimestamp(iso: string): string {
+	const ms = Date.parse(iso);
+	if (Number.isNaN(ms)) return iso;
+	const kst = new Date(ms + 9 * 60 * 60 * 1000);
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	return (
+		`${kst.getUTCFullYear()}-${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ` +
+		`${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())} KST`
+	);
+}
+
+function abbreviateHomeMcp(cwd: string): string {
+	const home = process.env.HOME ?? os.homedir();
+	if (!home) return cwd;
+	if (cwd === home) return "~";
+	if (cwd.startsWith(`${home}/`)) return `~${cwd.slice(home.length)}`;
+	return cwd;
+}
+
+// Truncate a multi-line body to the first N lines, appending "..." when
+// truncated. The send-side preview is what lets the operator (and the sending
+// model) see WHAT was actually transmitted — not just the target id. 5 lines is
+// a deliberate floor: enough to recognize the message intent without dumping
+// the whole body into the response stream.
+function previewBody(body: string, maxLines = 5): string {
+	const lines = body.split("\n");
+	if (lines.length <= maxLines) return body;
+	return `${lines.slice(0, maxLines).join("\n")}\n...`;
+}
+
 server.tool(
 	"entwurf_send",
 	"Send a message to another running pi session via its control socket. " +
 		"Target by sessionId. The target must be running with --entwurf-control. " +
 		"Use entwurf_peers to discover live sessionIds. " +
 		"This MCP surface is fire-and-forget: delivery is confirmed, a turn result is not. " +
-		"If you need a reply, let the target answer with its own entwurf_send. " +
-		"If the caller needs a result it owns, use entwurf(mode=async) + entwurf_resume instead.",
+		"There is no wait/poll: the sender does not block. If the caller needs a result it owns, " +
+		"use entwurf(mode=async) + entwurf_resume instead. " +
+		"wants_reply is a human-conversation etiquette marker (default false). Set it true only " +
+		"when you genuinely want a conversational response back — it shows as '(wants reply)' on " +
+		"the receiver render. It is not a delivery flag, not a wait/poll, not a contract; whether " +
+		"the receiver replies is decided by the message body. " +
+		"0.4.14: the sender envelope (agentId / sessionId / cwd / timestamp) is attached " +
+		"automatically from PI_AGENT_ID + PI_SESSION_ID + cwd + now; the receiver renders all " +
+		"four fields so the operator immediately sees who sent and from where.",
 	{
 		sessionId: z.string().min(1).describe("Target session id (UUID)"),
 		message: z.string().min(1).describe("Message text to deliver"),
 		mode: z.enum(["steer", "follow_up"]).optional().describe("Default follow_up"),
+		wants_reply: z
+			.boolean()
+			.optional()
+			.describe(
+				"Human-conversation hint. No wait, no polling, no delivery tracking. " +
+					"Set true only to surface a '(wants reply)' badge on the receiver. Default false.",
+			),
 	},
-	async ({ sessionId, message, mode }) => {
+	async ({ sessionId, message, mode, wants_reply }) => {
 		try {
+			const sender = buildSenderEnvelope(); // throws on wiring break
 			const sock = await resolveControlSocket(sessionId);
-			const resp = await rpcCall(sock, { type: "send", message, mode: mode ?? "follow_up" });
+			const effectiveMode = mode ?? "follow_up";
+			const effectiveWantsReply = wants_reply === true;
+			const resp = await rpcCall(sock, {
+				type: "send",
+				message,
+				mode: effectiveMode,
+				sender,
+				wants_reply: effectiveWantsReply,
+			});
 			if (!resp.success) {
 				return textErr(`entwurf_send failed: ${resp.error ?? "unknown"}`);
 			}
-			return textOk(`delivered to ${sessionId}`);
+			// Send-side preview — the sending model (or the operator reading the
+			// tool result) sees the target, the mode actually delivered, and the
+			// first 5 lines of the body. Header is "[entwurf sent →]" with a
+			// right-pointing arrow to mirror the receiver's "[entwurf received ⟵]"
+			// (see renderSessionMessage in pi-extensions/entwurf-control.ts). Same
+			// transport, opposite arrows — when a transcript is read end-to-end
+			// the direction of every peer message is unambiguous.
+			const deliveredAs = (resp.data as { deliveredAs?: string } | undefined)?.deliveredAs ?? effectiveMode;
+			const replyBadge = effectiveWantsReply ? "  (wants reply)" : "";
+			const summary =
+				`[entwurf sent →]\n` +
+				`  to:   ${sessionId}\n` +
+				`  from: ${sender.agentId} @ ${abbreviateHomeMcp(sender.cwd)}\n` +
+				`  mode: ${effectiveMode}${replyBadge}\n` +
+				`  preview:\n` +
+				`${previewBody(message)
+					.split("\n")
+					.map((l) => `    ${l}`)
+					.join("\n")}\n` +
+				`✓ delivered (${deliveredAs})`;
+			return textOk(summary);
 		} catch (err) {
 			return textErr(`entwurf_send error: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	},
+);
+
+server.tool(
+	"entwurf_self",
+	"Return this pi session's identity envelope — the same fields entwurf_send would " +
+		"attach as the sender. Use to confirm WHO you are (agentId, sessionId), FROM WHERE " +
+		"(cwd), and WHEN this snapshot was taken. Throws if the env wiring is incomplete " +
+		"(PI_SESSION_ID / PI_AGENT_ID), which means the MCP child is not running under a " +
+		"pi session launched with --entwurf-control through the pi-shell-acp bridge.",
+	{},
+	async () => {
+		try {
+			const sender = buildSenderEnvelope();
+			const socketPath = path.join(ENTWURF_DIR, `${sender.sessionId}${SOCKET_SUFFIX}`);
+			const kst = formatKstTimestamp(sender.timestamp);
+			const lines = [
+				`sessionId:  ${sender.sessionId}`,
+				`agentId:    ${sender.agentId}`,
+				`cwd:        ${abbreviateHomeMcp(sender.cwd)}`,
+				`timestamp:  ${kst}`,
+				`socketPath: ${socketPath}`,
+			];
+			return textOk(`${lines.join("\n")}\n\n${JSON.stringify({ ...sender, socketPath })}`);
+		} catch (err) {
+			return textErr(`entwurf_self error: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	},
 );

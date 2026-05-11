@@ -218,6 +218,42 @@ export function normalizeMcpServers(input: McpServerInputMap | undefined): Norma
 	return { servers, hash, signatureKey };
 }
 
+// Inject the entwurf envelope env keys (PI_SESSION_ID + PI_AGENT_ID) into the
+// pi-tools-bridge MCP server entry at spawn time. ACP `McpServerStdio.env` is
+// the structural carrier — backends that auto-inherit process.env (claude
+// via SDK) and backends that only pass through the declared env array
+// (codex-acp) both end up with the same MCP child env this way. Without this,
+// codex-acp's MCP children launched fine but never saw PI_SESSION_ID and
+// entwurf_send / entwurf_self threw EntwurfEnvelopeWiringError on every call
+// (caught by GPT review on issue #7 via ./run.sh check-bridge).
+//
+// The hash in bridgeConfigSignature is computed BEFORE enrichment runs (see
+// index.ts loadProviderSettings), so adding/removing piSessionId here does not
+// invalidate persisted bridge sessions. The hash captures the static MCP
+// config; piSessionId is per-session runtime wiring, not config.
+function enrichMcpServersWithEnvelope(params: EnsureBridgeSessionParams): McpServer[] {
+	const piAgentId = params.modelId ? `pi-shell-acp/${params.modelId}` : undefined;
+	const piSessionId = params.piSessionId;
+	if (!piSessionId && !piAgentId) return [...params.mcpServers];
+	return params.mcpServers.map((s) => {
+		// http / sse servers don't have an env carrier — they're URL endpoints
+		// outside this process tree, so injecting env wouldn't reach them anyway.
+		if ((s as { type?: string }).type === "http" || (s as { type?: string }).type === "sse") return s;
+		if (s.name !== "pi-tools-bridge") return s;
+		const stdio = s as McpServer & { env?: { name: string; value: string }[] };
+		// Filter pre-existing PI_SESSION_ID / PI_AGENT_ID entries — the
+		// bridge-injected values always win. Mid-session model switch (which
+		// rebuilds the bridge) must surface the new piAgentId to the MCP child
+		// at the very next spawn, not the stale value from the operator's
+		// settings.json env block.
+		const baseEnv = (stdio.env ?? []).filter((e) => e.name !== "PI_SESSION_ID" && e.name !== "PI_AGENT_ID");
+		const extras: { name: string; value: string }[] = [];
+		if (piSessionId) extras.push({ name: "PI_SESSION_ID", value: piSessionId });
+		if (piAgentId) extras.push({ name: "PI_AGENT_ID", value: piAgentId });
+		return { ...stdio, env: [...baseEnv, ...extras] } as McpServer;
+	});
+}
+
 type BridgeSessionCapabilities = {
 	loadSession: boolean;
 	resumeSession: boolean;
@@ -368,6 +404,33 @@ export type EnsureBridgeSessionParams = {
 	cwd: string;
 	backend: AcpBackend;
 	modelId?: string;
+	/**
+	 * Raw pi session UUID (NOT the `pi:<id>` sessionKey form). Forwarded to the
+	 * backend child as `PI_SESSION_ID` so MCP children (notably pi-tools-bridge)
+	 * can populate the entwurf sender envelope without depending on
+	 * `process.env.PI_SESSION_ID` propagation from the entwurf-control extension.
+	 *
+	 * 0.4.13 and earlier relied on entwurf-control writing `process.env.PI_SESSION_ID`
+	 * before the backend child was spawned. The dependency was an ordering
+	 * accident: backend spawn happens inside streamShellAcp before — or
+	 * concurrently with — the extension's session-start hook, so the env key
+	 * was missing on the wire. Synthetic launcher tests passed because the
+	 * test harness injected the env manually; live `./run.sh check-bridge`
+	 * caught the gap. 0.4.14 fixes this by routing piSessionId structurally,
+	 * not through ambient env. See issue #7 comment trail for the full
+	 * forensics.
+	 *
+	 * Optional because smoke embed scripts call ensureBridgeSession directly
+	 * without a pi session backing them; in that path the MCP envelope is
+	 * never populated and entwurf_send / entwurf_self correctly throw
+	 * EntwurfEnvelopeWiringError if invoked.
+	 *
+	 * NOT included in bridgeConfigSignature — the sessionKey already encodes
+	 * `pi:<id>` so duplicating piSessionId into the signature would either be
+	 * redundant or risk treating two valid views of the same session as
+	 * different bridge configs.
+	 */
+	piSessionId?: string;
 	systemPromptAppend?: string;
 	/** Augmentation text delivered to the backend on the first prompt of a new session via adapter.buildBootstrapPromptAugment. Retained as an interface point for future backends that lack a higher-authority carrier; both currently shipped backends use carrier-specific paths instead (Claude: systemPromptAppend; Codex: codexDeveloperInstructions). */
 	bootstrapPromptAugment?: string;
@@ -1188,18 +1251,22 @@ function overlaySettingsJson(): string {
 //   - what backend authentication needs (`.credentials.json`)
 //   - Claude Code's runtime caches and telemetry (cache, debug,
 //     stats-cache.json, statsig, telemetry, session-env)
-//   - the bridge's own scratch surfaces (session-bridge, shell-snapshots)
+//   - the bridge's own scratch surfaces (shell-snapshots)
 //   - built-in (non-operator-defined) skill content (skills)
 //
 // `plugins` is deliberately excluded: plugin enablement is operator
 // personal config, and pi-shell-acp injects its own plugin set via
 // `claudeCodeOptions.plugins` (see buildClaudeSessionMeta), not via
 // filesystem inheritance.
+//
+// 0.4.14: `session-bridge` was removed from this list when the session-bridge
+// MCP was retracted in favor of a single entwurf-control messaging surface
+// (issue #7). Claude Code no longer needs ~/.claude/session-bridge/ visibility
+// because nothing in the bridge produces that directory anymore.
 const OVERLAY_PASSTHROUGH = new Set([
 	".credentials.json",
 	"cache",
 	"debug",
-	"session-bridge",
 	"session-env",
 	"shell-snapshots",
 	"skills",
@@ -1781,7 +1848,7 @@ const GEMINI_TOOLS_CORE_ALLOWLIST = [
 // configured stdio MCPs in their personal `~/.gemini/settings.json`,
 // http/sse servers in extensions, etc.) is filtered out by gemini before
 // the policy engine even sees it.
-const GEMINI_MCP_ALLOWLIST = ["pi-tools-bridge", "session-bridge"] as const;
+const GEMINI_MCP_ALLOWLIST = ["pi-tools-bridge"] as const;
 
 // Sentinel filename for `context.fileName`. Chosen so no real file in the
 // universe matches — neutralizes hierarchical GEMINI.md discovery without
@@ -1869,9 +1936,10 @@ function geminiOverlayAdminPolicyToml(): string {
 		"# baseline class (Read-class split + Write/Edit/Exec + activate_skill);",
 		"# allow-all for MCP because the per-server whitelist is enforced one",
 		"# layer earlier by `canLoadServer` (gemini-cli mcpServerEnablement.ts)",
-		"# against `settings.mcp.allowed`. Only `pi-tools-bridge` and",
-		"# `session-bridge` ever reach the policy engine; an admin-policy MCP",
-		"# whitelist would be a redundant second filter.",
+		"# against `settings.mcp.allowed`. Only `pi-tools-bridge` (the sole MCP",
+		"# in the 0.4.14 surface; session-bridge was retracted in this release —",
+		"# see CHANGELOG 0.4.14 / issue #7) ever reaches the policy engine; an",
+		"# admin-policy MCP whitelist would be a redundant second filter.",
 		"",
 		"# Native catch-all DENY — every non-MCP tool blocked unless re-allowed below.",
 		"[[rule]]",
@@ -2596,7 +2664,12 @@ function logBridgeBootstrapInvalidate(
 
 export type CancelOutcome = "dispatched" | "unsupported" | "failed";
 
-export type ModelSwitchOutcome = "applied" | "unsupported" | "failed";
+// "respawn" is 0.4.14 new — covers the case where the reuse path deliberately
+// refuses in-place `unstable_setSessionModel` because it would leave the MCP
+// child's PI_AGENT_ID env stale. school × model is one identity (see
+// enrichMcpServersWithEnvelope comment), so a model change requires a fresh
+// MCP child, which means a fresh bridge spawn.
+export type ModelSwitchOutcome = "applied" | "unsupported" | "failed" | "respawn";
 export type ModelSwitchPath = "bootstrap" | "reuse";
 
 function logBridgeModelSwitch(
@@ -2744,11 +2817,40 @@ async function createBridgeProcess(params: EnsureBridgeSessionParams): Promise<A
 	// auto-detect is bypassed entirely. process.env spread last —
 	// operator's exported var still wins.
 	const claudeCodeExe = params.backend === "claude" ? resolveClaudeCodeExecutable() : undefined;
+	// PI_AGENT_ID — single-field agent identity ("pi-shell-acp/<modelId>") inherited
+	// by the backend child and then by MCP children (notably mcp/pi-tools-bridge).
+	// Read by entwurf_send / entwurf_self to populate the sender envelope. School
+	// and model together are the identity (a different provider or a different
+	// model is a different agent); merging them into one field prevents callers
+	// from drifting into "convenient" two-field handling that the operator's
+	// mental model rejects.
+	//
+	// Inject only when modelId is concrete. A trailing-slash partial
+	// ("pi-shell-acp/") would still pass the MCP-side non-empty check and
+	// produce a half-attributed envelope at the receiver — exactly the silent
+	// drift the 0.4.14 transparency contract is meant to prevent. Skipping
+	// inject here lets the MCP child's EntwurfEnvelopeWiringError surface the
+	// gap at the next entwurf_send / entwurf_self call. Crash-loud beats
+	// trailing-slash transparency.
+	const piAgentId = params.modelId ? `pi-shell-acp/${params.modelId}` : undefined;
+	// Structurally route the entwurf-envelope env keys (PI_SESSION_ID +
+	// PI_AGENT_ID) instead of relying on `...process.env` propagation. The
+	// pre-0.4.14 path assumed the entwurf-control extension had already
+	// written PI_SESSION_ID into the pi process env by the time backend spawn
+	// happened — but the ordering depends on extension hooks vs streamShellAcp
+	// flow, which broke in practice (GPT review on issue #7 caught the live
+	// `./run.sh check-bridge` failure that synthetic tests false-greened).
+	// piSessionId comes in as a direct param now; piAgentId is derived from
+	// modelId. Both are injected AFTER `...process.env` so an operator's shell
+	// PI_SESSION_ID does not silently override the actual pi session value
+	// (which would route an entwurf_send to the wrong peer).
 	const childEnv = {
 		...bridgeEnvDefaults,
 		...(claudeCodeExe ? { CLAUDE_CODE_EXECUTABLE: claudeCodeExe } : {}),
 		...process.env,
 		...(params.emacsAgentSocket ? { PI_EMACS_AGENT_SOCKET: params.emacsAgentSocket } : {}),
+		...(params.piSessionId ? { PI_SESSION_ID: params.piSessionId } : {}),
+		...(piAgentId ? { PI_AGENT_ID: piAgentId } : {}),
 	};
 	const child = spawn(launch.command, launch.args, {
 		cwd: params.cwd,
@@ -2842,7 +2944,7 @@ async function createBridgeProcess(params: EnsureBridgeSessionParams): Promise<A
 		geminiSystemPromptText: normalizeText(params.geminiSystemPromptText),
 		settingSources: [...params.settingSources],
 		strictMcpConfig: params.strictMcpConfig,
-		mcpServers: [...params.mcpServers],
+		mcpServers: enrichMcpServersWithEnvelope(params),
 		tools: [...params.tools],
 		skillPlugins: [...params.skillPlugins],
 		permissionAllow: [...params.permissionAllow],
@@ -2901,7 +3003,7 @@ async function startNewBridgeSession(
 		const meta = buildSessionMeta(params, session.systemPromptAppend);
 		const created = await session.connection.newSession({
 			cwd: params.cwd,
-			mcpServers: [...params.mcpServers],
+			mcpServers: enrichMcpServersWithEnvelope(params),
 			...(meta ? { _meta: meta } : {}),
 		});
 		if (!created?.sessionId) {
@@ -2944,7 +3046,7 @@ async function bootstrapPersistedBridgeSession(
 				const resumed = await session.connection.resumeSession({
 					sessionId: record.acpSessionId,
 					cwd: params.cwd,
-					mcpServers: [...params.mcpServers],
+					mcpServers: enrichMcpServersWithEnvelope(params),
 					...(meta ? { _meta: meta } : {}),
 				});
 				session.acpSessionId = record.acpSessionId;
@@ -2967,7 +3069,7 @@ async function bootstrapPersistedBridgeSession(
 				const loaded = await session.connection.loadSession({
 					sessionId: record.acpSessionId,
 					cwd: params.cwd,
-					mcpServers: [...params.mcpServers],
+					mcpServers: enrichMcpServersWithEnvelope(params),
 					...(meta ? { _meta: meta } : {}),
 				});
 				session.acpSessionId = record.acpSessionId;
@@ -2997,7 +3099,7 @@ async function bootstrapPersistedBridgeSession(
 
 		const created = await session.connection.newSession({
 			cwd: params.cwd,
-			mcpServers: [...params.mcpServers],
+			mcpServers: enrichMcpServersWithEnvelope(params),
 			...(meta ? { _meta: meta } : {}),
 		});
 		if (!created?.sessionId) {
@@ -3037,44 +3139,33 @@ export async function ensureBridgeSession(params: EnsureBridgeSessionParams): Pr
 	const existingCompatible = existing ? isSessionCompatible(existing, normalizedParams, normalizedSystemPrompt) : false;
 	if (existing && existingCompatible && !existing.closed && isChildAlive(existing.child)) {
 		if (params.modelId && existing.modelId !== params.modelId) {
+			// 0.4.14: Model change on the reuse path forces a fresh bridge spawn
+			// rather than in-place `unstable_setSessionModel`. The MCP child was
+			// spawned with PI_AGENT_ID=pi-shell-acp/<old_model> in its env (via
+			// enrichMcpServersWithEnvelope) and cannot be retro-edited; an
+			// in-place setModel would leave entwurf_send / entwurf_self
+			// broadcasting the previous agent identity even though the backend
+			// is now answering as a different model. Caught by GPT review on
+			// issue #7.
+			//
+			// closeRemote: true + invalidatePersisted: true — the persisted
+			// session was wired to the old model's MCP env; restoring it as-is
+			// after a model switch would resurrect the same identity drift.
 			const fromModel = existing.modelId;
 			const toModel = params.modelId;
-			const setModel = existing.connection.unstable_setSessionModel;
-			if (typeof setModel !== "function") {
-				logBridgeModelSwitch(existing, {
-					path: "reuse",
-					outcome: "unsupported",
-					fromModel,
-					toModel,
-					fallback: "new_session",
-				});
-				await closeBridgeSession(params.sessionKey);
-				return await startNewBridgeSession(normalizedParams);
-			}
-			try {
-				await setModel.call(existing.connection, {
-					sessionId: existing.acpSessionId,
-					modelId: toModel,
-				});
-				existing.modelId = toModel;
-				logBridgeModelSwitch(existing, {
-					path: "reuse",
-					outcome: "applied",
-					fromModel,
-					toModel,
-				});
-			} catch (error) {
-				logBridgeModelSwitch(existing, {
-					path: "reuse",
-					outcome: "failed",
-					fromModel,
-					toModel,
-					fallback: "new_session",
-					reason: error instanceof Error ? error.message : String(error),
-				});
-				await closeBridgeSession(params.sessionKey);
-				return await startNewBridgeSession(normalizedParams);
-			}
+			logBridgeModelSwitch(existing, {
+				path: "reuse",
+				outcome: "respawn",
+				fromModel,
+				toModel,
+				fallback: "new_session",
+				reason: "pi_agent_id_env_requires_respawn",
+			});
+			await closeBridgeSession(params.sessionKey, {
+				closeRemote: true,
+				invalidatePersisted: true,
+			});
+			return await startNewBridgeSession(normalizedParams);
 		}
 		existing.settingSources = [...params.settingSources];
 		existing.strictMcpConfig = params.strictMcpConfig;

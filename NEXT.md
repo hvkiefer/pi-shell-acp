@@ -10,7 +10,40 @@
 
 ---
 
-## Current Priority — 0.5.0: backend-native compaction escape hatch
+## Current Priority — 0.4.15: ACP `entwurf_send` sent UX (issue #8)
+
+[Issue #8](https://github.com/junghan0611/pi-shell-acp/issues/8) — ACP `entwurf_send` sent messages are visually buried in tool logs vs received custom-message regions.
+
+### Why this is next
+
+0.4.14 made cross-session messaging first-class on the **receive** side (`[entwurf received ⟵]` custom-message region with envelope header). The **send** side, when going through ACP, still falls into tool-log text — because `pi-shell-acp/event-mapper.ts` converts ACP tool updates into assistant text chunks via `pushNotice`. So in the human-greeted multi-session topology that 0.4.14 is supposed to support, the operator keeps losing track of which messages were sent from this session. Functional, but it undermines the very pattern 0.4.14 enables.
+
+### Approach — UI-only structured notice event (cross-repo)
+
+Earlier framing put the fix at the pi TUI layer only. GPT review on issue #8 corrected this: ACP tool notifications currently arrive as **assistant text**, not as pi tool rows, so a TUI-layer-only renderer match cannot catch them. The cleaner path is a new pi stream event class that the UI renders directly while keeping the LLM context clean.
+
+Touch surface (likely):
+
+- `pi-mono/packages/ai` — extend `AssistantMessageEvent` with a UI-only notice variant (e.g. `ui_notice` with `kind: "external_tool" | "entwurf_sent"`).
+- `pi-mono/packages/agent` — forward the UI-only event as `AgentEvent`; do not put it into `AssistantMessage.content` (no LLM context pollution).
+- `pi-mono/packages/coding-agent` — render the new event as a first-class component (`entwurf_sent` gets the same visual weight as `[entwurf received ⟵]`).
+- `pi-shell-acp/event-mapper.ts` — when an ACP `tool_call`/`tool_call_update` belongs to `mcp__pi-tools-bridge__entwurf_send` (completed), emit the structured UI notice instead of `pushNotice` text.
+
+### Acceptance
+
+- Sent peer messages visually distinguishable in ACP transcripts as first-class regions, not generic tool log.
+- Sent echo does **not** enter LLM context as a user message (no `pi.sendMessage` injection).
+- Directionality unambiguous in busy transcripts (`sent →` vs `received ⟵`).
+- Works consistently for Claude, Codex, Gemini ACP backends.
+- Generic notice channel — extensible to other transparency-bound tools later, not a one-off `entwurf_send` hardcode.
+
+### Scope warning
+
+Event-protocol extension across two repos, not a one-liner. Cross-repo PR + verification across all three ACP backends. Plan for one focused session per repo + integration.
+
+---
+
+## After 0.4.15 — 0.5.0: backend-native compaction escape hatch
 
 Single focus until done: **separate pi-side compaction from ACP backend-native compaction.**
 

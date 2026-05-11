@@ -13,6 +13,12 @@ regression quickly. IDs do not change across releases; the expected
 answer may evolve. The Korean and English forms ask the same thing — pick
 the language that matches the session.
 
+> **0.4.14 current surface note.** The live bundled MCP surface is now a
+> single server, `pi-tools-bridge`, exposing five tools:
+> `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`,
+> `entwurf_self`. Older rows below that mention `session-bridge` or an
+> 8-tool MCP surface are preserved as historical baselines.
+
 | ID       | Layer / Topic                                                            |
 |----------|--------------------------------------------------------------------------|
 | Q-B0     | Baseline harness recognition & carrier separation (general)              |
@@ -235,9 +241,9 @@ the scoring criteria so it stays scannable.
 - **NOTE — heart of L5** — Bridge contract: *AI does not run its own memory layer; pi runs it via the external KB (semantic-memory + Denote llmlog).* Q-L5W is where the model's understanding of that contract is checked directly.
 
 ### Q-MCP — MCP enumerate
-- **PASS** — Exactly two: `pi-tools-bridge`, `session-bridge`.
-- **FAIL** — Any third server appears; one of the two missing; name mutated on gemini (Codex naturally writes underscores — only treat as fail when the model is on gemini and changes the name).
-- **NOTE** — Closes the `mcp.allowed:[<2>]` + `mcp.excluded:["*"]` overlay closure. Operator stdio MCPs from native `~/.gemini/settings.json` and any http/sse extensions are off the list. Documented backend asymmetry: gemini accepts `mcpServers` but does not register them as model-visible function-schema entries — model may describe MCP access as shell-mediated rather than direct function calls. That is an observed surface property, not a leak.
+- **PASS** — Exactly one: `pi-tools-bridge`.
+- **FAIL** — Any second server appears; `pi-tools-bridge` missing; name mutated on gemini (Codex naturally writes underscores — only treat as fail when the model is on gemini and changes the name).
+- **NOTE** — Closes the current `mcp.allowed:["pi-tools-bridge"]` closure. Operator stdio MCPs from native `~/.gemini/settings.json` and any http/sse extensions are off the list. Historical 0.4.8–0.4.13 rows below still refer to the earlier two-server surface.
 
 ### Q-H — Engraving `${...}` literal preservation (substitution defuse)
 - **PASS** — All three lines quoted with `${...}` visually preserved. (ZWSP between `$` and `{` is invisible to both human reader and model — a successful PASS looks identical to the input, but byte-level equality is not claimed.)

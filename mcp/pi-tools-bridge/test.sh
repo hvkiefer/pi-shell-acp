@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # pi-tools-bridge smoke tests.
 #
-# Exercises the four tools the bridge is allowed to expose (narrow scope —
+# Exercises the five tools the bridge is allowed to expose (narrow scope —
 # anything the MCP bridge doesn't strictly need to bridge pi lives as a skill
 # instead):
 #   - entwurf_send
 #   - entwurf_peers
 #   - entwurf
 #   - entwurf_resume
+#   - entwurf_self   (0.4.14 — own session identity envelope)
 #
 # Layers:
 #   1. tools/list parity
 #   2. unknown-tool error surface
-#   3. entwurf_send negative path (bogus target)
-#   4. entwurf registry rejection
+#   3. entwurf_send envelope contract (env-missing wiring break vs valid-env missing-socket)
+#   3b. entwurf_peers empty environment
+#   4. entwurf bogus SSH host
+#   4b. entwurf_resume unknown taskId
+#   4c-4e. Schema + registry gates
+#   5. entwurf_self positive (with env) and negative (env wiring break)
 #
 # Runs straight against start.sh (no build step — src/*.ts is loaded by
 # --experimental-strip-types).
@@ -21,9 +26,18 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-EXPECTED_TOOLS=("entwurf_send" "entwurf_peers" "entwurf" "entwurf_resume")
+EXPECTED_TOOLS=("entwurf_send" "entwurf_peers" "entwurf" "entwurf_resume" "entwurf_self")
 PASS=0
 FAIL=0
+
+# Synthetic envelope env values used by the positive paths. UUID-shaped sessionId
+# so any later code path that validates UUID format keeps working; agentId in the
+# bridge's canonical "<provider>/<model>" shape. These are intentionally NOT real
+# session ids — the negative paths exercise the "valid envelope, missing socket"
+# branch, which is the post-0.4.14 distinction between schema rejection and
+# wiring rejection.
+SYNTHETIC_SESSION_ID="00000000-0000-4000-8000-000000000000"
+SYNTHETIC_AGENT_ID="pi-shell-acp/__test_model__"
 
 red()   { printf '\033[31m%s\033[0m\n' "$1"; }
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
@@ -85,23 +99,56 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 3. entwurf_send negative path — no process, should isError:true
+# 3a. entwurf_send envelope wiring break — missing PI_AGENT_ID / PI_SESSION_ID.
+#     0.4.14 contract: the bridge MUST throw EntwurfEnvelopeWiringError before
+#     it even tries to resolve a socket. Pre-0.4.14 tests asserted on a stale
+#     "target" argument name and false-greened on schema validation; the
+#     post-0.4.14 distinction is that the request is schema-valid but the env
+#     is incomplete, so the only correct failure surface is the envelope error.
 # ----------------------------------------------------------------------------
 
-echo "[3] entwurf_send negative path"
+echo "[3a] entwurf_send envelope wiring break (no PI_AGENT_ID / PI_SESSION_ID)"
+
+SEND_WIRING=$(
+  # unset both env keys for this subshell, then call
+  env -u PI_AGENT_ID -u PI_SESSION_ID bash -c '
+    {
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_send\",\"arguments\":{\"sessionId\":\"'$SYNTHETIC_SESSION_ID'\",\"message\":\"hi\"}}}"
+      sleep 0.5
+    } | timeout 10 "'$HERE'/start.sh" 2>/dev/null | grep "\"id\":10" || true
+  '
+)
+if echo "$SEND_WIRING" | grep -q '"isError":true' \
+   && echo "$SEND_WIRING" | grep -q 'envelope wiring incomplete' \
+   && echo "$SEND_WIRING" | grep -q 'PI_AGENT_ID'; then
+  ok "envelope wiring break surfaces (no PI_AGENT_ID / PI_SESSION_ID)"
+else
+  fail "envelope wiring break did not surface: ${SEND_WIRING:0:300}"
+fi
+
+# ----------------------------------------------------------------------------
+# 3. entwurf_send missing-socket path — valid envelope, no socket on disk.
+#    This is the negative path the pre-0.4.14 test thought it was running.
+# ----------------------------------------------------------------------------
+
+echo "[3] entwurf_send missing-socket path (valid envelope, no peer)"
 
 SEND=$(
-  {
-    printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}'
-    printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-    printf '%s\n' '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"entwurf_send","arguments":{"target":"__definitely_does_not_exist__","message":"hi"}}}'
-    sleep 0.5
-  } | rpc 2>/dev/null | grep '"id":10' || true
+  PI_AGENT_ID="$SYNTHETIC_AGENT_ID" PI_SESSION_ID="$SYNTHETIC_SESSION_ID" bash -c '
+    {
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_send\",\"arguments\":{\"sessionId\":\"00000000-0000-4000-8000-deadbeefdead\",\"message\":\"hi\"}}}"
+      sleep 0.5
+    } | timeout 10 "'$HERE'/start.sh" 2>/dev/null | grep "\"id\":10" || true
+  '
 )
-if echo "$SEND" | grep -q '"isError":true'; then
-  ok "missing socket returns isError"
+if echo "$SEND" | grep -q '"isError":true' && echo "$SEND" | grep -qE '(No pi control socket|control dir not found)'; then
+  ok "missing socket returns isError + socket-resolution error"
 else
-  fail "missing socket did not surface isError: $SEND"
+  fail "missing socket did not surface socket error: ${SEND:0:300}"
 fi
 
 # ----------------------------------------------------------------------------
@@ -262,6 +309,63 @@ if echo "$REGISTRY_NEG" | grep -q '"isError":true' \
   ok "unregistered (provider, model) rejected with allowed-list hint"
 else
   fail "unregistered tuple did not surface registry rejection: ${REGISTRY_NEG:0:300}"
+fi
+
+# ----------------------------------------------------------------------------
+# 5. entwurf_self envelope contract.
+#    Positive: env present → response carries sessionId / agentId / cwd /
+#    timestamp / socketPath.
+#    Negative: env missing → EntwurfEnvelopeWiringError surfaced as isError.
+# ----------------------------------------------------------------------------
+
+echo "[5a] entwurf_self positive (envelope present)"
+
+SELF_OK=$(
+  PI_AGENT_ID="$SYNTHETIC_AGENT_ID" PI_SESSION_ID="$SYNTHETIC_SESSION_ID" bash -c '
+    {
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_self\",\"arguments\":{}}}"
+      sleep 0.5
+    } | timeout 10 "'$HERE'/start.sh" 2>/dev/null | grep "\"id\":30" || true
+  '
+)
+# entwurf_self emits two payload shapes inside the same content-text block — a
+# human-readable label table ("sessionId:  …") and a trailing JSON one-liner.
+# Either is enough to confirm the field is present; we check for the label form
+# because it's stable across whitespace normalization in MCP transports.
+if echo "$SELF_OK" | grep -q '"isError":true'; then
+  fail "entwurf_self with envelope reported isError: ${SELF_OK:0:300}"
+elif echo "$SELF_OK" | grep -q "$SYNTHETIC_SESSION_ID" \
+     && echo "$SELF_OK" | grep -q "$SYNTHETIC_AGENT_ID" \
+     && echo "$SELF_OK" | grep -q 'sessionId:' \
+     && echo "$SELF_OK" | grep -q 'agentId:' \
+     && echo "$SELF_OK" | grep -q 'cwd:' \
+     && echo "$SELF_OK" | grep -q 'timestamp:' \
+     && echo "$SELF_OK" | grep -q 'socketPath:'; then
+  ok "entwurf_self echoes sessionId/agentId/cwd/timestamp/socketPath"
+else
+  fail "entwurf_self payload incomplete: ${SELF_OK:0:300}"
+fi
+
+echo "[5b] entwurf_self negative (envelope wiring break)"
+
+SELF_BAD=$(
+  env -u PI_AGENT_ID -u PI_SESSION_ID bash -c '
+    {
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_self\",\"arguments\":{}}}"
+      sleep 0.5
+    } | timeout 10 "'$HERE'/start.sh" 2>/dev/null | grep "\"id\":31" || true
+  '
+)
+if echo "$SELF_BAD" | grep -q '"isError":true' \
+   && echo "$SELF_BAD" | grep -q 'envelope wiring incomplete' \
+   && echo "$SELF_BAD" | grep -q 'PI_AGENT_ID'; then
+  ok "entwurf_self surfaces wiring break (no PI_AGENT_ID / PI_SESSION_ID)"
+else
+  fail "entwurf_self wiring break did not surface: ${SELF_BAD:0:300}"
 fi
 
 # ----------------------------------------------------------------------------

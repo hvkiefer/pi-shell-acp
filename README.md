@@ -132,17 +132,13 @@ Recommended reference shape for a pi-shell-acp development session lives in [`pi
       "pi-tools-bridge": {
         "command": "/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh",
         "args": []
-      },
-      "session-bridge": {
-        "command": "/path/to/pi-shell-acp/mcp/session-bridge/start.sh",
-        "args": []
       }
     }
   }
 }
 ```
 
-`mcpServers` is the **only** ACP MCP injection path: explicit allowlist, no ambient config scanning. `./run.sh install` writes bundled `pi-tools-bridge` / `session-bridge`; invalid entries fail fast with `McpServerConfigError`.
+`mcpServers` is the **only** ACP MCP injection path: explicit allowlist, no ambient config scanning. `./run.sh install` writes the bundled `pi-tools-bridge` entry only and prunes the legacy bundled `session-bridge` entry from older installs; invalid entries fail fast with `McpServerConfigError`.
 
 `appendSystemPrompt: false` is intentional. Pi / AGENTS context rides the first-user augment; putting it into Claude `_meta.systemPrompt` can trigger metered "extra usage" billing.
 
@@ -187,11 +183,11 @@ Gemini exposes neither `_meta.systemPrompt` nor `developer_instructions`, but ho
 |---|---|---|
 | Carrier | `GEMINI_SYSTEM_MD = <overlay-home>/.gemini/system.md` | Replace native system body with operator engraving + carrier-isolation canary line |
 | Config root | `GEMINI_CLI_HOME = ~/.pi/agent/gemini-config-overlay/` | Redirect `homedir()` so the binary reads from the pi-owned overlay, never from operator's `~/.gemini/` |
-| Tool registry + policy | `tools.core` 7-name allow + `--admin-policy` deny-all + same 7-name allow | 4 capability classes (Read-class split into `read_file`/`list_directory`/`glob`/`grep_search`, plus `write_file` / `replace` / `run_shell_command`) — defense in depth at registry and policy layers |
+| Tool registry + policy | `tools.core` 8-name allow + `--admin-policy` deny-all + same 8-name allow | 4 capability classes (Read-class split into `read_file`/`list_directory`/`glob`/`grep_search`, plus `write_file` / `replace` / `run_shell_command`) + `activate_skill` — defense in depth at registry and policy layers |
 | Memory / context | `context.fileName: <sentinel>` + `memoryBoundaryMarkers: []` + `includeDirectoryTree: false` | Suppress `GEMINI.md` cwd → parent → home discovery and cwd dir-tree auto-attach |
-| MCP allowlist | `mcp.allowed: ["pi-tools-bridge","session-bridge"]` + `mcp.excluded: ["*"]` | Only bridge-injected stdio MCPs surface to the model |
+| MCP allowlist | `mcp.allowed: ["pi-tools-bridge"]` | Only the bundled pi-tools-bridge stdio MCP surfaces to the model in the 0.4.14 release surface |
 | Memory containment (L5) | `experimental.memoryV2:false`, `experimental.autoMemory:false`, spawn-sweep `<configDir>/{tmp,history,projects}/`, stale-cleanup root `GEMINI.md`/`MEMORY.md`, U+200B defuse for engraving `${...}` | pi is canonical memory authority (semantic-memory + Denote llmlog). Gemini memory files do not survive across sessions; affected engraving literals are visually stable but byte-split so gemini-cli cannot interpolate them. |
-| Misc closure | subagents / skills / hooks / folder-trust / write_todos / auto-memory all off via `settings.json` | Close gemini surfaces pi does not surface (full 16-key list in CHANGELOG 0.4.9) |
+| Misc closure | subagents / hooks / folder-trust / write_todos off via `settings.json`; skills stay on through `activate_skill` + `~/.gemini/skills/` passthrough | Close gemini surfaces pi does not surface without re-closing the skill channel reopened in 0.4.11 |
 
 Gemini symlinks only auth/runtime files (`oauth_creds.json`, `google_accounts.json`, `installation_id`, `mcp-oauth-tokens-v2.json`) from real `~/.gemini/`; history, projects, tmp memory, prefs, and trust state are overlay-private. Overlay rebuilds every bootstrap. Exported `GEMINI_CLI_HOME` wins.
 
@@ -275,8 +271,15 @@ The minimum install for skills is documented in §Custom Skills above. For an ex
 | `pi-extensions/entwurf.ts` / `lib/entwurf-core.ts` | pi-native spawn + shared registry / Identity Preservation Rule |
 | `pi-extensions/entwurf-control.ts` | Unix-socket control plane (from Armin Ronacher's `agent-stuff`, Apache 2.0) |
 | `pi/entwurf-targets.json` | SSOT spawn target allowlist |
-| `mcp/pi-tools-bridge/` | agent-facing MCP tools: `entwurf*`, `entwurf_peers` |
-| `mcp/session-bridge/` | Claude Code ↔ pi session bridge |
+| `mcp/pi-tools-bridge/` | agent-facing MCP tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` |
+
+0.4.14 retracts the old `session-bridge` sidecar and unifies cross-session messaging on one MCP surface: `pi-tools-bridge` only. `entwurf_self` absorbs the old self-introspection role; live messaging stays on `entwurf_send` / `entwurf_peers`.
+
+Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) now carries a sender envelope by default: `{ sessionId, agentId, cwd, timestamp }`. `PI_SESSION_ID` and `PI_AGENT_ID` are routed structurally into the backend child and the MCP stdio entry, so Codex/Gemini do not depend on ambient env inheritance. Startup one-shot CLI keeps sender info opt-in (`--entwurf-send-include-sender-info`) because the sender process exits immediately and should not imply a reply path.
+
+The human-greeted 담당자 pattern is first-class in this release: the operator may open a pi-shell-acp session in repo B, greet it directly, then pass that `sessionId` to another session via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics; only the creation sequence differs.
+
+Model switch on the reuse path now respawns instead of mutating in place. School × model is one identity, so a reused MCP child with stale `PI_AGENT_ID` is invalid by construction.
 
 Agent MCP tools auto-attach; operator slash commands require `--entwurf-control` (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`). Full narrative: [`AGENTS.md` § Entwurf](./AGENTS.md).
 
@@ -362,8 +365,7 @@ The three backends share the same operating-surface shape (carrier, overlay, too
 | `run.sh` | install, smoke, verify, sentinel |
 | `pi-extensions/` | entwurf spawn + control plane + shared core |
 | `pi/entwurf-targets.json` | default entwurf target allowlist |
-| `mcp/pi-tools-bridge/` | pi-side tools → ACP hosts |
-| `mcp/session-bridge/` | Claude Code ↔ pi session bridge |
+| `mcp/pi-tools-bridge/` | pi-side tools → ACP hosts (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) |
 
 ## References
 

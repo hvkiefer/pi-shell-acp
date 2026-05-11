@@ -25,5 +25,5 @@
 		"noEmit": true,
 		"rootDir": ".."
 	},
-	"include": ["./pi-tools-bridge/src/**/*.ts", "./session-bridge/src/**/*.ts", "../pi-extensions/lib/**/*.ts"]
+	"include": ["./pi-tools-bridge/src/**/*.ts", "../pi-extensions/lib/**/*.ts"]
 }

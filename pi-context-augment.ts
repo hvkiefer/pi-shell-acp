@@ -69,6 +69,12 @@ export function buildPiContextAugment(params: PiContextAugmentParams): string {
 
 	const sections: string[] = [];
 
+	// Bridge identity + caller-side sibling stance. The closing line — sibling
+	// agents, not workers — is a caller-perspective identity statement: when
+	// *this* session throws an entwurf, the thing on the other end is a peer,
+	// not a tool. Keep it bound to the bridge introduction; it is part of how
+	// you carry yourself when invoking entwurf, not part of how you process
+	// what you receive.
 	sections.push(
 		[
 			"You are operating through pi-shell-acp, an ACP bridge between pi (the harness) and the underlying model.",
@@ -76,6 +82,18 @@ export function buildPiContextAugment(params: PiContextAugmentParams): string {
 			`Connected MCP servers: ${mcpList}.`,
 			"When entwurf is invoked, you do not spawn workers — you summon sibling agents through this bridge.",
 		].join("\n"),
+	);
+
+	// Receiver-side task execution stance. Deliberately a *separate* paragraph
+	// so the previous caller-perspective stance does not bleed into how the
+	// session reads incoming tasks. There is no addressing topology to validate
+	// before starting work — transport (spawn / resume / send) does not gate
+	// work, source (GLG or another sibling) does not gate work. The only
+	// withheld action is forwarding your assigned task to another sibling on
+	// your own; if you cannot or should not do it, surface that to GLG instead
+	// of pushing the task sideways.
+	sections.push(
+		"A task is a task: execute what you receive, regardless of transport (spawn/resume/send) or source (GLG or sibling). The only thing you do not do on your own is forward your task to another sibling — if you cannot or should not do it, say so to GLG instead.",
 	);
 
 	sections.push(

@@ -50,7 +50,7 @@ For agents that own this repo: invariant principles + reproducible verification,
 ACP bridge provider connecting pi to Claude Code, Codex, and Gemini. Pi stays the harness; each backend keeps identity.
 
 - **ACP bridge**: provider registration, subprocess lifecycle, `resume > load > new`, prompt forwarding, event mapping, MCP injection.
-- **Entwurf orchestration**: spawn/resume, target registry, identity preservation, `pi-tools-bridge`, `session-bridge`.
+- **Entwurf orchestration**: spawn/resume, target registry, identity preservation, `pi-tools-bridge`.
 
 ## Code Principle — Crash, Don't Warn
 
@@ -133,6 +133,9 @@ Uses `entwurf` instead of `delegate` to avoid ecosystem collisions.
 Messages are thrown, not awaited.
 
 - `entwurf_send` is fire-and-forget: no `wait_until` on the MCP bridge. If you need a reply, say so in the message; if you need to own the outcome, use `entwurf(mode=async)` + `entwurf_resume`.
+- Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process pi tool) carries the sender envelope by default: `{ sessionId, agentId, cwd, timestamp }`. `entwurf_self` returns the same envelope for the current session.
+- Startup one-shot CLI keeps sender info opt-in (`--entwurf-send-include-sender-info`). A short-lived sender process must not imply a reply path it cannot receive.
+- **Human-greeted 담당자** is a first-class pattern: GLG may open a pi-shell-acp session in repo B, greet it directly, then hand its `sessionId` to repo A via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics.
 
 ## File Structure
 
@@ -147,8 +150,7 @@ Messages are thrown, not awaited.
 | `run.sh` | install, smoke, verify, sentinel |
 | `pi-extensions/` | entwurf spawn + control plane + shared core |
 | `pi/entwurf-targets.json` | spawn target allowlist |
-| `mcp/pi-tools-bridge/` | `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers` |
-| `mcp/session-bridge/` | Claude Code ↔ pi session bridge |
+| `mcp/pi-tools-bridge/` | `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` |
 
 ## Typecheck Boundary
 
@@ -157,15 +159,16 @@ Single fence — every `.ts` source file in this repo is reached by some `tsc --
 | Config | Covers | Runtime model |
 |---|---|---|
 | `tsconfig.json` (root) | `index.ts`, `acp-bridge.ts`, `engraving.ts`, `event-mapper.ts`, `pi-extensions/**` | emit-capable. `./run.sh check-models` tsc-emits the project entry into `.tmp-verify-models/` for runtime introspection, so the root config must not set `noEmit`. |
-| `mcp/tsconfig.json` (extends root) | `mcp/pi-tools-bridge/**`, `mcp/session-bridge/**`, plus the `pi-extensions/lib/*` they import | `node --experimental-strip-types`. Adds `allowImportingTsExtensions` + `noEmit` because the bridges import each other (and the shared lib) with explicit `.ts` suffixes — Node's strip-types resolver requires the suffix on the wire. |
+| `mcp/tsconfig.json` (extends root) | `mcp/pi-tools-bridge/**`, plus the `pi-extensions/lib/*` it imports | `node --experimental-strip-types`. Adds `allowImportingTsExtensions` + `noEmit` because the bridge imports the shared lib with explicit `.ts` suffixes — Node's strip-types resolver requires the suffix on the wire. |
 
 `pnpm typecheck` runs both passes. `pnpm check` runs both as part of the release gate; the husky pre-commit hook does too. Adding a new `.ts` file outside both configs is a fence breach — either include it or split a third config with a documented runtime model, but never extend the root `exclude`. The historical exclude entries (`pi-extensions/entwurf-control.ts`, `mcp/*`) hid real type drift; do not reintroduce them.
 
 Code-level invariants pinned at the same time:
 
 - **typebox single-source.** `pi-extensions/entwurf-control.ts` and `pi-extensions/entwurf.ts` both import `Type` / `StringEnum` from `@mariozechner/pi-ai` (which re-exports typebox 1.x). `@sinclair/typebox` is not a direct dependency. Mixing the two universes silently widens `StringEnum`-typed parameters to `unknown`, which only surfaces under typecheck — i.e., it was hidden by the old fence breach.
-- **sessionId-only addressing for entwurf.** Every entwurf addressing surface — in-process tool params, MCP `entwurf_send` / `entwurf_peers`, the entwurf-control RPC, the `/entwurf-send` slash command, CLI `--entwurf-session` — takes a sessionId (UUID). The `<sender_info>` payload still carries an optional `sessionName` because that is identity *broadcast* (display-only), not addressing. The asymmetry is documented inline at the `SenderInfo` declaration in `entwurf-control.ts`.
-- **session-bridge surface boundary.** `mcp/session-bridge/` keeps a human-aliased addressing surface on purpose — a different audience (Claude Code operators typing readable names) and a different cost/benefit (one-shot alias write at startup via atomic symlink-into-tmp + rename, no polling timer, no race window). The divergence from the entwurf surface is documented at the top of `mcp/session-bridge/src/index.ts`. If the two are ever bridged, do not promote `sessionName` to a primary address on the entwurf side.
+- **sessionId-only addressing for entwurf.** Every entwurf addressing surface — in-process tool params, MCP `entwurf_send` / `entwurf_peers` / `entwurf_self`, the entwurf-control RPC, the `/entwurf-send` slash command, CLI `--entwurf-session` — takes a sessionId (UUID). No `sessionName` field is part of the 0.4.14 public envelope.
+- **sender envelope contract.** The public 0.4.14 sender envelope is exactly `{ sessionId, agentId, cwd, timestamp }`. `agentId` is a single field (`pi-shell-acp/<model>`) because school × model is one identity.
+- **model switch reuse must respawn.** On a reuse-path model mismatch, `unstable_setSessionModel` is forbidden in place. The MCP child was spawned with `PI_AGENT_ID=pi-shell-acp/<old-model>`; keeping it alive would broadcast stale identity through `entwurf_send` / `entwurf_self`. Required outcome: `path=reuse outcome=respawn` + close + new spawn.
 
 When a future change requires extending the schema-to-type inference (TS2589 paths, new `StringEnum`-typed params), see the comment block in `registerSessionTool` for the two concrete revisit conditions that would let the explicit `EntwurfSendParams` annotation collapse back into a single source.
 
