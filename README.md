@@ -400,6 +400,7 @@ The maintainer uses pi-shell-acp for most pi work unless a task needs a differen
 
 - **0.4.x — Documentation / evidence calibration.** Keep README, AGENTS.md, CHANGELOG.md, BASELINE.md, and VERIFY.md aligned. Publish redacted session-level evidence to [`junghanacs/pi-shell-acp-sessions`](https://huggingface.co/datasets/junghanacs/pi-shell-acp-sessions) via [`junghan0611/pi-share-hf`](https://github.com/junghan0611/pi-share-hf).
 - **0.5.0 — Backend-native compaction escape hatch.** Keep unsafe pi-side JSONL compaction blocked by default, split the current broad compaction knob into pi-side vs backend-native guards, and verify backend-owned compaction through normal ACP prompt/update flow. This is not a recap engine and not compact→new-session handoff.
+- **0.6.x candidate — Public npm / pi.dev package surface.** After 0.5.0, revisit whether pi-shell-acp is ready to be raised from git-installable bridge to an early public Pi package. The intent is to publish only after the npm tarball/install UX, peer dependency namespace, README positioning, and verification story are deliberately prepared; this is not a promise to publish before the bridge feels ready.
 - **Later — Compact→new-session handoff, provider handoff, backend residue cleanup, and deeper OpenClaw tuning.** These are real follow-up areas, but not 0.5.0. Do not let them dilute the guard-split work.
 
 ## Verification surfaces
