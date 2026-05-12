@@ -4,6 +4,21 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.4.16 — 2026-05-12
+
+### Fixed
+
+- Restored cross-cwd `entwurf_resume` backend hydration for ACP-routed siblings. The resume child now starts from the saved session header cwd when no explicit cwd override is supplied, preserving the existing `pi:<sessionId>` → `acpSessionId` bridge record instead of silently falling back to `newSession` and losing prior-turn memory. This fixes [#9](https://github.com/junghan0611/pi-shell-acp/issues/9) without promoting `taskId` to an identity carrier.
+
+### Added
+
+- Added a `verify-resume` Phase 2 cross-cwd fact-recall gate (`scripts/cross-cwd-resume-smoke.ts`) that plants a unique sentinel in a spawned sibling, resumes it from a different cwd through the MCP-shaped path, asserts recall, and captures child stderr through the existing `PI_ENTWURF_CHILD_STDERR_LOG` knob so future bootstrap fallthroughs are visible.
+- Added a recorded entwurf demo GIF under `docs/assets/` and linked it from the README. The recording covers spawn, MCP `entwurf_resume` recall, and live `entwurf_send`, serving as visible end-to-end evidence for the #9 fix.
+
+### Changed
+
+- Expanded the TypeScript fence to a third `scripts/tsconfig.json` pass so strip-types verification scripts with explicit `.ts` imports are typechecked alongside the root and MCP configs.
+
 ## 0.4.15 — 2026-05-11
 
 ### Changed
