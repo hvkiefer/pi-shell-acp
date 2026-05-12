@@ -4,9 +4,15 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.4.17 — 2026-05-12
+
 ### Fixed
 
 - Drop the persisted `pi:<sessionId>` → `acpSessionId` bridge mapping when a resumed/loaded session's prompt fails with an Anthropic transcript-validity 400 — currently the `cache_control cannot be set for empty text blocks` and `API Error: 400 messages: text content blocks must be non-empty` surfaces. The poison failure is surfaced via `[pi-shell-acp:prompt-error] reason=transcript_poison`; the dead mapping is invalidated before any subsequent bootstrap, so the next bootstrap — even if the host re-enters within the same CLI invocation — uses `path=new` instead of the poisoned `acpSessionId`. The bridge does not force a same-turn retry of its own; recovery is just the existing `resume → load → new` ladder running against the now-empty persisted record. Fixes [#12](https://github.com/junghan0611/pi-shell-acp/issues/12).
+
+### Changed
+
+- Cold resume now treats the saved session header cwd as the authority and fails fast when neither that header cwd nor an explicit `options.cwd` override is available, instead of silently falling back to the resumer's `process.cwd()`. This prevents #9-style hydration loss from reappearing through the `runEntwurfResumeSync` and async `entwurf_resume` paths — both now refuse to spawn against the resumer's cwd. The `entwurf_resume` tool descriptions (MCP and pi-native) and `EntwurfResumeOptions.cwd` doc-comments are updated to call out the header-cwd authority explicitly; the `cwd` override remains as a debug/migration escape hatch that may forfeit backend continuity. Addresses the cwd-authority portion of [#10](https://github.com/junghan0611/pi-shell-acp/issues/10); the broader ontology RFC (peer handle, `contact_peer` verb, registry) stays parked.
 
 ## 0.4.16 — 2026-05-12
 
