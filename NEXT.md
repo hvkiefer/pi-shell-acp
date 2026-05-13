@@ -113,7 +113,7 @@ Source columns intentionally separated so each row stays honest about *where* th
    - 0.5.0 may still choose to limit live compact-command evidence to Claude/Codex, but only after the Gemini answer is explicit.
 
 3. **Record actual live evidence in BASELINE only after scope is clear**
-   - Claude + Codex `LIVE=1 ./run.sh smoke-compaction-policy` reportedly reached `6 pass, 0 fail, 0 observed`; keep the raw outcome, but do not turn it into a release claim until the three-backend scope is written correctly.
+   - Claude + Codex live probes passed under the dual classifier; Gemini step 06 remains exploratory and belongs to the open context-pressure investigation. Keep the raw outcomes, but do not turn them into a release claim until the three-backend scope is written correctly.
    - BASELINE should distinguish: command advertisement/invocation, compact evidence, `usage_update`/boundary evidence, sentinel recall, and mapping/session survival.
 
 4. **Then clean docs, not before**
