@@ -252,6 +252,27 @@ the scoring criteria so it stays scannable.
 
 # HISTORY
 
+## [2026-05-13 Wed] — 0.5.0 Claude hooks-empty compaction fix (A/B clean)
+
+Follow-up to the Claude organic context-pressure row below. The first
+fresh saturated probe proved backend compaction and mapping survival, but
+with the Claude overlay `settings.json` missing a `hooks` key the organic
+compact turn ended with an empty thinking block and a meta-summary instead
+of answering the triggering user prompt.
+
+| Field | Value |
+|---|---|
+| Code change | `acp-bridge.ts` `overlaySettingsJson()` now writes `hooks: {}` |
+| Isolation impact | No operator hook inheritance. The map is empty; native `~/.claude/hooks/` remains outside the overlay passthrough allowlist. |
+| Pattern B — organic auto-compact | PASS. With `hooks: {}`, the compacting turn produced substantive reasoning and a direct answer to the user's prompt instead of prompt sacrifice. Evidence: `demo/compaction-policy-smoke/probes/2026-05-13-claude-hooks-empty/turn-03.{stdout,stderr}`. |
+| Pattern A — explicit `/compact` regression | PASS. Same overlay shape still gives a clean explicit compact turn (`Compacting...` / `Compacting completed.`, `used=0`) and the next user turn answers from compacted context. |
+| Conclusion | Claude axis is clean for 0.5.0: backend-native compaction survives the bridge, same session mapping continues, and pi-shell-acp does not implement transcript hydration. The fix is overlay shape, not a second harness. |
+
+This closes the earlier "Pattern B prompt-sacrifice" interpretation as an
+overlay bug: Claude SDK treats configured-but-empty hooks differently from
+an absent hooks key during organic compaction. The bridge now supplies the
+empty configured shape while preserving L5 containment.
+
 ## [2026-05-13 Wed] — 0.5.0 Claude organic context-pressure continuity (probe-confirmed)
 
 The first BASELINE row for 0.5.0's "bridge does not implement compaction"

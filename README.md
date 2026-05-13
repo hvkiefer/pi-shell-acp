@@ -155,7 +155,7 @@ Claude keeps model/API identity. Optional short engraving replaces the Claude Co
 | `permissionAllow` | `["Read(*)", "Bash(*)", "Edit(*)", "Write(*)", "mcp__*"]` | Allow the declared tool surface without flipping the operator's native Claude Code defaults. |
 | `disallowedTools` | deferred Claude Code tool set | Keep deferred tools (`Task*`, `Cron*`, `Web*`, etc.) from appearing outside pi's declared surface. |
 
-`CLAUDE_CONFIG_DIR` points to a pi-owned whitelist overlay (`~/.pi/agent/claude-config-overlay/`) so auth/runtime state remains available while operator memory, hooks, agents, history, local settings, and project memory stay hidden by default. An explicitly exported `CLAUDE_CONFIG_DIR` wins.
+`CLAUDE_CONFIG_DIR` points to a pi-owned whitelist overlay (`~/.pi/agent/claude-config-overlay/`) so auth/runtime state remains available while operator memory, hooks, agents, history, local settings, and project memory stay hidden by default. The overlay writes `hooks: {}` explicitly in `settings.json`: Claude SDK needs the configured-empty shape for clean organic compaction, but no operator hook definitions are inherited. An explicitly exported `CLAUDE_CONFIG_DIR` wins.
 
 #### Operating-surface contract — Codex backend
 

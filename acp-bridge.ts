@@ -1262,6 +1262,12 @@ function overlaySettingsJson(): string {
 		{
 			permissions: { defaultMode: "default" },
 			autoMemoryEnabled: false,
+			// Claude SDK distinguishes an absent hooks key from an explicitly
+			// configured-but-empty hooks map during organic compaction. The
+			// absent shape caused the compacting turn to emit a meta summary
+			// instead of answering the user's prompt (2026-05-13 LIVE probe).
+			// Keep hooks configured while still inheriting no operator hooks.
+			hooks: {},
 		},
 		null,
 		2,
