@@ -22,112 +22,86 @@
 If a specific backend's auto-compaction must be turned off for a debugging
 reason, configure that backend through its own native interface — the
 bridge intentionally does not surface backend-specific compaction names
-or knob shapes, because doing so would silently teach an asymmetric
-"how to disable compact" recipe per backend and re-anchor the bridge as
-something that owns the compaction concern.
+or knob shapes.
 
-## Five steps
-
-(Step 01 was retired in the 0.5.0 maintainer cleanup — a negative
-assertion that names backend-specific compaction strings is itself an
-awareness of those internals and violates the bridge thesis. LIVE steps
-03/04/06 cover the regression surface: if the bridge ever re-injects a
-backend-side compaction guard, backend-native compaction stops working
-end-to-end and the live probes turn red. Exact historical knob names live
-only in CHANGELOG / raw probe evidence.)
+## Smoke driver — four steps
 
 | # | What it proves | Mode |
 |---|---|---|
-| 02 | `session_before_compact` message honestly tells the operator: pi-side compact does **not** reduce the backend transcript, and points at the backend-native compaction path. Tone matches "entwurf already exists → use entwurf_resume". | deterministic |
-| 03 | **Live**: Claude ACP session survives a backend `/compact`. Spawns a real ACP child via `runEntwurfSync`, plants a unique sentinel + asserts READY, sends literal `/compact` as a backend prompt (NOT pi-host `/compact`), then sends a recall prompt and asserts the sentinel survives. Same `taskId` across all three prompts, so persisted-mapping reuse is also covered. Cost a few cents on `claude-sonnet-4-6`. | LIVE=1 (real spawn) |
-| 04 | **Live**: same 3-prompt driver against the Codex adapter, routed through pi-shell-acp ACP via `PI_ENTWURF_ACP_FOR_CODEX=1` so 0.5.0's bridge claim is what is exercised (not native codex CLI). Cost a few cents on `gpt-5.4`. | LIVE=1 (real spawn) |
-| 05 | Legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` is rejected at spawn intent with a next-action message pointing at `PI_SHELL_ACP_ALLOW_PI_COMPACTION` (the only remaining bridge knob; backend compaction is no longer a bridge concern). | deterministic |
-| 06 | **Live (exploratory)**: same 3-prompt driver against the Gemini adapter. Gemini ACP does not advertise `/compact` — the probe records the actual observation, not a release claim. | LIVE=1 (real spawn) |
+| 02 | `session_before_compact` message honestly tells the operator: pi-side compact does **not** reduce the backend transcript, and points at the backend-native compaction path. | deterministic |
+| 03 | **Live**: Claude ACP session survives a backend `/compact`. Spawns a real ACP child via `runEntwurfSync`, plants a unique sentinel + asserts READY, sends literal `/compact` as a backend prompt, then asserts the sentinel survives a recall prompt. Same `taskId` across all three prompts. | LIVE=1 |
+| 04 | **Live**: same 3-prompt driver against the Codex adapter, routed through pi-shell-acp ACP via `PI_ENTWURF_ACP_FOR_CODEX=1`. | LIVE=1 |
+| 05 | Legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` is rejected at spawn intent with a next-action message pointing at `PI_SHELL_ACP_ALLOW_PI_COMPACTION`. | deterministic |
+| 06 | **Live (exploratory)**: same 3-prompt driver against Gemini. Gemini ACP does not advertise `/compact`; the probe records the actual observation, not a release claim. | LIVE=1 |
 
-Steps 02, 05 form the **deterministic gate** for 0.5.0 (no network,
-no real spawn). Steps 03, 04, 06 are the **live release-evidence probe**
-— they exercise the exact pi-shell-acp prompt boundary the declaration
-is about: ACP child spawn, three-turn flow with a literal `/compact` in
-the middle, sentinel recall on the other side. The probe is gated behind
-`LIVE=1` because it spawns a real backend session and costs a few cents
-per backend. It is NOT a product-surface `/acp-compact` command — there
-is no user-facing operator interface for triggering backend `/compact`.
-It is a release evidence probe, not a feature.
+Steps 02, 05 form the **deterministic gate** (no network, no real
+spawn). Steps 03, 04, 06 are the **live release-evidence probe** —
+they spawn a real backend session and cost a few cents per backend.
+The probe is gated behind `LIVE=1`. It is NOT a product-surface
+`/acp-compact` command; there is no user-facing operator interface
+for triggering backend compaction.
 
-Step 06 (Gemini) is exploratory only — Gemini ACP's command registry
-does not include `compress` / `compact` (`gemini-cli/packages/cli/src/acp/acpCommandHandler.ts`),
-so the literal `/compact` prompt lands as a regular user message. The
-step is included so the three-backend axis stays honest (no implicit
-carve-out); the survives-compact release claim itself is limited to
-Claude + Codex.
+(Step 01 was retired in the 0.5.0 maintainer cleanup — a negative
+assertion that names backend-specific compaction strings is itself an
+awareness of those internals and violates the bridge thesis.)
 
-Judgment for steps 03/04 (live) combines three independent signals:
+## Two probe shapes — Pattern A and Pattern B
 
-1. **text classifier** — `classifyCompactResponse((b).text, sentinel)`
-   classifies the backend's reply to `/compact` as `ack`
-   (response talks about compaction/summary/context-reduction),
-   `refusal` (says the backend does not recognize the command),
-   or `ambiguous` (neither). Sentinel echo is stripped before
-   matching so the planted `GLG-COMPACT-...` token cannot
-   self-trigger an `ack`. Catches Codex-shape: codex-acp emits
-   "Context compacted" verbatim.
-2. **wire classifier** — `classifyUsageEvidence(...)` reads the new
-   `[pi-shell-acp:usage] meter=acpUsageUpdate ...` lines that appeared
-   in the bridge stderr during turn (b). Two positive shapes:
-   `compact_boundary_signal` (an explicit `used=0` synthetic
-   usage_update — claude-agent-acp emits this when the SDK actually
-   performs compaction, see acp-agent.js:477-498), or `usage_drop`
-   (final used >= 50% lower than the pre-/compact baseline).
-   `no_evidence` means neither. Catches Claude-shape: the SDK
-   compacted but the textual assistant chunk on the wire was
-   ordinary, while `used=0` told the truth.
-3. **sentinel recalled** — does the recall prompt's reply contain the
-   planted sentinel verbatim.
+Live probes (03/04/06) come in two shapes that cover different parts
+of the backend-native compaction surface:
+
+- **Pattern A — explicit `/compact`.** The driver sends the literal
+  string `/compact` as a backend prompt mid-session, then recalls the
+  planted sentinel. Tests the explicit user-invoked compaction path.
+- **Pattern B — organic auto-compact.** The session naturally fills
+  with content until the backend's own threshold fires
+  compaction at turn start. Two sub-shapes:
+  - **Cheap stand-in:** lower the backend's native threshold knob
+    (e.g. codex-rs `model_auto_compact_token_limit=12000` via
+    `CODEX_ACP_COMMAND`) so compact fires after a few turns. Proves
+    path reachability end-to-end through the bridge without paying
+    for a real saturation run.
+  - **Real saturation:** drive the session up to the backend's
+    default native window (200k for Claude Sonnet 4.6, ~258k for
+    Codex GPT-5.4) using file reads + heavy analytic prompts.
+    Proves default-condition behavior.
+
+The smoke driver covers Pattern A; Pattern B is run by hand from a
+sandbox cwd when a release needs default-threshold evidence.
+
+## Classifier — how live probes judge backend-compact
+
+| Signal | Source | Means |
+|---|---|---|
+| text | `classifyCompactResponse((b).text, sentinel)` | `ack` if the reply talks about compaction/summary/context-reduction; `refusal` if the backend says it does not recognize the command; `ambiguous` otherwise. Sentinel is stripped before matching so the planted token cannot self-trigger an `ack`. |
+| wire | `classifyUsageEvidence(...)` reads `[pi-shell-acp:usage] meter=acpUsageUpdate` lines in bridge stderr | `compact_boundary_signal` (an explicit `used=0` synthetic usage_update — claude-agent-acp emits this when the SDK performs compaction), `usage_drop` (final used ≥ 50% lower than pre-`/compact` baseline), or `no_evidence`. |
+| sentinel recalled | recall prompt reply | does it contain the planted sentinel verbatim. |
 
 | text | wire | sentinel recalled | outcome |
 |---|---|---|---|
 | `ack` | any | yes | **pass** |
-| `ack` | any | no | **observed** — backend acked compact but lost the sentinel (backend-internal lossy property, not a bridge regression) |
-| any | `compact_boundary_signal` | yes | **pass** — wire-level evidence is authoritative even when text is ambiguous |
-| any | `compact_boundary_signal` | no | **observed** |
+| any | `compact_boundary_signal` | yes | **pass** — wire is authoritative when text is ambiguous |
 | any | `usage_drop` | yes | **pass** |
-| any | `usage_drop` | no | **observed** |
-| `refusal` | `no_evidence` | any | **observed** — backend has no native `/compact` surface reachable through this prompt path |
-| `ambiguous` | `no_evidence` | any | **observed** — cannot conclude compaction happened from text or wire |
+| `ack` | any | no | **observed** — backend acked but lost the sentinel (backend-internal property, not a bridge regression) |
+| `refusal` | `no_evidence` | any | **observed** — no native `/compact` surface reachable through this prompt path |
+| `ambiguous` | `no_evidence` | any | **observed** |
 
 **fail** is reserved for "no assistant text" / entwurf path error — the
-bridge or the backend is dead. `pass` requires positive backend-compact
-evidence from EITHER the text classifier OR the wire classifier AND the
-sentinel must come back through the bridge on the recall turn. Survival
-alone is necessary but not sufficient. The dual-classifier shape exists
-specifically because the two supported backends signal compaction on
-different ACP wire surfaces — text-only or wire-only would mis-judge
-one of them.
+bridge or the backend is dead. The dual-classifier shape exists because
+the two release-grade backends signal compaction on different ACP wire
+surfaces (Claude wire-boundary, Codex text + late wire-drop).
 
 ## Run
 
-From repo root:
-
 ```bash
+# Deterministic gate (no network)
 ./run.sh smoke-compaction-policy
-```
 
-Single step:
-
-```bash
+# Single step
 node --experimental-strip-types scripts/compaction-policy-smoke.ts --step=02
-```
 
-Run the full surface including the live probe (spawns a real ACP child
-per backend; cost a few cents each):
-
-```bash
+# Live release-evidence probes (real ACP spawn, costs a few cents per backend)
 LIVE=1 ./run.sh smoke-compaction-policy
-```
-
-Or just one backend at a time:
-
-```bash
 LIVE=1 ./run.sh smoke-compaction-policy --step=03   # Claude
 LIVE=1 ./run.sh smoke-compaction-policy --step=04   # Codex (routed via ACP bridge)
 LIVE=1 ./run.sh smoke-compaction-policy --step=06   # Gemini (exploratory)
@@ -139,6 +113,69 @@ with `SUMMARY: P pass, F fail, O observed`. Exit code is non-zero iff
 any deterministic step fails. `observed` rows are records, not gate
 failures.
 
+## Release-grade probe outcomes (0.5.0)
+
+| Date | Backend | Pattern | Result |
+|---|---|---|---|
+| 2026-05-13 | Claude Sonnet 4.6 | B real saturation | **pass** after `hooks: {}` overlay fix — organic compact turn answers the triggering prompt. Pre-fix baseline showed prompt-sacrifice failure (compact turn ended in meta-summary instead of the user's next answer); the one-line overlay shape repair closes the axis. |
+| 2026-05-14 | Codex GPT-5.4 | A explicit `/compact` | **pass** — text=`Context compacted`, sentinel preserved. Wire `used` drop 34% (below classifier threshold), so text + sentinel is the load-bearing signal pair on Codex. |
+| 2026-05-14 | Codex GPT-5.4 | B cheap stand-in | **pass** — `model_auto_compact_token_limit=12000` fired pre-turn organic compact; both compact turn and recall preserved sentinel. |
+| 2026-05-14 | Codex GPT-5.4 | B real saturation | **pass** — 13-turn file-reading drove `used` to ~244k (~94% of 258k), organic compact fired at turn 12, wire `used` dropped 65%, substantive 982-word answer in the compact turn, sentinel recalled. Codex GPT-5.4 native threshold ≈ 245k. |
+| 2026-05-14 | Gemini 3.1 Pro | explicit `/compact` | **observed (negative)** — Gemini ACP does not advertise `/compact` as a command; literal `/compact` lands as a regular prompt. Native `/compress` exists outside ACP. Recorded as honest ACP asymmetry, not a release pass. |
+
+### Cross-backend symmetry note
+
+Claude and Codex remain inside the same bridge thesis: pi-shell-acp
+does not implement compaction; the backend does its own thing; the
+pi session lives. They differ in default thresholds — Claude SDK
+compacts much earlier (~60% fill on Sonnet 4.6, ~120k of 200k);
+codex-rs compacts much later (~94% fill on GPT-5.4, ~245k of 258k).
+The classifier fires on each backend's native signal (Claude
+wire-boundary, Codex text + late wire-drop) without forcing a fake
+symmetry.
+
+Raw turn captures, sentinel files, and bridge stderr from each probe
+are local-only operator evidence (gitignored). Each probe is fully
+reproducible from this driver + the recipe below; nothing in the
+release claim depends on a preserved fixture.
+
+## Reproducing a probe shape
+
+### Pattern A (explicit `/compact`)
+
+Use the smoke driver directly — `LIVE=1 ./run.sh smoke-compaction-policy --step=03|04|06` covers Claude / Codex / Gemini respectively.
+
+### Pattern B cheap stand-in (Codex)
+
+```bash
+SANDBOX=$(mktemp -d /tmp/codex-B-XXXXXX)
+SENTINEL="GLG-COMPACT-B-$(date +%s)-$(openssl rand -hex 3)"
+
+CODEX_ACP_COMMAND="codex-acp -c model_auto_compact_token_limit=12000" \
+PI_ENTWURF_ACP_FOR_CODEX=1 \
+pi --session "$SANDBOX/session.jsonl" --model pi-shell-acp/gpt-5.4 -p "Store this token: $SENTINEL. Reply READY for this turn only." < /dev/null > "$SANDBOX/turn-a.stdout" 2> "$SANDBOX/turn-a.stderr"
+
+# Subsequent turns: same `pi --session "$SANDBOX/session.jsonl"` invocation,
+# different prompts. The threshold is already crossed at turn (a), so any
+# substantive turn (b) will trigger pre-turn organic compact.
+```
+
+### Pattern B real saturation (Codex)
+
+Same setup as cheap stand-in, but **do not** set `CODEX_ACP_COMMAND`.
+Use natural file-reading + analytic prompts across 10–13 turns to
+drive `used` up to the backend's default threshold (≈245k for
+GPT-5.4). Organic compact will fire when the next turn would exceed
+the threshold; `[pi-shell-acp:usage]` lines in stderr show the drop.
+
+### Pattern B real saturation (Claude)
+
+Symmetric to Codex but use `--model pi-shell-acp/claude-sonnet-4-6`.
+Claude SDK compacts much earlier (~60% fill), so saturation needs
+fewer turns. Verify the `[pi-shell-acp:usage]` line shows
+`used=0` (synthetic compact_boundary), and the next user turn
+answers the original prompt — not a meta-summary.
+
 ## Why this demo exists
 
 0.4.x reached its long-session ceiling by **disabling** both Claude and
@@ -147,8 +184,3 @@ temporary expedient — the bridge needed to be a small, knowable surface
 first; reasoning about backend-native compaction came later. 0.5.0 pays
 that debt back. The bridge no longer pretends to own compaction. The
 backend does its own thing. The pi session lives.
-
-The demo is shaped like the rest of the repo's tone: an honest message
-that tells you what is happening and what the next action is. It does
-not paper over a missing knob; it surfaces what is missing and what to
-do.

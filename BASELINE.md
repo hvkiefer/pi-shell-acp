@@ -267,8 +267,9 @@ the backend can continue.
 | Gemini | ACP does not expose native CLI `/compress` as an ACP command. The release claim records this as an honest ACP asymmetry, not as a failed Claude/Codex-style pass. If Gemini ACP reaches unresolved pressure, the visible continuation surface is a backend stop such as `max_tokens`, not hidden bridge handoff. |
 | Bridge boundary | No backend-specific compact knob is surfaced by the bridge. No summary is injected into pi JSONL. No hidden compact-to-new-session handoff. |
 
-Release evidence lives in `CHANGELOG.md` and `VERIFY.md`; raw probe
-traces remain under `demo/compaction-policy-smoke/probes/`. This row
+Release evidence + per-backend probe outcomes live in
+`demo/compaction-policy-smoke/README.md`; raw turn captures are local
+operator evidence and reproducible from the smoke driver. This row
 intentionally avoids separate per-backend release gates: backend
 differences are recorded as adapter facts under one bridge contract.
 
