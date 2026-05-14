@@ -88,7 +88,7 @@ SCENE_DELAY=30 FINAL_PAUSE=10 bash demo.sh
 ## Prerequisites
 
 - `pi` on PATH (currently 0.74.0)
-- `pi-shell-acp` provider configured + auth ready for both backends
+- `pi-shell-acp` provider configured + auth ready for the selected sender/peer models
 - `asciinema` installed
 - `agg` installed (optional — only for GIF conversion)
 - `tmux` installed

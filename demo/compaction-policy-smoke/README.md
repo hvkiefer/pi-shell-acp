@@ -24,7 +24,7 @@ reason, configure that backend through its own native interface — the
 bridge intentionally does not surface backend-specific compaction names
 or knob shapes.
 
-## Smoke driver — four steps
+## Smoke driver — five steps
 
 | # | What it proves | Mode |
 |---|---|---|
@@ -45,29 +45,23 @@ for triggering backend compaction.
 assertion that names backend-specific compaction strings is itself an
 awareness of those internals and violates the bridge thesis.)
 
-## Two probe shapes — Pattern A and Pattern B
+## Probe shapes — Pattern A and Pattern B
 
-Live probes (03/04/06) come in two shapes that cover different parts
-of the backend-native compaction surface:
+The automated smoke driver covers Pattern A. Pattern B is release
+evidence from manual saturation probes, recorded below so the outcome
+is reviewable without turning backend-specific compaction knobs into a
+bridge-facing recipe.
 
 - **Pattern A — explicit `/compact`.** The driver sends the literal
   string `/compact` as a backend prompt mid-session, then recalls the
   planted sentinel. Tests the explicit user-invoked compaction path.
 - **Pattern B — organic auto-compact.** The session naturally fills
-  with content until the backend's own threshold fires
-  compaction at turn start. Two sub-shapes:
-  - **Cheap stand-in:** lower the backend's native threshold knob
-    (e.g. codex-rs `model_auto_compact_token_limit=12000` via
-    `CODEX_ACP_COMMAND`) so compact fires after a few turns. Proves
-    path reachability end-to-end through the bridge without paying
-    for a real saturation run.
-  - **Real saturation:** drive the session up to the backend's
-    default native window (200k for Claude Sonnet 4.6, ~258k for
-    Codex GPT-5.4) using file reads + heavy analytic prompts.
-    Proves default-condition behavior.
-
-The smoke driver covers Pattern A; Pattern B is run by hand from a
-sandbox cwd when a release needs default-threshold evidence.
+  with content until the backend's own threshold fires compaction at
+  turn start. Release evidence used both a cheap stand-in and real
+  default-window saturation, but this README intentionally does not
+  publish backend-specific threshold recipes. If that evidence must be
+  reconstructed, use the historical notes in `CHANGELOG.md` and keep
+  the distinction clear: probe setup is not a bridge product surface.
 
 ## Classifier — how live probes judge backend-compact
 
@@ -119,7 +113,7 @@ failures.
 |---|---|---|---|
 | 2026-05-13 | Claude Sonnet 4.6 | B real saturation | **pass** after `hooks: {}` overlay fix — organic compact turn answers the triggering prompt. Pre-fix baseline showed prompt-sacrifice failure (compact turn ended in meta-summary instead of the user's next answer); the one-line overlay shape repair closes the axis. |
 | 2026-05-14 | Codex GPT-5.4 | A explicit `/compact` | **pass** — text=`Context compacted`, sentinel preserved. Wire `used` drop 34% (below classifier threshold), so text + sentinel is the load-bearing signal pair on Codex. |
-| 2026-05-14 | Codex GPT-5.4 | B cheap stand-in | **pass** — `model_auto_compact_token_limit=12000` fired pre-turn organic compact; both compact turn and recall preserved sentinel. |
+| 2026-05-14 | Codex GPT-5.4 | B cheap stand-in | **pass** — lowered native threshold fired pre-turn organic compact; both compact turn and recall preserved sentinel. |
 | 2026-05-14 | Codex GPT-5.4 | B real saturation | **pass** — 13-turn file-reading drove `used` to ~244k (~94% of 258k), organic compact fired at turn 12, wire `used` dropped 65%, substantive 982-word answer in the compact turn, sentinel recalled. Codex GPT-5.4 native threshold ≈ 245k. |
 | 2026-05-14 | Gemini 3.1 Pro | explicit `/compact` | **observed (negative)** — Gemini ACP does not advertise `/compact` as a command; literal `/compact` lands as a regular prompt. Native `/compress` exists outside ACP. Recorded as honest ACP asymmetry, not a release pass. |
 
@@ -145,36 +139,14 @@ release claim depends on a preserved fixture.
 
 Use the smoke driver directly — `LIVE=1 ./run.sh smoke-compaction-policy --step=03|04|06` covers Claude / Codex / Gemini respectively.
 
-### Pattern B cheap stand-in (Codex)
+### Pattern B (organic auto-compact)
 
-```bash
-SANDBOX=$(mktemp -d /tmp/codex-B-XXXXXX)
-SENTINEL="GLG-COMPACT-B-$(date +%s)-$(openssl rand -hex 3)"
-
-CODEX_ACP_COMMAND="codex-acp -c model_auto_compact_token_limit=12000" \
-PI_ENTWURF_ACP_FOR_CODEX=1 \
-pi --session "$SANDBOX/session.jsonl" --model pi-shell-acp/gpt-5.4 -p "Store this token: $SENTINEL. Reply READY for this turn only." < /dev/null > "$SANDBOX/turn-a.stdout" 2> "$SANDBOX/turn-a.stderr"
-
-# Subsequent turns: same `pi --session "$SANDBOX/session.jsonl"` invocation,
-# different prompts. The threshold is already crossed at turn (a), so any
-# substantive turn (b) will trigger pre-turn organic compact.
-```
-
-### Pattern B real saturation (Codex)
-
-Same setup as cheap stand-in, but **do not** set `CODEX_ACP_COMMAND`.
-Use natural file-reading + analytic prompts across 10–13 turns to
-drive `used` up to the backend's default threshold (≈245k for
-GPT-5.4). Organic compact will fire when the next turn would exceed
-the threshold; `[pi-shell-acp:usage]` lines in stderr show the drop.
-
-### Pattern B real saturation (Claude)
-
-Symmetric to Codex but use `--model pi-shell-acp/claude-sonnet-4-6`.
-Claude SDK compacts much earlier (~60% fill), so saturation needs
-fewer turns. Verify the `[pi-shell-acp:usage]` line shows
-`used=0` (synthetic compact_boundary), and the next user turn
-answers the original prompt — not a meta-summary.
+Pattern B is intentionally manual and backend-native. Drive a sandboxed
+session toward the backend's own default context threshold with ordinary
+file reads and analytic prompts, then verify `[pi-shell-acp:usage]`
+shows the backend's compact signal and the next turn answers the user
+prompt rather than a bridge-injected summary. Backend-specific threshold
+knob names are not documented here; the bridge does not surface them.
 
 ## Why this demo exists
 

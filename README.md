@@ -212,7 +212,7 @@ The footer uses ACP `usage_update.used / size` (backend prompt/tools/cache/sessi
 
 Identity-isolation env (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`, `GEMINI_SYSTEM_MD`) is unrelated to compaction and ships unconditionally.
 
-Verification: `./run.sh smoke-compaction-policy` (deterministic). `LIVE=1 ./run.sh smoke-compaction-policy` adds backend-owned continuation probes: Claude and Codex carry release evidence for explicit / organic backend compaction, while Gemini is recorded as an honest ACP asymmetry because its native CLI `/compress` is not exposed as an ACP command. Probe outcomes and the three-backend release evidence live in [BASELINE.md](./BASELINE.md) and [VERIFY.md](./VERIFY.md); the probe is not a product surface (no user-facing `/acp-compact`).
+Verification: `./run.sh smoke-compaction-policy` (deterministic). `LIVE=1 ./run.sh smoke-compaction-policy` adds backend-owned continuation probes: Claude and Codex carry release evidence for explicit / organic backend compaction, while Gemini is recorded as an honest ACP asymmetry because its native CLI `/compress` is not exposed as an ACP command. Probe outcomes live in [demo/compaction-policy-smoke/README.md](./demo/compaction-policy-smoke/README.md), with the release baseline and verification framing in [BASELINE.md](./BASELINE.md) and [VERIFY.md](./VERIFY.md); the probe is not a product surface (no user-facing `/acp-compact`).
 
 ## What this repo owns, and does not
 

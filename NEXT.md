@@ -18,11 +18,11 @@
 
 ---
 
-## Current Priority — 0.5.0 Release Doc Cleanup
+## Current Priority — 0.5.0 Release Preflight
 
-Do **not** run `prepare-release` yet. The release content is functionally closed
-enough, but the public-facing docs still need to be short, calibrated, and
-non-repetitive.
+Do **not** run `prepare-release` until GLG reviews the current doc cleanup.
+The release content is functionally closed enough; the remaining work is
+commit hygiene and the release script.
 
 Closed facts already moved out of NEXT:
 
@@ -38,30 +38,17 @@ Closed facts already moved out of NEXT:
 
 ### Next Steps
 
-1. **Trim public docs**
-   - `README.md`: keep the 0.5.0 story short. No investigation tables.
-   - `AGENTS.md`: keep invariants, not release narrative.
-   - `CHANGELOG.md`: carry the detailed release record.
-   - `VERIFY.md` / `BASELINE.md`: carry evidence tables and probe distinctions.
+1. **Review current doc cleanup**
+   - Confirm `README.md` stays short.
+   - Confirm `demo/compaction-policy-smoke/README.md` does not teach
+     backend-specific compaction knobs as a bridge recipe.
+   - Confirm Gemini remains an honest ACP asymmetry, not a fake pass.
 
-2. **Check release wording**
-   - No Claude/Codex-only wording that silently implies Gemini.
-   - No user-facing cross-backend `/compact` promise.
-   - No claim that model-lock is transcript-clean.
-   - No resurrection of `outcome=respawn` as current behavior.
-
-3. **Verify after doc cleanup**
-   - `git diff --check`
-   - `pnpm typecheck`
-   - `./run.sh check-model-lock`
-   - deterministic compaction gate if code or release claims changed:
-     `./run.sh smoke-compaction-policy`
-
-4. **Commit doc cleanup**
+2. **Commit doc cleanup**
    - Separate commit after GLG review.
    - After commit, stamp agenda and notify as usual.
 
-5. **Only then consider `prepare-release`**
+3. **Only then consider `prepare-release`**
    - Run it after NEXT/README/AGENTS/CHANGELOG/VERIFY are aligned.
 
 ---
