@@ -2,7 +2,7 @@
 
 Replicant-testing-replicant verification guide for `pi-shell-acp`.
 
-> **0.4.14 current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing five tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`. Older rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation.
+> **0.5.0 current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing five tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`. The 0.4.x `session-bridge` adapter has been retired — its capabilities folded into the unified `entwurf*` surface. History rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation. Native pi entwurf routing (e.g. `openai-codex/gpt-5.4` without `provider="pi-shell-acp"`) does not enroll `pi-tools-bridge` as an MCP at all — pi delivers entwurf capability via extension surface on the native path, so "MCP not visible" is the correct PASS on native, while ACP-routed targets MUST see `pi-tools-bridge`.
 
 This document is a **working document, not a metrics document**.
 Even if scripts break, an agent that follows these steps and reads the results should be able to immediately determine:
@@ -318,7 +318,7 @@ The interesting evidence layer for Codex is **direct MCP tool calls** — callin
 
 > **Calibration note (2026-04-29, updated for 0.4.14).** A previous version of this section suggested using `list_mcp_resources` as the objective channel. That tool reports MCP-server *resources* (data records), not the server / tool registry. `pi-tools-bridge` exposes tools only, no resources, so `list_mcp_resources` returns `{"resources":[]}` — empty is the correct answer there, not an absence-of-bridge signal. Use the recipe below instead.
 
-Codex objective wiring recipe (verified 2026-04-29; current surface updated 0.4.14):
+Codex objective wiring recipe (verified 2026-04-29; current surface 0.5.0):
 
 1. Call `mcp__pi_tools_bridge__entwurf_peers` with no args.
    - Pass: response includes `controlDir`, integer `count`, and a `sessions` array with real `sessionId` UUIDs and absolute `socketPath` values.
@@ -597,7 +597,7 @@ Observation points:
 
 ### 8.4 pi Custom Tool Visibility Check — Current Key Suspect Point
 
-What we're looking at here is not native tools like `bash`, `read`, `grep`, but **whether pi's custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` — the narrow 0.4.14 set exposed by `mcp/pi-tools-bridge/`) are visible when going through ACP**.
+What we're looking at here is not native tools like `bash`, `read`, `grep`, but **whether pi's custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` — the 0.5.0 set exposed by `mcp/pi-tools-bridge/`) are visible when going through ACP**. Native pi (non-ACP) routing receives the same capability via extension surface, not MCP, so native targets correctly report `pi-tools-bridge` as not visible — see the §1.7 native-vs-ACP axis and the §0 surface note for the boundary.
 
 > **Branching note — which PASS case applies depends on the project's `piShellAcpProvider.mcpServers`.**
 >
@@ -630,10 +630,12 @@ Current code suspect points:
 That is, with the current default (no configuration), **Claude Code native tools are visible but pi custom tools are not** — this is the normal state.
 
 This boundary judgment applies equally to Codex, not just Claude. MCP tool name notation differs between backends — this is a **verified property**, not a guess:
-- Claude: `mcp__pi-tools-bridge__entwurf_send` (hyphen)
-- Codex: `mcp__pi_tools_bridge__entwurf_send` (underscore)
+- Claude: `mcp__pi-tools-bridge__entwurf_send` (hyphen, no dot)
+- Codex: `mcp__pi_tools_bridge__.entwurf_send` (underscore **plus a literal dot** after the server name)
 
-Empirical confirmation: in self-report tests across both backends (2026-04-27, 2026-04-29 runs in History), `claude-sonnet-4-6` reports the hyphen form and `gpt-5.x` (Codex) reports the underscore form. Verifiers SHOULD check that the bridge prefix appears in the form expected for the active backend, not the other one — a Claude session reporting the underscore form (or a Codex session reporting the hyphen form) is a bridge / backend identification leak, not a typo. Set the verification criterion on whether **bridge name (`pi-tools-bridge` for Claude / `pi_tools_bridge` for Codex) + tool suffix** appear together with the right backend pairing.
+The Codex dot suffix is a 0.5.0-verified detail — re-confirmed 2026-05-14 via the cross-vendor cross-routing R2R run (see History). Earlier rows that wrote `mcp__pi_tools_bridge__entwurf_send` without the dot were eliding a real surface character; the dot is what the Codex tool registry literally exposes, and a verifier prompting Codex to print the literal callable identifier will get the dotted form back verbatim.
+
+Empirical confirmation: in self-report tests across both backends (2026-04-27, 2026-04-29 in History; refreshed 2026-05-14 under 0.5.0), `claude-sonnet-4-6` reports the hyphen form and `gpt-5.x` (Codex) reports the underscore-plus-dot form. Verifiers SHOULD check that the bridge prefix appears in the form expected for the active backend, not the other one — a Claude session reporting the underscore form (or a Codex session reporting the hyphen form) is a bridge / backend identification leak, not a typo. Set the verification criterion on whether **bridge name (`pi-tools-bridge` for Claude / `pi_tools_bridge` for Codex) + the backend's separator convention + tool suffix** appear together with the right backend pairing.
 
 > **Two-layer naming — disambiguate before asking.** The bridge identifier has two distinct separator layers, and a sloppy prompt can match either:
 >
@@ -644,10 +646,11 @@ Empirical confirmation: in self-report tests across both backends (2026-04-27, 2
 >
 > ```
 > Print the exact identifier you would use to call entwurf_peers,
-> verbatim, no quoting changes. Pick whichever of these forms is
-> actually present in your tool registry:
->   mcp__pi-tools-bridge__entwurf_peers
->   mcp__pi_tools_bridge__entwurf_peers
+> verbatim, no quoting changes. Whichever of these forms is actually
+> present in your tool registry — copy it byte for byte, including any
+> dot or other punctuation:
+>   mcp__pi-tools-bridge__entwurf_peers      (Claude form)
+>   mcp__pi_tools_bridge__.entwurf_peers     (Codex form, note the dot)
 > ```
 >
 > Do NOT use:
@@ -679,7 +682,7 @@ Register one explicit pi-facing MCP in the project settings. In the current rele
 From the same project, throw a prompt like "list the visible MCP server names separated by commas" to the `pi-shell-acp/claude-sonnet-4-6` target via one sync `entwurf`.
 
 Pass:
-- The registered MCP (`pi-tools-bridge` in the default 0.4.14 setup) appears in the response list
+- The registered MCP (`pi-tools-bridge` in the default 0.5.0 setup) appears in the response list
 - Unregistered MCPs are not visible (confirms no automatic `~/.mcp.json` loading)
 
 **resume/load/new consistency (multi-turn):**
