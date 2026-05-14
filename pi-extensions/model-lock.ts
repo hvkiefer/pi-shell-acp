@@ -74,7 +74,7 @@
  *     2026-05-14 ~13:30 KST, session pi:019e24c0-1251-...
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PI_SHELL_ACP_PROVIDER = "pi-shell-acp";
 

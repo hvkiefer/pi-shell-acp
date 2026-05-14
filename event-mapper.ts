@@ -1,4 +1,4 @@
-import type { AssistantMessage, AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { BridgePromptEvent } from "./acp-bridge.js";
 
 // Backend-emitted notifications that flow through this mapper untransformed.

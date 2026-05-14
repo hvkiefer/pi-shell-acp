@@ -2333,7 +2333,7 @@ async function collectModels(envOverride) {
   // advertise gpt-5.5 ctx=1,050,000 while the openai-codex source reflects what
   // codex-acp actually delivers. As of pi-ai 0.70.2 the entire openai-codex
   // gpt-5.x line declares 272,000.
-  // Values below must match @mariozechner/pi-ai getModels("openai-codex") —
+  // Values below must match @earendil-works/pi-ai getModels("openai-codex") —
   // if upstream updates a context, update this gate with it.
   const CODEX_EXPECTED_CTX = {
     'gpt-5.4':      272000,

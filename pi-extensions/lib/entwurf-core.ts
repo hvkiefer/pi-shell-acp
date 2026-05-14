@@ -5,7 +5,7 @@
  *   - pi-extensions/entwurf.ts (pi native tool surface)
  *   - mcp/pi-tools-bridge/src/index.ts (MCP tool surface for ACP hosts)
  *
- * This module MUST NOT import anything from @mariozechner/pi-coding-agent or any
+ * This module MUST NOT import anything from @earendil-works/pi-coding-agent or any
  * other pi runtime API. It is pure Node + @sinclair/typebox-free.  Anything that
  * requires pi's ExtensionAPI (sendMessage, appendEntry, sessionManager) belongs
  * in the async entwurf path, which stays in pi-extensions/entwurf.ts for now.

@@ -4,7 +4,7 @@
  * Ingested from Armin Ronacher's `agent-stuff` (Apache 2.0) —
  *   https://github.com/mitsuhiko/agent-stuff (extensions/control.ts)
  * The AI-summarization `get_summary` command was dropped during ingest so
- * this file no longer depends on `@mariozechner/pi-ai.complete`. Model-routed
+ * this file no longer depends on `@earendil-works/pi-ai.complete`. Model-routed
  * summarization belongs to consumer skills, not to the entwurf-control
  * protocol surface that pi-shell-acp publishes.
  *
@@ -76,7 +76,7 @@ import * as path from "node:path";
 // directly mixes typebox 0.34 (Type.*) with typebox 1.x (StringEnum, TSchema
 // inside pi-coding-agent), which silently widens StringEnum-typed parameters
 // to `unknown` and broke renderCall/execute narrowing. Single-source-of-typebox.
-import { StringEnum, type TextContent, Type } from "@mariozechner/pi-ai";
+import { StringEnum, type TextContent, Type } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
@@ -85,9 +85,9 @@ import type {
 	MessageRenderer,
 	ToolRenderResultOptions,
 	TurnEndEvent,
-} from "@mariozechner/pi-coding-agent";
-import { getMarkdownTheme, type Theme } from "@mariozechner/pi-coding-agent";
-import { Box, Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
+import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { ENTWURF_SENT_MESSAGE_TYPE } from "../protocol.js";
 
 const ENTWURF_FLAG = "entwurf-control";
