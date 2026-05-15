@@ -87,15 +87,20 @@ warning about non-bundled plugins auto-loading.
 ## Configuration
 
 The plugin exposes five configuration keys (see
-`openclaw.plugin.json` for full schema):
+`openclaw.plugin.json` for full schema). Two are wired in this
+prerelease; the rest are reserved for the next development phase.
 
-| Key | Default | Effect |
-|---|---|---|
-| `mcpInjection` | `"self"` | Who owns MCP server registration in the child `pi` session. `self` lets the child attach its own `pi-tools-bridge`. Other values are rarely needed. |
-| `lockConflictPolicy` | `"strict"` | What happens when `entwurf_resume` receives a model that differs from the anchored model. `strict` refuses; `new-session` forks. |
-| `piBinaryPath` | first `pi` on `PATH` | Override path to the `pi` binary. |
-| `entwurfTargetsPath` | `~/.pi/agent/entwurf-targets.json` | Override the entwurf-targets registry path. |
-| `spawnTimeoutSeconds` | `60` | Max wait for ACP bootstrap. |
+| Key | Default | Status | Effect |
+|---|---|---|---|
+| `piBinaryPath` | first `pi` on `PATH` | **wired** | Override path to the `pi` binary. |
+| `spawnTimeoutSeconds` | `60` | **wired** (turn-level cap in this stub) | Max wait for the child `pi` process before SIGTERM. Real plugin will scope this to ACP bootstrap only. |
+| `mcpInjection` | `"self"` | reserved | Who owns MCP server registration in the child `pi` session. `self` lets the child attach its own `pi-tools-bridge`. The current stub always behaves as `self` regardless of this setting. |
+| `lockConflictPolicy` | `"strict"` | reserved | What happens when `entwurf_resume` receives a model that differs from the anchored model. The current stub does not yet enforce either policy. |
+| `entwurfTargetsPath` | `~/.pi/agent/entwurf-targets.json` | reserved | Override the entwurf-targets registry path. The current stub does not yet read this setting. |
+
+Reserved keys are accepted by the schema for forward compatibility
+but do not change behavior in the prerelease. They land in Phase 1.4
+when the stub is rewritten as a real ACP plugin.
 
 ## Limitations (prerelease)
 

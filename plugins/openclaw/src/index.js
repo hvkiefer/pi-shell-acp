@@ -204,11 +204,27 @@ function realStreamFn(model, context, options, factoryCtx) {
 	const userText = buildConversationPrompt(context);
 	const signal = options && options.signal;
 
+	// Plugin config (from openclaw.plugin.json configSchema). The factoryCtx
+	// shape is OpenClaw's, so we feel for the conventional location and fall
+	// back to defaults if it is shaped differently than expected.
+	const pluginConfig = (factoryCtx && (factoryCtx.pluginConfig || factoryCtx.config || factoryCtx.settings)) || {};
+	const piBinary =
+		typeof pluginConfig.piBinaryPath === "string" && pluginConfig.piBinaryPath.length > 0
+			? pluginConfig.piBinaryPath
+			: "pi";
+	const spawnTimeoutMs =
+		(typeof pluginConfig.spawnTimeoutSeconds === "number" && pluginConfig.spawnTimeoutSeconds > 0
+			? pluginConfig.spawnTimeoutSeconds
+			: 60) * 1000;
+
 	if (!userText) {
 		const empty = buildEmptyAssistantMessage(model);
 		empty.stopReason = "error";
 		empty.errorMessage = "No user text in context.messages";
-		queueMicrotask(() => stream.end(empty));
+		queueMicrotask(() => {
+			stream.push({ type: "error", error: empty });
+			stream.end(empty);
+		});
 		return stream;
 	}
 
@@ -254,7 +270,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 
 	let child;
 	try {
-		child = spawn("pi", args, {
+		child = spawn(piBinary, args, {
 			stdio: ["ignore", "pipe", "pipe"],
 			cwd: workspaceDir || undefined,
 			env: { ...process.env, PI_OFFLINE: "1" },
@@ -262,10 +278,21 @@ function realStreamFn(model, context, options, factoryCtx) {
 	} catch (err) {
 		const empty = buildEmptyAssistantMessage(model);
 		empty.stopReason = "error";
-		empty.errorMessage = "Failed to spawn pi: " + String(err && err.message ? err.message : err);
-		queueMicrotask(() => stream.end(empty));
+		empty.errorMessage = "Failed to spawn '" + piBinary + "': " + String(err && err.message ? err.message : err);
+		queueMicrotask(() => {
+			stream.push({ type: "error", error: empty });
+			stream.end(empty);
+		});
 		return stream;
 	}
+
+	// spawnTimeoutSeconds — bound the child lifetime. PoC stub treats this as
+	// a turn-level cap; the real plugin will use it strictly for ACP bootstrap.
+	const spawnTimer = setTimeout(() => {
+		try {
+			child.kill("SIGTERM");
+		} catch {}
+	}, spawnTimeoutMs);
 
 	if (signal && typeof signal.addEventListener === "function") {
 		signal.addEventListener("abort", () => {
@@ -330,16 +357,19 @@ function realStreamFn(model, context, options, factoryCtx) {
 	});
 
 	child.on("error", (err) => {
+		clearTimeout(spawnTimer);
 		const fallback = buildEmptyAssistantMessage(model);
 		fallback.stopReason = "error";
 		fallback.errorMessage = "pi child error: " + String(err && err.message ? err.message : err);
 		if (!started) {
 			stream.push({ type: "start", partial: fallback });
 		}
+		stream.push({ type: "error", error: fallback });
 		stream.end(fallback);
 	});
 
 	child.on("close", (code, sigSignal) => {
+		clearTimeout(spawnTimer);
 		if (finalMessage) {
 			stream.push({ type: "done", message: finalMessage });
 			stream.end(finalMessage);
@@ -357,6 +387,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 		if (!started) {
 			stream.push({ type: "start", partial: fallback });
 		}
+		stream.push({ type: "error", error: fallback });
 		stream.end(fallback);
 	});
 

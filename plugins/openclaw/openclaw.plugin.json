@@ -3,7 +3,6 @@
 	"name": "pi-shell-acp",
 	"description": "Surface pi-shell-acp (Claude Code / Codex / Gemini ACP bridge) as a first-class pi provider. The bridge runtime lives upstream; this plugin is glue only.",
 	"providers": ["pi-shell-acp"],
-	"providerCatalogEntry": "./provider-catalog.ts",
 	"activation": {
 		"onStartup": true
 	},
@@ -16,13 +15,13 @@
 				"type": "string",
 				"enum": ["self", "openclaw-bridge", "both"],
 				"default": "self",
-				"description": "How MCP servers are injected into the child pi session. 'self' (default) lets the child pi binary attach its own pi-tools-bridge catalog. 'openclaw-bridge' forwards the OpenClaw pluginToolsMcpBridge / openClawToolsMcpBridge. 'both' attaches both (rarely useful — may produce duplicate registrations)."
+				"description": "RESERVED (not yet wired in prerelease). How MCP servers are injected into the child pi session. 'self' (default) lets the child pi binary attach its own pi-tools-bridge catalog. 'openclaw-bridge' forwards the OpenClaw pluginToolsMcpBridge / openClawToolsMcpBridge. 'both' attaches both (rarely useful — may produce duplicate registrations). Wired in Phase 1.4."
 			},
 			"lockConflictPolicy": {
 				"type": "string",
 				"enum": ["strict", "new-session"],
 				"default": "strict",
-				"description": "Behavior when entwurf_resume receives a model that conflicts with the session's anchored model. 'strict' (default) honors pi-shell-acp's identity preservation rule and fails fast. 'new-session' automatically forks a fresh entwurf session."
+				"description": "RESERVED (not yet wired in prerelease). Behavior when entwurf_resume receives a model that conflicts with the session's anchored model. 'strict' (default) honors pi-shell-acp's identity preservation rule and fails fast. 'new-session' automatically forks a fresh entwurf session. Wired in Phase 1.4."
 			},
 			"piBinaryPath": {
 				"type": "string",
@@ -32,13 +31,13 @@
 			"entwurfTargetsPath": {
 				"type": "string",
 				"minLength": 1,
-				"description": "Optional override for the entwurf-targets registry. Defaults to ~/.pi/agent/entwurf-targets.json."
+				"description": "RESERVED (not yet wired in prerelease). Optional override for the entwurf-targets registry. Defaults to ~/.pi/agent/entwurf-targets.json. Wired in Phase 1.4."
 			},
 			"spawnTimeoutSeconds": {
 				"type": "number",
 				"minimum": 1,
 				"default": 60,
-				"description": "Maximum time to wait for the child pi process to complete ACP bootstrap before erroring."
+				"description": "Maximum time to wait for the child pi process before killing it. In the prerelease stub this is treated as a turn-level cap; the real plugin will use it strictly for ACP bootstrap."
 			}
 		}
 	},

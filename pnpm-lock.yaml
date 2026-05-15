@@ -46,6 +46,8 @@ importers:
         specifier: ^6.0.2
         version: 6.0.3
 
+  plugins/openclaw: {}
+
 packages:
 
   '@agentclientprotocol/claude-agent-acp@0.33.1':
