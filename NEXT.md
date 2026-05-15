@@ -145,7 +145,7 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 | 1.6 | `plugins/openclaw/README.md` — acpx alternative narrative. **pi 단어 마케팅 zero**, 클로드코드 구독 멘트 금지. 사용자가 본인 API key 사용한다는 명시 | 공개면 가드레일 |
 | 1.7 | 수동설치 가이드 정리 — `openclaw plugins install <local-path>` with `--dangerously-force-unsafe-install` 필요 (5.12 install scanner block 회피). **이건 PoC / Oracle 검증용 only**. Phase 3 ClawHub 등록 후엔 flag 불필요 | 5.12 trust gate 사실 명시 |
 | **1.7.1** | **Docker auth boundary + 잔여 housekeeping** — (a) `plugins/openclaw/README.md` 에 새 "Docker boundary" 섹션 (host passthrough vs in-container login, public default = in-container login). (b) `plugins/openclaw/AGENTS.md` maintainer 룰 갱신. (c) 잔여 housekeeping: R1 `stream/` 빈 dir 제거, R3 AGENTS "Purpose" 현재 vs Phase 1.4 layout 명시, R5 README Limitations 의 DIAGNOSTIC stdout 한 줄, R6 `src/index.js:60` `_EventStream` 의 Phase 1.4 교체 주석, R7 manifest `piBinaryPath` description 정확화. (d) 루트 README/AGENTS 의 monorepo + deployment-surface-agnostic 한 줄씩 (별도 commit). **§Docker auth boundary 참고** | Oracle = Docker 환경 발견 (2026-05-15) + Claude Code 리뷰 R1/R3/R5/R6/R7 흡수 |
-| 1.8 | Oracle install + daily-use 시작 — pi-shell-acp 본체와 openclaw plugin 동시 install. 일상 사용 중 발견 문제 → llmlog / NEXT 로 환류 | **Phase 1 의 keystone** |
+| 1.8 | Oracle install + daily-use 시작 — pi-shell-acp 본체와 openclaw plugin 동시 install. 일상 사용 중 발견 문제 → llmlog / NEXT 로 환류 | **Phase 1 의 keystone**. **사전조건 (Oracle 측, 우리 영역 아님)**: Docker image 의 3-layer install — (1) `pi` binary, (2) `pi install git:github.com/junghan0611/pi-shell-acp`, (3) `pnpm add -g @zed-industries/codex-acp @google/gemini-cli` + `git` system pkg. compose volume = 세 backend (`~/.claude`, `~/.codex`, `~/.gemini`) 모두 in-container login 또는 host passthrough 정책 일관 적용. 자세한 layout 은 plugin AGENTS.md §Install layers 참고 |
 | 1.9 | Opus turn lifecycle 재검증 (Phase 0 dep bump 결과 확인) — Oracle 에서 Opus 모델로 짧은 대화 가능한지 | 어제 Sonnet 만 검증, Opus 는 dep bump 후 미확인 |
 | 1.10 | OpenClaw SDK 의 sanctioned spawn helper 존재 여부 확인 (`@openclaw/plugin-sdk/*`) | Phase 3 의 ClawHub trust path 입력 |
 
@@ -244,6 +244,7 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 | 2.8 | issue #16 잔여 gate 처리 — task-notification 재현 smoke, cancel 후 same-session reuse smoke, empty-aborted assistant surface regression test | Phase 0 closeout 잔여 |
 | 2.9 | Phase 2 invariant 재확인 — "no Claude credentials / no subscription resale / no auth bypass / fail loudly / no hidden transcript restoration" | #15 |
 | 2.10 | **publish 자체 보류** — 모든 gate 통과 후 GLG 가 직접 결정. publish 시점은 `pi install npm:pi-shell-acp` 가 진짜로 동작하는 그 다음 | #13 |
+| 2.11 | **Codex resolve fallback** — `acp-bridge.ts` 의 codex spawn path 를 Claude 와 같은 `require.resolve("@zed-industries/codex-acp/package.json")` 우선, PATH fallback 패턴으로 정렬. root AGENTS.md Runtime Dependencies 갱신 + `check-dep-versions` 갱신. invariant #7 정합 + Docker 운영 단순화 부수 효과 | #15 hardening, three-backend equality |
 
 ### Phase 2 sample 패키지 참고
 
@@ -285,6 +286,8 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 - **`ctx.messages` SSOT 모델 공식화**: plugin spec 으로 명시 가치 — 다른 backend (Codex/Gemini) 도 같은 모양 plug-in 가능
 - **OpenClaw compose default 검토** (Docker auth boundary §): 공개 install 가이드의 기본 권장이 in-container login 인지 host passthrough 인지. Claude Code auth refresh 가 read-only mount 에서 동작하는지 검증. 우리 측 의견은 Phase 1 §Docker auth boundary 의 표 참고
 - **Long-lived session 시 entwurf scope (Phase 1.4 또는 이후)**: plugin path 가 현재 `--no-session` 으로 entwurf 표면을 자연 차단. 미래 long-lived ACP session 으로 가면 두 갈래 결정 필요 — (I) entwurf 를 plugin 의 child pi 안에서 그대로 활성화 (isolated topology, root AGENTS.md #9 정합) vs (II) entwurf 호출을 OpenClaw peer API 로 forward (host-coupled, #9 위반). 현재 정책 = I. (II) 는 OpenClaw SDK enhancement 필요, 지금 결정 안 함. plugin AGENTS.md §Entwurf scope 참고
+- **Oracle Docker image 3-layer install (Oracle config repo 측)**: openclaw-gateway 컨테이너에 `pi`, `pi-shell-acp`, `codex-acp`, `gemini` 추가. `git` system pkg + pnpm global. 자세한 layout 은 plugin AGENTS.md §Install layers. Phase 1.8 의 사전조건 — Oracle 측이 진행, 우리 측 plugin code 변경 없음
+- **Codex resolve fallback (우리 측 — Phase 2 stabilization)**: 현재 root `AGENTS.md` Runtime Dependencies 는 `codex-acp` PATH-only. Claude 는 `package dep first, PATH fallback`. 비대칭 — invariant #7 (three-backend equality) 의 미세 위반. Codex 도 `require.resolve("@zed-industries/codex-acp/package.json")` 우선, PATH fallback 패턴으로 정렬. Docker 운영 단순화 부수 효과. Phase 2 의 #15 hardening 안에 흡수 (no-feature refactor 정신과 정합)
 
 ---
 

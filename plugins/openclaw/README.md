@@ -45,15 +45,17 @@ for those tools.
 If your OpenClaw runs inside Docker, the backend CLI (Claude Code /
 Codex / Gemini) must be authenticated *inside the container that
 runs OpenClaw*, because that is where this plugin spawns `pi` and
-where `pi` reads `~/.claude`, `~/.codex`, etc.
+where `pi` reads `~/.claude`, `~/.codex`, `~/.gemini`.
 
 There are two supported ways to satisfy this. The plugin does the
-same thing in both cases; the difference is operator policy.
+same thing in both cases; the difference is operator policy. The
+same choice applies independently per backend (you can do
+in-container login for one and host passthrough for another).
 
 | Option | Who is it for | How |
 |---|---|---|
-| **B. Login inside the container** (public default, recommended) | General users, public deployments | Compose mounts a named volume for `/home/node/.claude` etc. Operator runs `docker compose exec openclaw-gateway claude login` (and `codex login` / `gemini` equivalents) once. Auth stays inside the container's volume; the host never exposes its credentials. |
-| **A. Pass host backend auth through to the container** (advanced, opt-in) | Trusted single-user deployments (the maintainer's own Oracle box, for example) | Compose mounts host paths read/write: `-v ~/.claude:/home/node/.claude`, etc. The container can now use the host's logged-in Claude Code / Codex / Gemini. Treat this as making the container part of your trust boundary. |
+| **B. Login inside the container** (public default, recommended) | General users, public deployments | Compose mounts named volumes for `/home/node/.claude`, `/home/node/.codex`, `/home/node/.gemini`. Operator runs `docker compose exec openclaw-gateway claude login` (and the `codex login` / Gemini auth equivalents) once. Auth stays inside the container's volume; the host never exposes its credentials. |
+| **A. Pass host backend auth through to the container** (advanced, opt-in) | Trusted single-user deployments (the maintainer's own server, for example) | Compose bind-mounts host paths read/write: `-v ~/.claude:/home/node/.claude`, `-v ~/.codex:/home/node/.codex`, `-v ~/.gemini:/home/node/.gemini`. The container can now use the host's logged-in CLIs. Treat this as making the container part of your trust boundary. |
 
 This plugin does **not** copy, proxy, decrypt, or otherwise mediate
 any backend credential. It only spawns a child `pi` process and lets
@@ -61,8 +63,16 @@ that process read whatever the official CLI would read. The choice
 above is about which filesystem the official CLI is reading from,
 not about pi-shell-acp's behavior.
 
-Native (non-Docker) installs do not need any of this — the official
-CLI is already authenticated on the host where OpenClaw runs.
+Also required inside the container, but independent of the auth
+choice above: the `pi` binary itself, the `pi-shell-acp` package
+installed against that `pi`, and the backend ACP executables —
+`codex-acp` and `gemini` on `PATH`. The OpenClaw image is
+responsible for layering these in; this plugin assumes they are
+present at runtime.
+
+Native (non-Docker) installs do not need any of this — the
+official CLIs are already authenticated and present on the host
+where OpenClaw runs.
 
 ## Install (manual, prerelease)
 

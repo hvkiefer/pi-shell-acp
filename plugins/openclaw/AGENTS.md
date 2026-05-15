@@ -136,25 +136,68 @@ process's filesystem. The plugin must never:
   green light. It is only a security-scan bypass for the install
   step.
 
-When OpenClaw runs in Docker, two operator policies are valid:
+When OpenClaw runs in Docker, two operator policies are valid.
+The same policy applies independently to each backend the user
+wants reachable — Claude, Codex, Gemini:
 
-- **In-container login** (public default): mount a named volume for
-  `/home/node/.claude`; user runs `claude login` inside the
-  container.
+- **In-container login** (public default): mount a named volume
+  for `/home/node/.claude`, `/home/node/.codex`,
+  `/home/node/.gemini`; user runs `claude login`, `codex login`,
+  and the Gemini auth flow inside the container. Auth never
+  crosses the container boundary.
 - **Host passthrough** (advanced opt-in, trusted single-user):
-  bind-mount the host `~/.claude` into the container. Mounting host
-  auth means the container is part of the operator's trust
-  boundary. Document, do not normalize.
+  bind-mount the host paths read/write — `~/.claude`, `~/.codex`,
+  `~/.gemini` — into the container. Mounting host auth means the
+  container is part of the operator's trust boundary. Document,
+  do not normalize.
 
 The user-facing README explains both options. The maintainer rule
 is that the plugin code does not branch on which option the
 operator chose — it does the same thing in both cases, because the
 auth state lives in the filesystem, not in plugin logic.
 
-OpenClaw's own compose-default policy (whether `~/.claude:...` is
-the default or an advanced option) is the OpenClaw side's call,
-not ours. Tracked under "OpenClaw compose default" in the parent
-repo's NEXT.md.
+OpenClaw's own compose-default policy (whether `~/.claude:...`,
+`~/.codex:...`, `~/.gemini:...` are defaults or advanced options)
+is the OpenClaw side's call, not ours. Tracked under "OpenClaw
+compose default" in the parent repo's NEXT.md.
+
+## Install layers (Docker host responsibility)
+
+In a Docker deployment, three layers must be present in the image
+before this plugin is usable. None of them are this plugin's job
+to install — they are the OpenClaw image's responsibility — but
+the plugin assumes all three exist at runtime, so they are
+documented here for the install agent.
+
+1. **`pi` binary on `PATH`.** The plugin calls `spawn(piBinary,
+   args, ...)` with `piBinary` defaulting to `"pi"`. Without `pi`
+   in the container's `PATH`, the plugin returns an error event on
+   every turn.
+
+2. **`pi-shell-acp` installed against that `pi`.** `pi install
+   git:github.com/junghan0611/pi-shell-acp` (or the eventual
+   `pi install npm:pi-shell-acp` once Phase 2 publishes) makes the
+   bridge runtime available to the child `pi` process. The
+   `claude-agent-acp` and `codex-acp` dependencies that pi-shell-acp
+   declares come along automatically.
+
+3. **Backend ACP executables.** `claude-agent-acp` resolves from
+   the pi-shell-acp package itself (Claude path) and works as long
+   as the pi-shell-acp install above succeeded. `codex-acp` and
+   `gemini` are currently expected on `PATH` (see Runtime
+   Dependencies in the root AGENTS.md). For a Docker image,
+   installing them globally (`pnpm add -g @zed-industries/codex-acp
+   @google/gemini-cli`) is the simplest reproducible path. A
+   pi-shell-acp-side improvement is tracked in NEXT (see
+   Cross-repo follow-ups: "Codex resolve fallback") to make this
+   more symmetric with Claude — that change moves Codex from
+   PATH-only to `require.resolve` first, PATH fallback, the same
+   shape Claude uses today.
+
+The plugin itself does not build a Docker image, does not ship a
+Dockerfile, and does not assume any specific compose topology. It
+only assumes the three layers above are present in whatever
+process spawns it.
 
 ## Configuration Knobs
 
