@@ -144,6 +144,7 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 | 1.5 | `tsdown` 빌드 + watch mode + `~/.openclaw/extensions/pi-shell-acp` symlink fast iteration | OpenClaw convention |
 | 1.6 | `plugins/openclaw/README.md` — acpx alternative narrative. **pi 단어 마케팅 zero**, 클로드코드 구독 멘트 금지. 사용자가 본인 API key 사용한다는 명시 | 공개면 가드레일 |
 | 1.7 | 수동설치 가이드 정리 — `openclaw plugins install <local-path>` with `--dangerously-force-unsafe-install` 필요 (5.12 install scanner block 회피). **이건 PoC / Oracle 검증용 only**. Phase 3 ClawHub 등록 후엔 flag 불필요 | 5.12 trust gate 사실 명시 |
+| **1.7.1** | **Docker auth boundary 문서화** — `plugins/openclaw/README.md` 에 새 "Docker boundary" 섹션. host passthrough (`-v ~/.claude:/home/node/.claude`) vs in-container login (`docker compose exec ... claude login`) 두 갈래 명시. **public default = in-container login**, host passthrough = advanced trusted-single-user. AGENTS.md maintainer 룰 같이 갱신. **§Docker auth boundary 참고** | Oracle = Docker 환경 발견 (2026-05-15) |
 | 1.8 | Oracle install + daily-use 시작 — pi-shell-acp 본체와 openclaw plugin 동시 install. 일상 사용 중 발견 문제 → llmlog / NEXT 로 환류 | **Phase 1 의 keystone** |
 | 1.9 | Opus turn lifecycle 재검증 (Phase 0 dep bump 결과 확인) — Oracle 에서 Opus 모델로 짧은 대화 가능한지 | 어제 Sonnet 만 검증, Opus 는 dep bump 후 미확인 |
 | 1.10 | OpenClaw SDK 의 sanctioned spawn helper 존재 여부 확인 (`@openclaw/plugin-sdk/*`) | Phase 3 의 ClawHub trust path 입력 |
@@ -166,6 +167,40 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 | #6 cwd 전달 (`ctx.workspaceDir → spawn cwd`) | 1.4 |
 | #7 `ctx.messages` SSOT serialize | 1.4 (b) — 어제 GREEN 닻 그대로 |
 | #8 sandboxed worker context (writeFileSync silent fail) | 1.4 (f) — console.log only |
+
+### §Docker auth boundary (Oracle = Docker 환경 발견, 2026-05-15)
+
+> **배경.** Oracle 의 OpenClaw 는 Docker 컨테이너 안에서 동작 — 우리 측 (thinkpad lab 검증) 에서는 이전에 인지 못 함. 5.12 에서 OpenClaw 가 host codex auth → docker passthrough 작업했고, 같은 패턴이 Claude Code 에도 적용 가능한가의 결정. **pi-shell-acp 측 코드 변경 0** — 우리는 deployment surface 무관, backend CLI 의 auth state 가 SSOT.
+
+#### 결정 — 두 갈래
+
+| 선택지 | 사용자 | 명령 / 설정 | 우리 plugin 위치 |
+|--------|-------|------------|----------------|
+| **A. host passthrough** (advanced) | trusted single-user (개인 운영자, Oracle 본인) | compose volume `~/.claude:/home/node/.claude` (rw). host Claude Code 가 이미 로그인된 상태 | README 의 **Advanced** section. opt-in 만 |
+| **B. in-container login** (**public default**) | 일반 공개 사용자 | compose volume `openclaw-claude-home:/home/node/.claude` (named volume). `docker compose exec openclaw-gateway claude login` 으로 컨테이너 내부 인증 | README 의 **Requirements** + **Docker boundary** 기본 권장 |
+
+#### pi-shell-acp 측 invariant — 변함 없음
+
+- `pi-shell-acp does not provide Claude credentials, tokens, or subscription access.` (README#15 기존 문구)
+- `does not extract tokens, proxy OAuth, or emulate Claude Code.`
+- 우리는 `$HOME/.claude` 또는 `CLAUDE_CONFIG_DIR` 환경만 가정. 그 안의 내용 / refresh / mount mode 는 사용자 책임.
+- **deployment surface (Docker / native / SSH) 와 무관.** invariant 는 backend CLI 의 auth state 가 어디서 읽히는지 보지 않음.
+
+#### 1.7.1 작업 영역 (코드 변경 0)
+
+- `plugins/openclaw/README.md` — 새 **"Docker boundary"** section. 위 두 갈래 표 + 명령 예시. **B (in-container login) 가 default 권장**, A (host passthrough) 는 "trusted single-user, opt-in" 라벨.
+- `plugins/openclaw/AGENTS.md` — maintainer 룰. host passthrough 가 trusted boundary 임을 명시. `Mounting host auth is sensitive and means the container is trusted.` 같은 문장.
+- Root `AGENTS.md` (선택, 작은 추가) — invariant 섹션에 "deployment surface 와 무관" 한 줄.
+
+#### OpenClaw 측 협의 영역 (별도)
+
+- OpenClaw 의 compose 기본값 — `~/.claude:/home/node/.claude` rw 가 dev 편의용 default 인지 검토. 공개 install 가이드에서는 in-container login 을 기본으로 내려야 함.
+- Claude Code auth refresh 가 read-only mount 에서 깨지는지 검증 필요.
+- pi-shell-acp plugin 이 missing auth 일 때 명확한 에러 (이미 commit `340e58f` 의 error event push 로 일부 해소).
+
+#### Trigger
+
+이 섹션은 **설치 에이전트가 작업 시 SSOT** — README/AGENTS 갱신할 때 위 표 + invariant 문구 그대로 옮긴다. 새 invariant 만들지 말 것, 기존 #15 의 boundary 가 deployment surface 무관임을 명시하는 갱신만.
 
 ---
 
@@ -236,6 +271,7 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 - **pi CLI `--new-session` 표면 검토**: `pi -p "..." --session <new-id>` lookup-only. pi 자체 시멘틱 갭. pi-ai / pi-coding-agent 레벨 issue 후보
 - **OpenClaw SDK sanctioned spawn helper 확인**: `@openclaw/plugin-sdk/*` 정식 entrypoints 에 있는지. 없으면 enhancement PR 후보
 - **`ctx.messages` SSOT 모델 공식화**: plugin spec 으로 명시 가치 — 다른 backend (Codex/Gemini) 도 같은 모양 plug-in 가능
+- **OpenClaw compose default 검토** (Docker auth boundary §): 공개 install 가이드의 기본 권장이 in-container login 인지 host passthrough 인지. Claude Code auth refresh 가 read-only mount 에서 동작하는지 검증. 우리 측 의견은 Phase 1 §Docker auth boundary 의 표 참고
 
 ---
 
