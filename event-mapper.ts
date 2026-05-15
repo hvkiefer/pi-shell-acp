@@ -7,14 +7,17 @@ import type { BridgePromptEvent } from "./acp-bridge.js";
 // reading a transcript with one of these tokens does not assume the bridge
 // injected it.
 //
-//  - claude-agent-acp 0.32.0+: `usage_update` notifications may carry
+//  - claude-agent-acp 0.33.0+: `usage_update` notifications may carry
 //    `_meta._claude/origin = { kind: "task-notification" | ... }`. Set when a
 //    Claude session-level task-notification autonomously triggered an
 //    assistant turn (the user did not prompt). The bridge passes `_meta`
 //    through unchanged. Cost still lands in pi accounting via `usage_update`,
 //    but the upstream stop_reason is suppressed for task-notification
 //    followups so the user-visible turn lifecycle stays anchored to the
-//    user prompt.
+//    user prompt. Before 0.33.0 (e.g. the 0.32.0 pin that produced issue #16
+//    evidence) the task-notification followup could leak into user-turn
+//    stopReason / local-command forwarding, obscuring the boundary between
+//    human prompts and autonomous background notifications.
 //
 //  - codex-acp 0.13.0+: a new `ThreadGoalUpdated` event is forwarded as
 //    plain agent text via `client.send_agent_text("Goal updated (active|paused|...): <objective>")`.

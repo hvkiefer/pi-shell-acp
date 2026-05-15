@@ -52,7 +52,7 @@ pi install ./
 Codex backend:
 
 ```bash
-pnpm add -g @zed-industries/codex-acp@0.13.0
+pnpm add -g @zed-industries/codex-acp@0.14.0
 ./run.sh smoke-codex /path/to/your-project
 ```
 

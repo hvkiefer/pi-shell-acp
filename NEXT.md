@@ -93,6 +93,25 @@ acpx 가 자기 1.0 도 못 넘은 자리에 6.0 까지 도달. (b3a) plugin-onl
 > #15 stabilization + #13 publish prep 통합. **새 기능 만들지 않는다.**
 > "no-feature refactor and hardening phase" — 문서/경계/감사성 강화만.
 
+### Phase 1 interrupt — issue #16 turn lifecycle bug (2026-05-15)
+
+> OpenClaw plugin / pi.dev hardening 전에 먼저 분해한다.
+> 증거 bundle: `.agent-reports/issue-16-019e28b9/` (git ignored)
+> llmlog: `20260515T094644`
+
+현재 판독:
+- stale background poller (`biiz7aa7f`) 는 실제였지만 전부가 아니다.
+- Claude raw transcript 에서 `<task-notification>` 이 user message 로 dequeue 된다 (`origin.kind=task-notification`). 즉 단순 UI 알림이 아니라 transcript/turn lifecycle 을 소비한다.
+- 이후 정상 질문 `12버전에서 openai 로그인이 변경되었다는게 뭐지?` 는 enqueue/dequeue 후 assistant content 없이 `[Request interrupted by user]` → pi surface 에 빈 `stopReason=aborted` 로 남았다.
+
+2026-05-15 bugfix bump 완료 (commit 대기):
+- `@agentclientprotocol/claude-agent-acp` `0.32.0` → **`0.33.1`** (package.json / pnpm-lock / run.sh `CLAUDE_ACP_REQUIRED_VERSION`). **상류 `0.33.0` commit `dba1998` / PR #627** "Handle result origins in ACP agent" — `isTaskNotification = message.origin?.kind === "task-notification"` 도입, 네 가지 stopReason 대입 (`cancelled` / `max_tokens` / `end_turn` / `max_turn_requests`) + local-slash-command result forwarding 을 전부 게이트. `usage_update._meta._claude/origin` forwarding 도 0.33.0 신규. 0.32.0 에서는 task-notification followup 의 stop_reason 이 user-turn lifecycle 을 오염시킬 수 있었고, issue #16 의 background-notification / human-turn 경계 혼탁과 직접 맞물린다. `event-mapper.ts` 의 invariant 코멘트는 `0.33.0+` 로 정정.
+- `@zed-industries/codex-acp` `0.13.0` → **`0.14.0`** (package.json / pnpm-lock / run.sh `CODEX_ACP_REQUIRED_VERSION` / README install pin / global pnpm). 0.13 이후 변경분: codex 0.129, exec output delta O(N²) memory fix, image-generation tool call emit. (note: `Reload auth file before failing check_auth()` 는 이미 0.13.0 에 포함된 fix — GPT 분석에서 0.14 신규로 잘못 분류했던 항목 정정.)
+- `@google/gemini-cli` global `0.42.0` 그대로. repo dep 아니라 PATH runtime. 0.40.x → 0.42.x 에서 `homedir()` 함수 본문 미변경 확인 (`bundle/chunk-ECNYAST2.js:41713-41719`) → `acp-bridge.ts` 의 overlay path-resolution invariant 손대지 않음 (코멘트만 검증 범위 확장).
+- 검증 통과: `pnpm typecheck` / `pnpm lint` / `check-dep-versions` / `check-backends` / `check-mcp` / `check-models` / `check-registration` / `check-sdk-surface` / `smoke-claude` / `smoke-codex` / `smoke-gemini`. 세 백엔드 모두 `stopReason = end_turn` + 텍스트 emit 정상.
+- 잔여 gate (별도 작업): task-notification 재현 smoke, cancel 후 same-session reuse smoke, empty-aborted assistant surface regression test. 0.33.x 의 origin-aware filtering 이 두 번째 증상 (raw.332 빈 aborted) 까지 잡는지 직접 재현으로 확정 필요.
+- issue #16 코멘트 + close 후보. evidence bundle `.agent-reports/issue-16-019e28b9/` 는 gitignore 유지.
+
 ### Phase 1 의 invariant (#15 에서 재확인)
 
 - `pi-shell-acp does not provide Claude credentials, tokens, or subscription access.`

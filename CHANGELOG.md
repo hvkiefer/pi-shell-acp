@@ -4,6 +4,15 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+### Fixed
+
+- Bumped `@agentclientprotocol/claude-agent-acp` from `0.32.0` to `0.33.1`, picking up upstream origin-aware handling for `task-notification` followups so autonomous background-task results no longer bleed into the user-turn lifecycle. This is the first fix candidate for issue #16's background-notification / human-turn boundary failure.
+
+### Changed
+
+- Bumped `@zed-industries/codex-acp` from `0.13.0` to `0.14.0`, aligning the bridge with the current Codex ACP release and its Codex 0.129 / exec-output handling updates.
+- Reconfirmed the external `gemini-cli` `0.42.0` path-resolution invariant used by the Gemini overlay; pi-shell-acp still treats Gemini as a PATH runtime rather than a package dependency.
+
 ## 0.5.0 — 2026-05-14
 
 ### Changed — pi-shell-acp session model lock

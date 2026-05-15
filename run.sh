@@ -2741,8 +2741,8 @@ verify_resume() {
     --model "$model"
 }
 
-CLAUDE_ACP_REQUIRED_VERSION="0.32.0"
-CODEX_ACP_REQUIRED_VERSION="0.13.0"
+CLAUDE_ACP_REQUIRED_VERSION="0.33.1"
+CODEX_ACP_REQUIRED_VERSION="0.14.0"
 
 check_global_claude_acp() {
   local installed

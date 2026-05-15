@@ -1662,7 +1662,8 @@ export function ensureCodexConfigOverlay(
 // from the operator's `~/.gemini/`.
 // ============================================================================
 //
-// Path-resolution invariant (verified against gemini-cli 0.40.x source):
+// Path-resolution invariant (verified against gemini-cli 0.40.x and 0.42.x
+// bundle source — `homedir()` body unchanged across the bump):
 //
 //   homedir()              = process.env.GEMINI_CLI_HOME ?? os.homedir()
 //                            (packages/core/src/utils/paths.ts:22-28)
