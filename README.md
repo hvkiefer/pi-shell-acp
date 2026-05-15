@@ -66,6 +66,14 @@ gemini   # one-time interactive login (oauth-personal) or set GEMINI_API_KEY
 
 Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex`, Gemini → `gemini`. Set `backend` only to pin.
 
+### Host adapters
+
+This repo also carries `plugins/*` — sibling packages that adapt the same bridge to non-pi hosts. Currently:
+
+- [`plugins/openclaw`](./plugins/openclaw) — OpenClaw plugin, prerelease (manual install only; not published to npm or ClawHub yet).
+
+Each adapter has its own `README.md`. They do not change the pi-facing surface above.
+
 ### Emacs frontends
 
 Works from terminals and from Emacs frontends that launch [pi-coding-agent](https://github.com/dnouri/pi-coding-agent).
