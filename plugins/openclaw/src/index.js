@@ -161,6 +161,7 @@ function createAssistantMessageEventStream() {
 // This is a PoC stub — real plugin (in pi-shell-acp repo) will use ACP stdio
 // framing directly instead of shelling out to the pi CLI.
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 function extractTextFromMessage(msg) {
 	if (!msg) return "";
@@ -417,6 +418,14 @@ function realStreamFn(model, context, options, factoryCtx) {
 	];
 
 	let child;
+	console.log(
+		`[pi-shell-acp DIAG] pre-spawn` +
+			` signalPresent=${signal ? "1" : "0"}` +
+			` signalAborted=${signal && signal.aborted ? "1" : "0"}` +
+			` model=${modelId}` +
+			` deliveryViaMessageTool=${deliveryViaMessageTool ? "1" : "0"}`,
+	);
+
 	try {
 		child = spawn(piBinary, args, {
 			stdio: ["ignore", "pipe", "pipe"],
@@ -443,6 +452,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 
 	let finalized = false;
 	let exitFallbackTimer = null;
+	let zombiePollTimer = null;
 	let buffer = "";
 	let finalMessage = null;
 	let started = false;
@@ -453,6 +463,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 		finalized = true;
 		clearTimeout(spawnTimer);
 		if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
+		if (zombiePollTimer) clearInterval(zombiePollTimer);
 		console.log(
 			`[pi-shell-acp DIAG] child finalize kind=${kind}` +
 				` code=${String(code)}` +
@@ -501,21 +512,57 @@ function realStreamFn(model, context, options, factoryCtx) {
 		setTimeout(() => finalizeChild("timeout", null, "SIGTERM"), 1000).unref?.();
 	}, spawnTimeoutMs);
 
+	function readLinuxProcessState(pid) {
+		if (!pid || process.platform !== "linux") return null;
+		try {
+			const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+			const end = stat.lastIndexOf(")");
+			const rest =
+				end >= 0
+					? stat
+							.slice(end + 2)
+							.trim()
+							.split(/\s+/)
+					: [];
+			return rest[0] || null;
+		} catch {
+			return "missing";
+		}
+	}
+
+	zombiePollTimer = setInterval(() => {
+		if (finalized) return;
+		const state = readLinuxProcessState(child.pid);
+		if (state === "Z" || state === "X" || state === "missing") {
+			console.log(`[pi-shell-acp DIAG] child poll finalize pid=${child.pid || "-"}` + ` procState=${String(state)}`);
+			finalizeChild(`poll:${String(state)}`, null, null);
+		}
+	}, 1000);
+	zombiePollTimer.unref?.();
+
 	if (signal && typeof signal.addEventListener === "function") {
-		signal.addEventListener("abort", () => {
-			console.log(`[pi-shell-acp DIAG] options.signal abort pid=${child.pid || "-"}`);
-			try {
-				child.kill("SIGTERM");
-			} catch {}
-			setTimeout(() => finalizeChild("abort", null, "SIGTERM"), 1000).unref?.();
-		});
+		if (signal.aborted) {
+			console.log(`[pi-shell-acp DIAG] options.signal already-aborted pid=${child.pid || "-"}`);
+		}
+		signal.addEventListener(
+			"abort",
+			() => {
+				console.log(`[pi-shell-acp DIAG] options.signal abort pid=${child.pid || "-"}`);
+				try {
+					child.kill("SIGTERM");
+				} catch {}
+				setTimeout(() => finalizeChild("abort", null, "SIGTERM"), 1000).unref?.();
+			},
+			{ once: true },
+		);
 	}
 
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => {
 		buffer += chunk;
-		let nl = buffer.indexOf("\n");
-		while (nl >= 0) {
+		while (true) {
+			const nl = buffer.indexOf("\n");
+			if (nl < 0) break;
 			const line = buffer.slice(0, nl).trim();
 			buffer = buffer.slice(nl + 1);
 			if (!line) continue;
@@ -556,8 +603,6 @@ function realStreamFn(model, context, options, factoryCtx) {
 			if ((event.type === "message_end" || event.type === "turn_end") && event.message) {
 				finalMessage = event.message;
 			}
-
-			nl = buffer.indexOf("\n");
 		}
 	});
 
