@@ -26,7 +26,7 @@
 			"piBinaryPath": {
 				"type": "string",
 				"minLength": 1,
-				"description": "Optional absolute path to the pi binary. Defaults to the first 'pi' on PATH."
+				"description": "Optional path or PATH-resolvable name of the pi binary. Accepts an absolute path, a PATH-relative command name, or any value valid as the first argument to spawn(). Defaults to 'pi' resolved against the runtime PATH."
 			},
 			"entwurfTargetsPath": {
 				"type": "string",

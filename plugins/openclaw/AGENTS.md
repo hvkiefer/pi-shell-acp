@@ -30,17 +30,31 @@ This file applies to work under `plugins/openclaw/` in the
 OpenClaw treats `pi-shell-acp/<model-id>` as a regular pi provider. The
 real bridge runtime is the `pi-shell-acp` package (consumed via the
 `pi-coding-agent` `ExtensionAPI.registerProvider` slot inside the child
-pi process). This extension contains *only* the OpenClaw-side glue:
+pi process). This plugin contains *only* the OpenClaw-side glue.
+
+**Current shape (prerelease, this commit):**
 
 - `openclaw.plugin.json` — manifest declaring `providers: ["pi-shell-acp"]`
   and the plugin's configSchema.
-- `provider.ts` — `ProviderPlugin` implementation. Plugin-only path (see
-  §Plugin Path).
-- `provider-catalog.ts` — `staticCatalog` row builder + `FALLBACK_MODELS`
-  mirroring the curated pi-shell-acp model set.
-- `stream/stdio-transport.ts` — child pi spawn + ACP framing.
-- `stream/identity.ts` — env / control socket fd propagation.
-- `stream/model-lock.ts` — entwurf identity preservation enforcement.
+- `src/index.js` — single-file plain-JS stub. Registers the provider,
+  serializes `ctx.messages` into a single prompt for `pi -p`, spawns a
+  child `pi` process per turn, and proxies its `--mode json` stream back
+  to OpenClaw. Each (b3a) GREEN observation from 2026-05-14/15 flowed
+  through this file. Wire artifact, not the final shape.
+- `README.md`, `AGENTS.md` — user-facing and maintainer-facing docs.
+
+**Target shape after Phase 1.4 ts refactor:**
+
+- `src/provider.ts` — `ProviderPlugin` implementation. Plugin-only path
+  (see §Plugin Path).
+- `src/provider-catalog.ts` — `staticCatalog` row builder +
+  `FALLBACK_MODELS` mirroring the curated pi-shell-acp model set.
+- `src/stream/stdio-transport.ts` — child pi spawn + ACP framing.
+- `src/stream/identity.ts` — env / control socket fd propagation.
+- `src/stream/model-lock.ts` — entwurf identity preservation enforcement.
+
+Until Phase 1.4 lands, the single `src/index.js` carries all of the above
+inline. Treat the target layout as plan, not as missing files.
 
 ## Plugin Path (not config path)
 
@@ -76,6 +90,40 @@ only supported entry point.
   plugin, separate transport.
 - The two are not migration paths for each other. Short-term they
   coexist.
+
+## Docker auth boundary (maintainer rule)
+
+This plugin is deployment-surface-agnostic. It spawns a child `pi`
+process and lets `pi` (and the official backend CLIs underneath it)
+read whatever `~/.claude`, `~/.codex`, etc. are visible in that
+process's filesystem. The plugin must never:
+
+- copy backend credentials between filesystems;
+- read or rewrite credential files;
+- proxy OAuth, emulate Claude Code login, or fabricate auth state;
+- treat `dangerouslyForceUnsafeInstall` as a credential-handling
+  green light. It is only a security-scan bypass for the install
+  step.
+
+When OpenClaw runs in Docker, two operator policies are valid:
+
+- **In-container login** (public default): mount a named volume for
+  `/home/node/.claude`; user runs `claude login` inside the
+  container.
+- **Host passthrough** (advanced opt-in, trusted single-user):
+  bind-mount the host `~/.claude` into the container. Mounting host
+  auth means the container is part of the operator's trust
+  boundary. Document, do not normalize.
+
+The user-facing README explains both options. The maintainer rule
+is that the plugin code does not branch on which option the
+operator chose — it does the same thing in both cases, because the
+auth state lives in the filesystem, not in plugin logic.
+
+OpenClaw's own compose-default policy (whether `~/.claude:...` is
+the default or an advanced option) is the OpenClaw side's call,
+not ours. Tracked under "OpenClaw compose default" in the parent
+repo's NEXT.md.
 
 ## Configuration Knobs
 

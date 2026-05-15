@@ -60,8 +60,12 @@ function stubModel(modelId) {
 
 // Inlined AssistantMessageEventStream (mirrors @mariozechner/pi-ai's
 // utils/event-stream.js). External plugin can't resolve pi-ai from its own
-// node_modules, so we duck-type the class. Real plugin will depend on pi-ai
-// properly and use `createAssistantMessageEventStream()`.
+// node_modules, so we duck-type the class.
+//
+// Phase 1.4 (ts refactor) replaces this inline class with an import from
+// @earendil-works/pi-ai (the same lineage, post-rebrand). The stub keeps
+// the duck-type only because Phase 1 of the plugin ships as plain JS
+// without a build step.
 class _EventStream {
 	constructor(isComplete, extractResult) {
 		this.isComplete = isComplete;

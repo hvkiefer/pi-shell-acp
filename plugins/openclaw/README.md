@@ -34,9 +34,35 @@ for those tools.
 
 - OpenClaw `>=2026.5.12 <2026.6.0`.
 - Locally authenticated Claude Code / Codex / Gemini CLI (one or
-  more), each through their own normal auth flow.
+  more), each through their own normal auth flow — **inside whatever
+  runtime OpenClaw is actually running in** (host, Docker container,
+  remote machine). See [Docker boundary](#docker-boundary) below.
 - `pi` binary on `PATH` (this plugin spawns a child `pi` process per
   turn to handle ACP framing).
+
+## Docker boundary
+
+If your OpenClaw runs inside Docker, the backend CLI (Claude Code /
+Codex / Gemini) must be authenticated *inside the container that
+runs OpenClaw*, because that is where this plugin spawns `pi` and
+where `pi` reads `~/.claude`, `~/.codex`, etc.
+
+There are two supported ways to satisfy this. The plugin does the
+same thing in both cases; the difference is operator policy.
+
+| Option | Who is it for | How |
+|---|---|---|
+| **B. Login inside the container** (public default, recommended) | General users, public deployments | Compose mounts a named volume for `/home/node/.claude` etc. Operator runs `docker compose exec openclaw-gateway claude login` (and `codex login` / `gemini` equivalents) once. Auth stays inside the container's volume; the host never exposes its credentials. |
+| **A. Pass host backend auth through to the container** (advanced, opt-in) | Trusted single-user deployments (the maintainer's own Oracle box, for example) | Compose mounts host paths read/write: `-v ~/.claude:/home/node/.claude`, etc. The container can now use the host's logged-in Claude Code / Codex / Gemini. Treat this as making the container part of your trust boundary. |
+
+This plugin does **not** copy, proxy, decrypt, or otherwise mediate
+any backend credential. It only spawns a child `pi` process and lets
+that process read whatever the official CLI would read. The choice
+above is about which filesystem the official CLI is reading from,
+not about pi-shell-acp's behavior.
+
+Native (non-Docker) installs do not need any of this — the official
+CLI is already authenticated on the host where OpenClaw runs.
 
 ## Install (manual, prerelease)
 
@@ -112,6 +138,9 @@ when the stub is rewritten as a real ACP plugin.
   for ACP backends is being tuned.
 - Tested under Sonnet against the OpenClaw `2026.5.12` baseline.
   Other models work but are less exercised.
+- Each turn emits a `[pi-shell-acp DIAG] ...` line to the gateway's
+  stdout for diagnostic purposes. This is intentional during
+  prerelease and goes away with the Phase 1.4 rewrite.
 
 ## Boundary statement
 

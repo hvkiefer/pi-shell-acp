@@ -141,10 +141,10 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 | 1.2 | `plugins/openclaw/package.json` — name `@junghan0611/openclaw-pi-shell-acp` (private 표시 가능), peer `openclaw >=2026.5.12 <2026.6.0`, dep `@earendil-works/pi-ai@0.74.0`, managed peers `claude-agent-acp@0.33.1` / `codex-acp@0.14.0` / `@google/gemini-cli` | dep 버전 Phase 0 dep bump 와 동일 pin |
 | 1.3 | `openclaw.plugin.json` — manifest. `providers: ["pi-shell-acp"]`, `setup.providers[].envVars: [ANTHROPIC_API_KEY, GEMINI_API_KEY, ...]`, configSchema (mcpInjection `self`, lockConflictPolicy `strict`) | OpenClaw 룰 따름 |
 | 1.4 | `src/index.ts` — `definePluginEntry → registerProvider("pi-shell-acp", { models, staticCatalog, streamSimple: createStreamFn(ctx), resolveSyntheticAuth })`. **stub 의 production-grade 정리**: (a) cwd 전달 / (b) ctx.messages serialize / (c) PI_SESSION_ID env / (e) timestamp wrapper strip 또는 frame / (f) console.log only (no writeFileSync) | 어제 Phase 0 검증 8가지 부산 발견 다 반영 |
-| 1.5 | `tsdown` 빌드 + watch mode + `~/.openclaw/extensions/pi-shell-acp` symlink fast iteration | OpenClaw convention |
+| 1.5 | `tsdown` 빌드 + watch mode + `~/.openclaw/extensions/pi-shell-acp` symlink fast iteration | **1.4 의 산출물 build step. 1.4 전엔 no-op** — 현재 `src/index.js` 가 manifest `extensions` 의 직접 entry, build 단계 없음 |
 | 1.6 | `plugins/openclaw/README.md` — acpx alternative narrative. **pi 단어 마케팅 zero**, 클로드코드 구독 멘트 금지. 사용자가 본인 API key 사용한다는 명시 | 공개면 가드레일 |
 | 1.7 | 수동설치 가이드 정리 — `openclaw plugins install <local-path>` with `--dangerously-force-unsafe-install` 필요 (5.12 install scanner block 회피). **이건 PoC / Oracle 검증용 only**. Phase 3 ClawHub 등록 후엔 flag 불필요 | 5.12 trust gate 사실 명시 |
-| **1.7.1** | **Docker auth boundary 문서화** — `plugins/openclaw/README.md` 에 새 "Docker boundary" 섹션. host passthrough (`-v ~/.claude:/home/node/.claude`) vs in-container login (`docker compose exec ... claude login`) 두 갈래 명시. **public default = in-container login**, host passthrough = advanced trusted-single-user. AGENTS.md maintainer 룰 같이 갱신. **§Docker auth boundary 참고** | Oracle = Docker 환경 발견 (2026-05-15) |
+| **1.7.1** | **Docker auth boundary + 잔여 housekeeping** — (a) `plugins/openclaw/README.md` 에 새 "Docker boundary" 섹션 (host passthrough vs in-container login, public default = in-container login). (b) `plugins/openclaw/AGENTS.md` maintainer 룰 갱신. (c) 잔여 housekeeping: R1 `stream/` 빈 dir 제거, R3 AGENTS "Purpose" 현재 vs Phase 1.4 layout 명시, R5 README Limitations 의 DIAGNOSTIC stdout 한 줄, R6 `src/index.js:60` `_EventStream` 의 Phase 1.4 교체 주석, R7 manifest `piBinaryPath` description 정확화. (d) 루트 README/AGENTS 의 monorepo + deployment-surface-agnostic 한 줄씩 (별도 commit). **§Docker auth boundary 참고** | Oracle = Docker 환경 발견 (2026-05-15) + Claude Code 리뷰 R1/R3/R5/R6/R7 흡수 |
 | 1.8 | Oracle install + daily-use 시작 — pi-shell-acp 본체와 openclaw plugin 동시 install. 일상 사용 중 발견 문제 → llmlog / NEXT 로 환류 | **Phase 1 의 keystone** |
 | 1.9 | Opus turn lifecycle 재검증 (Phase 0 dep bump 결과 확인) — Oracle 에서 Opus 모델로 짧은 대화 가능한지 | 어제 Sonnet 만 검증, Opus 는 dep bump 후 미확인 |
 | 1.10 | OpenClaw SDK 의 sanctioned spawn helper 존재 여부 확인 (`@openclaw/plugin-sdk/*`) | Phase 3 의 ClawHub trust path 입력 |
@@ -197,6 +197,18 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 - OpenClaw 의 compose 기본값 — `~/.claude:/home/node/.claude` rw 가 dev 편의용 default 인지 검토. 공개 install 가이드에서는 in-container login 을 기본으로 내려야 함.
 - Claude Code auth refresh 가 read-only mount 에서 깨지는지 검증 필요.
 - pi-shell-acp plugin 이 missing auth 일 때 명확한 에러 (이미 commit `340e58f` 의 error event push 로 일부 해소).
+
+#### child_process trust model — Phase 별 SSOT
+
+5.12 의 `install-security-scan.runtime.ts` 가 `child_process` 사용 시 default block. 우회 경로 3개를 phase 별로:
+
+| Path | 설명 | 어디서 박혔는가 |
+|------|------|---------------|
+| **(A) ClawHub 정식 등록** | `trustedSourceLinkedOfficialInstall` — production trust gate | **Phase 3 산출물** (`@junghan0611/openclaw-pi-shell-acp` npm publish + ClawHub 등록) |
+| **(B) `--dangerously-force-unsafe-install` flag** | 운영자 escape, 일반 사용자 권장 불가 | **Phase 1.7 + plugin README** install 가이드. PoC / Oracle 검증용 only |
+| **(C) SDK sanctioned spawn helper** | `@openclaw/plugin-sdk/*` 정식 entrypoint (존재 여부 미확인) | **Phase 1.10** (확인) → 없으면 OpenClaw 측 SDK enhancement PR 후보. (A) 와 병행 가능 |
+
+세 경로가 한 곳에 모이지 않아 묻혔던 axis. (A) 가 종착점, (B) 가 PoC 단계 임시, (C) 가 (A) 와 병행 R&D.
 
 #### Trigger
 
