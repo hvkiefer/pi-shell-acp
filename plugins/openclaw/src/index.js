@@ -232,11 +232,108 @@ function buildEmptyAssistantMessage(model) {
 	};
 }
 
+function isMessageToolDeliveryPrompt(text) {
+	return typeof text === "string" && text.includes("Delivery: to send a message, use the `message` tool.");
+}
+
+function parseJsonBlocks(text) {
+	const blocks = [];
+	if (typeof text !== "string" || !text) return blocks;
+	const re = /```json\s*([\s\S]*?)```/g;
+	let match = re.exec(text);
+	while (match) {
+		try {
+			blocks.push(JSON.parse(match[1]));
+		} catch {
+			// Ignore untrusted/non-JSON blocks.
+		}
+		match = re.exec(text);
+	}
+	return blocks;
+}
+
+function extractMessageDeliveryArgs(text, replyText) {
+	const blocks = parseJsonBlocks(text);
+	let conversationInfo = null;
+	for (const block of blocks) {
+		if (block && typeof block === "object" && (block.chat_id || block.message_id || block.topic_id)) {
+			conversationInfo = block;
+			break;
+		}
+	}
+	const rawTo =
+		conversationInfo && typeof conversationInfo.chat_id === "string" && conversationInfo.chat_id.trim()
+			? conversationInfo.chat_id.trim()
+			: null;
+	const to = rawTo || "telegram";
+	const provider = to.includes(":") ? to.split(":", 1)[0] : "telegram";
+	const args = {
+		action: "send",
+		channel: provider,
+		to,
+		message: replyText || "",
+	};
+	if (conversationInfo && typeof conversationInfo.topic_id === "string" && conversationInfo.topic_id.trim()) {
+		args.threadId = conversationInfo.topic_id.trim();
+	}
+	return args;
+}
+
+function extractAssistantText(message) {
+	return extractTextFromMessage(message).trim();
+}
+
+function buildMessageToolCallAssistantMessage(model, promptText, replyText) {
+	const message = buildEmptyAssistantMessage(model);
+	message.content = [
+		{
+			type: "toolCall",
+			id: "pi-shell-acp-message-" + Date.now().toString(36),
+			name: "message",
+			arguments: extractMessageDeliveryArgs(promptText, replyText),
+		},
+	];
+	message.stopReason = "toolUse";
+	message.timestamp = Date.now();
+	return message;
+}
+
+function isAfterSyntheticMessageToolResult(context) {
+	const messages = context && Array.isArray(context.messages) ? context.messages : [];
+	const last = messages[messages.length - 1];
+	if (!last || last.role !== "toolResult") return false;
+	for (let i = messages.length - 2; i >= 0; i--) {
+		const msg = messages[i];
+		if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+		return msg.content.some(
+			(block) =>
+				block &&
+				block.type === "toolCall" &&
+				block.name === "message" &&
+				typeof block.id === "string" &&
+				block.id.startsWith("pi-shell-acp-message-"),
+		);
+	}
+	return false;
+}
+
 function realStreamFn(model, context, options, factoryCtx) {
 	const stream = createAssistantMessageEventStream();
+	if (isAfterSyntheticMessageToolResult(context)) {
+		const done = buildEmptyAssistantMessage(model);
+		done.stopReason = "end_turn";
+		done.timestamp = Date.now();
+		queueMicrotask(() => {
+			stream.push({ type: "start", partial: done });
+			stream.push({ type: "done", reason: done.stopReason, message: done });
+			stream.end(done);
+		});
+		return stream;
+	}
 	// Serialize full conversation history into a single prompt — pi non-interactive
 	// is stateless per call, so OpenClaw's context.messages is the source of truth.
 	const userText = buildConversationPrompt(context);
+	const deliveryViaMessageTool = isMessageToolDeliveryPrompt(userText);
 	const signal = options && options.signal;
 
 	// Plugin config (from openclaw.plugin.json configSchema). The factoryCtx
@@ -300,8 +397,24 @@ function realStreamFn(model, context, options, factoryCtx) {
 	// event stream, ephemeral pi session (OpenClaw owns conversation state).
 	// We let pi load workspace context files + skills from the workspace cwd.
 	// The userText prompt already contains the full conversation transcript
-	// built by buildConversationPrompt().
-	const args = ["-p", userText, "--no-session", "--no-tools", "--mode", "json", "--offline"];
+	// built by buildConversationPrompt(). When OpenClaw's inbound delivery
+	// prompt requires the `message` tool, the child pi still runs with
+	// --no-tools; this stub converts the final assistant text into an OpenClaw
+	// message toolCall at the provider boundary.
+	const modelId = (model && typeof model.id === "string" && model.id) || "claude-sonnet-4-6";
+	const args = [
+		"-p",
+		userText,
+		"--no-session",
+		"--no-tools",
+		"--mode",
+		"json",
+		"--offline",
+		"--provider",
+		PROVIDER_ID,
+		"--model",
+		modelId,
+	];
 
 	let child;
 	try {
@@ -361,6 +474,12 @@ function realStreamFn(model, context, options, factoryCtx) {
 			// AssistantMessageEvent. Re-emit the inner event onto our stream.
 			if (event.type === "message_update" && event.assistantMessageEvent) {
 				const inner = event.assistantMessageEvent;
+				// For Telegram/message-tool-only delivery, do not leak the child pi's
+				// plain text deltas as visible assistant text. Buffer until finalMessage,
+				// then synthesize a message toolCall.
+				if (deliveryViaMessageTool) {
+					continue;
+				}
 				if (!started) {
 					stream.push({
 						type: "start",
@@ -406,6 +525,14 @@ function realStreamFn(model, context, options, factoryCtx) {
 	child.on("close", (code, sigSignal) => {
 		clearTimeout(spawnTimer);
 		if (finalMessage) {
+			if (deliveryViaMessageTool) {
+				const replyText = extractAssistantText(finalMessage);
+				const toolMessage = buildMessageToolCallAssistantMessage(model, userText, replyText);
+				stream.push({ type: "start", partial: toolMessage });
+				stream.push({ type: "done", reason: toolMessage.stopReason, message: toolMessage });
+				stream.end(toolMessage);
+				return;
+			}
 			stream.push({ type: "done", message: finalMessage });
 			stream.end(finalMessage);
 			return;
