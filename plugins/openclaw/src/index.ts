@@ -3,8 +3,169 @@
 // before pi-shell-acp 측 fills in the real stdio ACP transport.
 //
 // Once Step 2 (pi-shell-acp/openclaw-plugin/) lands, this stub is replaced.
+//
+// Types are intentionally local minimal interfaces, not imports from
+// @earendil-works/pi-ai or @openclaw/plugin-sdk. The stub stays
+// dependency-free in Phase 1 — the strict guards exist for the surface this
+// file actually touches, and Phase 1.4 swaps these for SDK types proper.
+
+import { type ChildProcess, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const PROVIDER_ID = "pi-shell-acp";
+
+// ───────────────────────── pi-ai message shape (narrow) ─────────────────────────
+
+type Role = "user" | "assistant" | "toolResult";
+
+interface TextContent {
+	type: "text";
+	text: string;
+}
+
+interface ThinkingContent {
+	type: "thinking";
+	thinking?: string;
+}
+
+interface ToolCallBlock {
+	type: "toolCall";
+	id: string;
+	name: string;
+	arguments: Record<string, unknown>;
+}
+
+type ContentBlock = TextContent | ThinkingContent | ToolCallBlock | { type: string; [key: string]: unknown };
+
+interface Usage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
+interface AssistantMessage {
+	role: "assistant";
+	content: ContentBlock[];
+	api: string;
+	provider: string;
+	model: string;
+	usage: Usage;
+	stopReason?: string;
+	errorMessage?: string;
+	timestamp?: number;
+}
+
+interface InboundMessage {
+	role: Role;
+	content: ContentBlock[] | string;
+}
+
+type AssistantMessageEvent =
+	| { type: "start"; partial: AssistantMessage }
+	| { type: "done"; message: AssistantMessage; reason?: string }
+	| { type: "error"; error: AssistantMessage }
+	| { type: string; partial?: AssistantMessage; message?: AssistantMessage; [key: string]: unknown };
+
+// ───────────────────────── model / context / options ─────────────────────────
+
+interface StubModelRow {
+	id: string;
+	name: string;
+	api: string;
+	provider: string;
+	input: string[];
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	contextWindow: number;
+	maxTokens: number;
+	reasoning: boolean;
+}
+
+interface Context {
+	messages?: InboundMessage[];
+	workspaceDir?: string;
+}
+
+interface StreamOptions {
+	signal?: AbortSignal;
+	sessionId?: string;
+	workspaceDir?: string;
+}
+
+interface FactoryCtx {
+	workspaceDir?: string;
+	agentDir?: string;
+	pluginConfig?: PluginConfig;
+	config?: PluginConfig;
+	settings?: PluginConfig;
+}
+
+interface PluginConfig {
+	mcpInjection?: "self" | "openclaw-bridge" | "both";
+	lockConflictPolicy?: "strict" | "new-session";
+	piBinaryPath?: string;
+	entwurfTargetsPath?: string;
+	spawnTimeoutSeconds?: number;
+}
+
+interface ResolveDynamicModelCtx {
+	modelId: string;
+}
+
+interface StaticCatalogPayload {
+	provider: string;
+	models: Array<Omit<StubModelRow, "provider">>;
+}
+
+interface SyntheticAuth {
+	apiKey: string;
+	source: string;
+	mode: "api-key";
+}
+
+interface ProviderPlugin {
+	id: string;
+	label: string;
+	staticCatalog: { run: () => StaticCatalogPayload };
+	resolveDynamicModel: (ctx: ResolveDynamicModelCtx) => StubModelRow;
+	createStreamFn: (ctx: FactoryCtx) => (model: StubModelRow, context: Context, options?: StreamOptions) => EventStream;
+	resolveSyntheticAuth: (ctx: unknown) => SyntheticAuth;
+}
+
+interface PluginLogger {
+	info?: (message: string) => void;
+	error?: (message: string) => void;
+}
+
+interface PluginRegisterApi {
+	registerProvider: (plugin: ProviderPlugin) => void;
+	logger?: PluginLogger;
+}
+
+interface ConfigSchemaSuccess {
+	success: true;
+	data: PluginConfig | undefined;
+}
+
+interface ConfigSchemaFailure {
+	success: false;
+	error: { issues: Array<{ path: Array<string | number>; message: string }> };
+}
+
+interface ConfigSchema {
+	safeParse: (value: unknown) => ConfigSchemaSuccess | ConfigSchemaFailure;
+	jsonSchema: { type: "object"; additionalProperties: true };
+}
+
+interface PluginEntry {
+	id: string;
+	name: string;
+	description: string;
+	configSchema: ConfigSchema;
+	register: (api: PluginRegisterApi) => void;
+}
+
+// ───────────────────────── stub models ─────────────────────────
 
 // Curated to match pi-shell-acp's SUPPORTED_*_MODEL_IDS in root index.ts.
 // Claude: claude-sonnet-4-6, claude-opus-4-7 (Opus surfaces at 1M context
@@ -15,7 +176,7 @@ const PROVIDER_ID = "pi-shell-acp";
 // dropdown display only — the real routing values come from pi-shell-acp's
 // runtime resolver. Tightening these to match the bridge exactly is a
 // Phase 1.4 ts refactor item.
-const STUB_MODELS = [
+const STUB_MODELS: StubModelRow[] = [
 	{
 		id: "claude-sonnet-4-6",
 		name: "claude-sonnet-4-6",
@@ -73,7 +234,7 @@ const STUB_MODELS = [
 	},
 ];
 
-function stubModel(modelId) {
+function stubModel(modelId: string): StubModelRow {
 	const match = STUB_MODELS.find((m) => m.id === modelId);
 	if (match) return match;
 	return {
@@ -89,26 +250,36 @@ function stubModel(modelId) {
 	};
 }
 
-// Inlined AssistantMessageEventStream (mirrors @mariozechner/pi-ai's
-// utils/event-stream.js). External plugin can't resolve pi-ai from its own
-// node_modules, so we duck-type the class.
-//
-// Phase 1.4 (ts refactor) replaces this inline class with an import from
-// @earendil-works/pi-ai (the same lineage, post-rebrand). The stub keeps
-// the duck-type only because Phase 1 of the plugin ships as plain JS
-// without a build step.
-class _EventStream {
-	constructor(isComplete, extractResult) {
+// ───────────────────────── inline AssistantMessageEventStream ─────────────────────────
+
+// Mirrors @mariozechner/pi-ai's utils/event-stream.js. External plugin can't
+// resolve pi-ai from its own node_modules, so we duck-type the class. Phase
+// 1.4 (ts refactor) swaps this for an import from @earendil-works/pi-ai (same
+// lineage, post-rebrand).
+
+type AsyncWaiter = (result: { value: AssistantMessageEvent | undefined; done: boolean }) => void;
+
+class EventStream {
+	private readonly isComplete: (event: AssistantMessageEvent) => boolean;
+	private readonly extractResult: (event: AssistantMessageEvent) => AssistantMessage;
+	private readonly queue: AssistantMessageEvent[] = [];
+	private readonly waiting: AsyncWaiter[] = [];
+	private done = false;
+	private resolveFinalResult!: (value: AssistantMessage) => void;
+	private readonly finalResultPromise: Promise<AssistantMessage>;
+
+	constructor(
+		isComplete: (event: AssistantMessageEvent) => boolean,
+		extractResult: (event: AssistantMessageEvent) => AssistantMessage,
+	) {
 		this.isComplete = isComplete;
 		this.extractResult = extractResult;
-		this.queue = [];
-		this.waiting = [];
-		this.done = false;
-		this.finalResultPromise = new Promise((resolve) => {
+		this.finalResultPromise = new Promise<AssistantMessage>((resolve) => {
 			this.resolveFinalResult = resolve;
 		});
 	}
-	push(event) {
+
+	push(event: AssistantMessageEvent): void {
 		if (this.done) return;
 		if (this.isComplete(event)) {
 			this.done = true;
@@ -118,72 +289,113 @@ class _EventStream {
 		if (waiter) waiter({ value: event, done: false });
 		else this.queue.push(event);
 	}
-	end(result) {
+
+	end(result?: AssistantMessage): void {
 		this.done = true;
 		if (result !== undefined) this.resolveFinalResult(result);
 		while (this.waiting.length > 0) {
 			const waiter = this.waiting.shift();
-			waiter({ value: undefined, done: true });
+			if (waiter) waiter({ value: undefined, done: true });
 		}
 	}
-	async *[Symbol.asyncIterator]() {
+
+	async *[Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
 		while (true) {
-			if (this.queue.length > 0) yield this.queue.shift();
+			const next = this.queue.shift();
+			if (next !== undefined) yield next;
 			else if (this.done) return;
 			else {
-				const result = await new Promise((resolve) => this.waiting.push(resolve));
-				if (result.done) return;
+				const result = await new Promise<{ value: AssistantMessageEvent | undefined; done: boolean }>((resolve) => {
+					this.waiting.push(resolve);
+				});
+				if (result.done || result.value === undefined) return;
 				yield result.value;
 			}
 		}
 	}
-	result() {
+
+	result(): Promise<AssistantMessage> {
 		return this.finalResultPromise;
 	}
 }
 
-function createAssistantMessageEventStream() {
-	return new _EventStream(
+function createAssistantMessageEventStream(): EventStream {
+	return new EventStream(
 		(event) => event.type === "done" || event.type === "error",
-		(event) => {
-			if (event.type === "done") return event.message;
-			if (event.type === "error") return event.error;
+		(event): AssistantMessage => {
+			if (event.type === "done") {
+				const msg = (event as { message?: AssistantMessage }).message;
+				if (msg) return msg;
+			}
+			if (event.type === "error") {
+				const err = (event as { error?: AssistantMessage }).error;
+				if (err) return err;
+			}
 			throw new Error("Unexpected event type for final result");
 		},
 	);
 }
 
-// Real StreamFn — spawns the `pi` binary as a child process. pi is already
-// routed through pi-shell-acp (claude/codex/gemini ACP children). We act as a
-// pass-through proxy: pi emits AssistantMessageEvent-shaped events via
-// --mode json on stdout, we re-emit them onto our pi-ai stream.
-//
-// This is a PoC stub — real plugin (in pi-shell-acp repo) will use ACP stdio
-// framing directly instead of shelling out to the pi CLI.
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+// ───────────────────────── content / message helpers ─────────────────────────
 
-function extractTextFromMessage(msg) {
+function extractTextFromMessage(msg: InboundMessage | AssistantMessage | null | undefined): string {
 	if (!msg) return "";
-	if (typeof msg.content === "string") return msg.content;
-	if (Array.isArray(msg.content)) {
-		return msg.content
-			.filter((c) => c && c.type === "text" && typeof c.text === "string")
-			.map((c) => c.text)
-			.join("\n");
-	}
-	return "";
+	// Route through normalizeContentBlocks so element-level string entries and
+	// type-less `{text}` recovery shapes are captured here too, not only at the
+	// outbound boundary. Keeps text extraction symmetric with the rest of the
+	// normalization story.
+	return normalizeContentBlocks(msg.content)
+		.filter((c): c is TextContent => c.type === "text" && typeof (c as TextContent).text === "string")
+		.map((c) => (c as TextContent).text)
+		.join("\n");
 }
 
-function _extractLastUserText(context) {
-	if (!context || !Array.isArray(context.messages)) return "";
-	for (let i = context.messages.length - 1; i >= 0; i--) {
-		const msg = context.messages[i];
-		if (!msg || msg.role !== "user") continue;
-		const text = extractTextFromMessage(msg);
-		if (text) return text;
+// Coerce arbitrary `content` shapes into the AssistantMessage array shape that
+// OpenClaw downstream paths assume. pi-ai's spec is array-only, but pi child
+// processes can emit string/null/undefined/object at every edge — top-level
+// content as a bare string, array entries that are bare strings, partial
+// objects without a `type` discriminator (recovery snapshots that only carry
+// `text`), single-object content (not yet wrapped in an array). A single
+// `.filter()` on any non-array crashes a turn in OpenClaw's display projection
+// or chat gateway. This normalizer is the only outbound boundary we control,
+// so we (1) salvage whatever we can into valid blocks (string → text block,
+// `{text}` → text block) and (2) drop the rest. The goal is "no thrown turn,
+// no silent visible-text loss" — issue #17 success criteria.
+function normalizeContentBlock(block: unknown): ContentBlock | null {
+	if (typeof block === "string") {
+		return block ? { type: "text", text: block } : null;
 	}
-	return "";
+	if (!block || typeof block !== "object") return null;
+	const b = block as { type?: unknown; text?: unknown };
+	if (typeof b.type === "string") return block as ContentBlock;
+	if (typeof b.text === "string" && b.text) return { type: "text", text: b.text };
+	return null;
+}
+
+function normalizeContentBlocks(content: unknown): ContentBlock[] {
+	if (Array.isArray(content)) {
+		return content.map(normalizeContentBlock).filter((b): b is ContentBlock => b !== null);
+	}
+	const one = normalizeContentBlock(content);
+	return one ? [one] : [];
+}
+
+function normalizeAssistantMessage(raw: unknown, model: StubModelRow): AssistantMessage {
+	const defaults = buildEmptyAssistantMessage(model);
+	if (!raw || typeof raw !== "object") return defaults;
+	const r = raw as Partial<AssistantMessage> & { content?: unknown };
+	const out: AssistantMessage = {
+		role: "assistant",
+		content: normalizeContentBlocks(r.content),
+		api: typeof r.api === "string" && r.api ? r.api : defaults.api,
+		provider: typeof r.provider === "string" && r.provider ? r.provider : defaults.provider,
+		model: typeof r.model === "string" && r.model ? r.model : defaults.model,
+		usage: r.usage && typeof r.usage === "object" ? r.usage : defaults.usage,
+	};
+	if (typeof r.stopReason === "string" && r.stopReason) out.stopReason = r.stopReason;
+	if (typeof r.errorMessage === "string") out.errorMessage = r.errorMessage;
+	if (typeof r.timestamp === "number") out.timestamp = r.timestamp;
+	return out;
 }
 
 // Serialize OpenClaw's full conversation history into a single prompt for
@@ -192,16 +404,14 @@ function _extractLastUserText(context) {
 // truth for conversation state — pi doesn't need its own session.
 //
 // Real plugin (Step 2) will use long-lived ACP stdio framing instead.
-function buildConversationPrompt(context) {
+function buildConversationPrompt(context: Context | null | undefined): string {
 	const messages = context && Array.isArray(context.messages) ? context.messages : [];
 	if (messages.length === 0) return "";
 	const lastIdx = messages.length - 1;
 	const lastMsg = messages[lastIdx];
 	const lastUserText = lastMsg && lastMsg.role === "user" ? extractTextFromMessage(lastMsg) : "";
 
-	// Build transcript from earlier turns (everything before the current user
-	// message). Skip non-user/assistant roles (tool results, custom, etc.).
-	const priorTurns = [];
+	const priorTurns: string[] = [];
 	for (let i = 0; i < lastIdx; i++) {
 		const m = messages[i];
 		if (!m) continue;
@@ -222,7 +432,7 @@ function buildConversationPrompt(context) {
 	].join("\n");
 }
 
-function buildEmptyAssistantMessage(model) {
+function buildEmptyAssistantMessage(model: StubModelRow | null | undefined): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [],
@@ -233,12 +443,12 @@ function buildEmptyAssistantMessage(model) {
 	};
 }
 
-function isMessageToolDeliveryPrompt(text) {
+function isMessageToolDeliveryPrompt(text: string): boolean {
 	return typeof text === "string" && text.includes("Delivery: to send a message, use the `message` tool.");
 }
 
-function parseJsonBlocks(text) {
-	const blocks = [];
+function parseJsonBlocks(text: string): unknown[] {
+	const blocks: unknown[] = [];
 	if (typeof text !== "string" || !text) return blocks;
 	const re = /```json\s*([\s\S]*?)```/g;
 	let match = re.exec(text);
@@ -253,13 +463,24 @@ function parseJsonBlocks(text) {
 	return blocks;
 }
 
-function extractMessageDeliveryArgs(text, replyText) {
+interface MessageDeliveryArgs {
+	action: "send";
+	channel: string;
+	to: string;
+	message: string;
+	threadId?: string;
+}
+
+function extractMessageDeliveryArgs(text: string, replyText: string): MessageDeliveryArgs {
 	const blocks = parseJsonBlocks(text);
-	let conversationInfo = null;
+	let conversationInfo: { chat_id?: unknown; message_id?: unknown; topic_id?: unknown } | null = null;
 	for (const block of blocks) {
-		if (block && typeof block === "object" && (block.chat_id || block.message_id || block.topic_id)) {
-			conversationInfo = block;
-			break;
+		if (block && typeof block === "object") {
+			const b = block as { chat_id?: unknown; message_id?: unknown; topic_id?: unknown };
+			if (b.chat_id || b.message_id || b.topic_id) {
+				conversationInfo = b;
+				break;
+			}
 		}
 	}
 	const rawTo =
@@ -268,7 +489,7 @@ function extractMessageDeliveryArgs(text, replyText) {
 			: null;
 	const to = rawTo || "telegram";
 	const provider = to.includes(":") ? to.split(":", 1)[0] : "telegram";
-	const args = {
+	const args: MessageDeliveryArgs = {
 		action: "send",
 		channel: provider,
 		to,
@@ -280,18 +501,22 @@ function extractMessageDeliveryArgs(text, replyText) {
 	return args;
 }
 
-function extractAssistantText(message) {
+function extractAssistantText(message: AssistantMessage | null | undefined): string {
 	return extractTextFromMessage(message).trim();
 }
 
-function buildMessageToolCallAssistantMessage(model, promptText, replyText) {
+function buildMessageToolCallAssistantMessage(
+	model: StubModelRow,
+	promptText: string,
+	replyText: string,
+): AssistantMessage {
 	const message = buildEmptyAssistantMessage(model);
 	message.content = [
 		{
 			type: "toolCall",
 			id: "pi-shell-acp-message-" + Date.now().toString(36),
 			name: "message",
-			arguments: extractMessageDeliveryArgs(promptText, replyText),
+			arguments: extractMessageDeliveryArgs(promptText, replyText) as unknown as Record<string, unknown>,
 		},
 	];
 	message.stopReason = "toolUse";
@@ -299,7 +524,7 @@ function buildMessageToolCallAssistantMessage(model, promptText, replyText) {
 	return message;
 }
 
-function isAfterSyntheticMessageToolResult(context) {
+function isAfterSyntheticMessageToolResult(context: Context | null | undefined): boolean {
 	const messages = context && Array.isArray(context.messages) ? context.messages : [];
 	const last = messages[messages.length - 1];
 	if (!last || last.role !== "toolResult") return false;
@@ -307,18 +532,26 @@ function isAfterSyntheticMessageToolResult(context) {
 		const msg = messages[i];
 		if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
 		return msg.content.some(
-			(block) =>
-				block &&
-				block.type === "toolCall" &&
-				block.name === "message" &&
-				typeof block.id === "string" &&
-				block.id.startsWith("pi-shell-acp-message-"),
+			(block): boolean =>
+				Boolean(block) &&
+				typeof block === "object" &&
+				(block as ToolCallBlock).type === "toolCall" &&
+				(block as ToolCallBlock).name === "message" &&
+				typeof (block as ToolCallBlock).id === "string" &&
+				(block as ToolCallBlock).id.startsWith("pi-shell-acp-message-"),
 		);
 	}
 	return false;
 }
 
-function realStreamFn(model, context, options, factoryCtx) {
+// ───────────────────────── stream function ─────────────────────────
+
+function realStreamFn(
+	model: StubModelRow,
+	context: Context,
+	options: StreamOptions | undefined,
+	factoryCtx: FactoryCtx,
+): EventStream {
 	const stream = createAssistantMessageEventStream();
 	if (isAfterSyntheticMessageToolResult(context)) {
 		const done = buildEmptyAssistantMessage(model);
@@ -340,7 +573,8 @@ function realStreamFn(model, context, options, factoryCtx) {
 	// Plugin config (from openclaw.plugin.json configSchema). The factoryCtx
 	// shape is OpenClaw's, so we feel for the conventional location and fall
 	// back to defaults if it is shaped differently than expected.
-	const pluginConfig = (factoryCtx && (factoryCtx.pluginConfig || factoryCtx.config || factoryCtx.settings)) || {};
+	const pluginConfig: PluginConfig =
+		(factoryCtx && (factoryCtx.pluginConfig || factoryCtx.config || factoryCtx.settings)) || {};
 	const piBinary =
 		typeof pluginConfig.piBinaryPath === "string" && pluginConfig.piBinaryPath.length > 0
 			? pluginConfig.piBinaryPath
@@ -381,7 +615,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 				` userTextLen=${userText.length}`,
 		);
 	} catch (err) {
-		console.log("[pi-shell-acp DIAG] error: " + String(err && err.message ? err.message : err));
+		console.log("[pi-shell-acp DIAG] error: " + String(err instanceof Error ? err.message : err));
 	}
 
 	// Resolve workspace directory: factoryCtx (captured at createStreamFn time)
@@ -417,7 +651,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 		modelId,
 	];
 
-	let child;
+	let child: ChildProcess;
 	console.log(
 		`[pi-shell-acp DIAG] pre-spawn` +
 			` signalPresent=${signal ? "1" : "0"}` +
@@ -435,7 +669,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 	} catch (err) {
 		const empty = buildEmptyAssistantMessage(model);
 		empty.stopReason = "error";
-		empty.errorMessage = "Failed to spawn '" + piBinary + "': " + String(err && err.message ? err.message : err);
+		empty.errorMessage = "Failed to spawn '" + piBinary + "': " + String(err instanceof Error ? err.message : err);
 		queueMicrotask(() => {
 			stream.push({ type: "error", error: empty });
 			stream.end(empty);
@@ -451,24 +685,42 @@ function realStreamFn(model, context, options, factoryCtx) {
 	);
 
 	let finalized = false;
-	let exitFallbackTimer = null;
-	let zombiePollTimer = null;
+	let exitFallbackTimer: NodeJS.Timeout | null = null;
+	let zombiePollTimer: NodeJS.Timeout | null = null;
 	let buffer = "";
-	let finalMessage = null;
+	let finalMessage: AssistantMessage | null = null;
+	let lastPartial: AssistantMessage | null = null;
 	let started = false;
 	let stderrBuf = "";
 
-	function finalizeChild(kind, code, sigSignal) {
+	function finalizeChild(kind: string, code: number | null, sigSignal: NodeJS.Signals | null): void {
 		if (finalized) return;
 		finalized = true;
 		clearTimeout(spawnTimer);
 		if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
 		if (zombiePollTimer) clearInterval(zombiePollTimer);
+		// Trace artifact recovery: if child died without a message_end but a
+		// partial snapshot has useful text, promote it to the final message so
+		// OpenClaw still surfaces visible assistant text. Issue #17 success
+		// criterion — "avoid losing visible recovery when trace artifacts
+		// contain useful assistant text".
+		const recoveredFromPartial = !finalMessage && lastPartial && extractTextFromMessage(lastPartial).trim().length > 0;
+		if (recoveredFromPartial && lastPartial) {
+			finalMessage = normalizeAssistantMessage(
+				{
+					...lastPartial,
+					stopReason: lastPartial.stopReason || "end_turn",
+					timestamp: lastPartial.timestamp || Date.now(),
+				},
+				model,
+			);
+		}
 		console.log(
 			`[pi-shell-acp DIAG] child finalize kind=${kind}` +
 				` code=${String(code)}` +
 				` signal=${String(sigSignal)}` +
 				` hasFinal=${finalMessage ? "1" : "0"}` +
+				` recoveredFromPartial=${recoveredFromPartial ? "1" : "0"}` +
 				` stderrTail=${JSON.stringify(stderrBuf.slice(-500))}`,
 		);
 		if (finalMessage) {
@@ -512,7 +764,7 @@ function realStreamFn(model, context, options, factoryCtx) {
 		setTimeout(() => finalizeChild("timeout", null, "SIGTERM"), 1000).unref?.();
 	}, spawnTimeoutMs);
 
-	function readLinuxProcessState(pid) {
+	function readLinuxProcessState(pid: number | undefined): string | null {
 		if (!pid || process.platform !== "linux") return null;
 		try {
 			const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -557,61 +809,69 @@ function realStreamFn(model, context, options, factoryCtx) {
 		);
 	}
 
-	child.stdout.setEncoding("utf8");
-	child.stdout.on("data", (chunk) => {
-		buffer += chunk;
-		while (true) {
-			const nl = buffer.indexOf("\n");
-			if (nl < 0) break;
-			const line = buffer.slice(0, nl).trim();
-			buffer = buffer.slice(nl + 1);
-			if (!line) continue;
-			let event;
-			try {
-				event = JSON.parse(line);
-			} catch {
-				continue;
-			}
-			if (!event || typeof event.type !== "string") continue;
-
-			// pi --mode json emits message_update wrapping a pi-ai
-			// AssistantMessageEvent. Re-emit the inner event onto our stream.
-			if (event.type === "message_update" && event.assistantMessageEvent) {
-				const inner = event.assistantMessageEvent;
-				// For Telegram/message-tool-only delivery, do not leak the child pi's
-				// plain text deltas as visible assistant text. Buffer until finalMessage,
-				// then synthesize a message toolCall.
-				if (deliveryViaMessageTool) {
+	if (child.stdout) {
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => {
+			buffer += chunk;
+			while (true) {
+				const nl = buffer.indexOf("\n");
+				if (nl < 0) break;
+				const line = buffer.slice(0, nl).trim();
+				buffer = buffer.slice(nl + 1);
+				if (!line) continue;
+				let event: { type?: unknown; assistantMessageEvent?: unknown; message?: unknown };
+				try {
+					event = JSON.parse(line);
+				} catch {
 					continue;
 				}
-				if (!started) {
-					stream.push({
-						type: "start",
-						partial: inner.partial || buildEmptyAssistantMessage(model),
-					});
-					started = true;
+				if (!event || typeof event.type !== "string") continue;
+
+				// pi --mode json emits message_update wrapping a pi-ai
+				// AssistantMessageEvent. Re-emit the inner event onto our stream.
+				if (event.type === "message_update" && event.assistantMessageEvent) {
+					const inner = event.assistantMessageEvent as { partial?: unknown; [key: string]: unknown };
+					if (inner && typeof inner === "object" && inner.partial) {
+						inner.partial = normalizeAssistantMessage(inner.partial, model);
+						lastPartial = inner.partial as AssistantMessage;
+					}
+					// For Telegram/message-tool-only delivery, do not leak the child pi's
+					// plain text deltas as visible assistant text. Buffer until finalMessage,
+					// then synthesize a message toolCall.
+					if (deliveryViaMessageTool) {
+						continue;
+					}
+					if (!started) {
+						stream.push({
+							type: "start",
+							partial: (inner && (inner.partial as AssistantMessage)) || buildEmptyAssistantMessage(model),
+						});
+						started = true;
+					}
+					try {
+						stream.push(inner as AssistantMessageEvent);
+					} catch {
+						// ignore unknown event variants
+					}
+					continue;
 				}
-				try {
-					stream.push(inner);
-				} catch {
-					// ignore unknown event variants
+
+				// message_end / turn_end carry the final AssistantMessage.
+				if ((event.type === "message_end" || event.type === "turn_end") && event.message) {
+					finalMessage = normalizeAssistantMessage(event.message, model);
 				}
-				continue;
 			}
+		});
+	}
 
-			// message_end / turn_end carry the final AssistantMessage.
-			if ((event.type === "message_end" || event.type === "turn_end") && event.message) {
-				finalMessage = event.message;
-			}
-		}
-	});
+	if (child.stderr) {
+		child.stderr.setEncoding("utf8");
+		child.stderr.on("data", (chunk: string) => {
+			stderrBuf += chunk;
+		});
+	}
 
-	child.stderr.setEncoding("utf8");
-	child.stderr.on("data", (chunk) => {
-		stderrBuf += chunk;
-	});
-
-	child.on("error", (err) => {
+	child.on("error", (err: Error) => {
 		stderrBuf += "\n[child error] " + String(err && err.message ? err.message : err);
 		finalizeChild("error", null, null);
 	});
@@ -636,11 +896,13 @@ function realStreamFn(model, context, options, factoryCtx) {
 	return stream;
 }
 
-const providerPlugin = {
+// ───────────────────────── plugin registration ─────────────────────────
+
+const providerPlugin: ProviderPlugin = {
 	id: PROVIDER_ID,
 	label: "pi-shell-acp (stub)",
 	staticCatalog: {
-		run() {
+		run(): StaticCatalogPayload {
 			return {
 				provider: PROVIDER_ID,
 				models: STUB_MODELS.map((m) => ({
@@ -674,7 +936,7 @@ const providerPlugin = {
 	},
 };
 
-const configSchema = {
+const configSchema: ConfigSchema = {
 	safeParse(value) {
 		if (value === undefined || value === null) {
 			return { success: true, data: undefined };
@@ -682,12 +944,12 @@ const configSchema = {
 		if (typeof value !== "object" || Array.isArray(value)) {
 			return { success: false, error: { issues: [{ path: [], message: "expected object" }] } };
 		}
-		return { success: true, data: value };
+		return { success: true, data: value as PluginConfig };
 	},
 	jsonSchema: { type: "object", additionalProperties: true },
 };
 
-const entry = {
+const entry: PluginEntry = {
 	id: PROVIDER_ID,
 	name: PROVIDER_ID,
 	description: "pi-shell-acp stub plugin for (b3a) end-to-end smoke",
@@ -699,7 +961,7 @@ const entry = {
 				api.logger.info("[pi-shell-acp stub] provider registered");
 			}
 		} catch (err) {
-			const msg = err && err.message ? err.message : String(err);
+			const msg = err instanceof Error ? err.message : String(err);
 			if (api && api.logger && typeof api.logger.error === "function") {
 				api.logger.error("[pi-shell-acp stub] registerProvider failed: " + msg);
 			} else {

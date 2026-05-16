@@ -15,12 +15,15 @@
 		"url": "https://github.com/junghan0611/pi-shell-acp/issues"
 	},
 	"type": "module",
-	"main": "./src/index.js",
+	"main": "./src/index.ts",
+	"scripts": {
+		"check": "tsc --noEmit -p ."
+	},
 	"dependencies": {},
 	"devDependencies": {},
 	"openclaw": {
 		"extensions": [
-			"./src/index.js"
+			"./src/index.ts"
 		],
 		"install": {
 			"defaultChoice": "local",
