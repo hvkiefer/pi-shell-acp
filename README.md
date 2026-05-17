@@ -32,24 +32,44 @@ A few words that look unusual for a coding tool.
 
 `pi-shell-acp` is a thin ACP bridge — it connects pi to a local Claude/Codex/Gemini backend the operator has already installed and authenticated. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` / `gemini` already trusts is what pi-shell-acp uses.
 
-Three install paths, in order of stability. After any of them, copy the `piShellAcpProvider` block from [`pi/settings.reference.json`](./pi/settings.reference.json) into your project settings — see [Settings](#settings) below.
+`pi` accepts four install sources for the bridge — `npm:` or `git:`, each in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A fifth path is a local clone for hacking on the bridge. After any of them, copy the `piShellAcpProvider` block from [`pi/settings.reference.json`](./pi/settings.reference.json) into your project settings — see [Settings](#settings) below.
 
-### From npm (stable, once published)
+The post-install `run.sh install .` step writes the `piShellAcpProvider` entry into the target project's `.pi/settings.json` with the correct absolute path for `pi-tools-bridge/start.sh`. The exact location of `run.sh` depends on which install path was used.
+
+### From npm — global (Phase 3 target)
 
 ```bash
-pi install npm:pi-shell-acp     # Phase 3 target — not on npm yet, use source install below
+pi install npm:pi-shell-acp     # not on npm yet — tracked in #13
+cd /path/to/your-project
+"$(npm root -g)/pi-shell-acp/run.sh" install .
+"$(npm root -g)/pi-shell-acp/run.sh" smoke-all .
 ```
 
-Tracked in [#13](https://github.com/junghan0611/pi-shell-acp/issues/13). Until then, the source path is the supported install.
+### From npm — project (`-l` flag, Phase 3 target)
 
-### From source via pi (current recommended)
+```bash
+cd /path/to/your-project
+pi install -l npm:pi-shell-acp
+./.pi/npm/node_modules/pi-shell-acp/run.sh install .
+./.pi/npm/node_modules/pi-shell-acp/run.sh smoke-all .
+```
+
+### From source via pi — global (current recommended)
 
 ```bash
 pi install git:github.com/junghan0611/pi-shell-acp
 cd /path/to/your-project
 ~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh install .
-pi --list-models pi-shell-acp
 ~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh smoke-all .
+```
+
+### From source via pi — project (`-l` flag)
+
+```bash
+cd /path/to/your-project
+pi install -l git:github.com/junghan0611/pi-shell-acp
+./.pi/git/github.com/junghan0611/pi-shell-acp/run.sh install .
+./.pi/git/github.com/junghan0611/pi-shell-acp/run.sh smoke-all .
 ```
 
 ### Local development clone
@@ -64,6 +84,8 @@ pi install ./
 ```
 
 > The OpenClaw plugin sibling lives at [`plugins/openclaw`](./plugins/openclaw) and ships as its own npm package (`@junghan0611/openclaw-pi-shell-acp`). It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
+
+> **Extension set — do not filter.** `pi-shell-acp` ships four `pi.extensions` entries as a single set: the provider extension (`index.ts`) plus three `pi-extensions/*.ts` modules (entwurf, entwurf-control, model-lock). Filtering some out via pi's object-form package configuration can leave the model lock or entwurf surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
 
 ### Backend prerequisites
 
