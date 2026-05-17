@@ -8,8 +8,9 @@ Phase 2 packaging-surface refactor in progress. No publish yet; the 0.7.0 cut ha
 
 ### Added
 
-- Dry-run tarball invariant gate: `./run.sh check-pack` (also `pnpm check-pack`). Runs `npm pack --dry-run --json`, then asserts that runtime-critical files and the public verification/docs surface are present and that private/dev residue is absent. First of four checks in #13's publish gate; the remaining three (actual `npm pack`, `tar -tf`, local install smoke from the packed tarball) land in Phase 2.3.
-- `prepublishOnly` package script wires `pnpm run check` (which now includes `check-pack`) so any future `npm publish` fails closed if either the existing nine gates or the new tarball invariants regress.
+- Dry-run tarball invariant gate: `./run.sh check-pack` (also `pnpm check-pack`). Runs `npm pack --dry-run --json`, then asserts that runtime-critical files and the public verification/docs surface are present and that private/dev residue is absent. Part of the default `pnpm check` so every commit catches a packaging drift.
+- Heavy publish gate: `./run.sh check-pack-install` (also `pnpm check-pack-install`). Closes the remaining three items in #13's publish checklist — actual `npm pack`, `tar -tf` invariant cross-check, and a fresh-temp project install smoke that `pnpm add`s the produced tarball plus the 0.74.x peer baseline (`@earendil-works/pi-{ai,coding-agent,tui}` + `typebox`) and probes the installed `pi-shell-acp/package.json` to confirm `pi.extensions` arrives intact. Kept out of the default `pnpm check` because of the 5–15s dependency-resolution cost.
+- `prepublishOnly` package script wires `pnpm run check && pnpm run check-pack-install` so any future `npm publish` fails closed if either the existing nine gates, the dry-run invariants, or the actual install path regress.
 
 ### Changed
 

@@ -43,7 +43,8 @@ Usage:
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
   ./run.sh check-sdk-surface          # static gate: every (connection as any) cast in acp-bridge.ts is annotated SDK_CAST_OK or SDK_CAST_DEBT
-  ./run.sh check-pack                 # publish gate: npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
+  ./run.sh check-pack                 # publish gate (dry-run): npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
+  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.74.x peers
   ./run.sh check-models               # local deterministic check of MODELS contextWindow defaults (sonnet 200K, opus 1M) + override
   ./run.sh check-claude-sessions [project-dir]  # compare pi persisted sessions vs Claude SDK session visibility
   ./run.sh verify-resume [project-dir] # exact pi -> ACP -> Claude continuity check with visible acpSessionId diagnostics
@@ -2630,6 +2631,133 @@ check_pack() {
   return 1
 }
 
+check_pack_install() {
+  # Heavy publish gate. Runs the remaining three checks in #13's
+  # publish checklist that check_pack (dry-run only) does not cover:
+  #
+  #   2. actual `npm pack` — produces the real tarball
+  #   3. `tar -tf` — cross-checks contents against dry-run invariants
+  #   4. fresh-temp project local install smoke — pnpm add the tarball
+  #      with required peers, then import('pi-shell-acp/package.json')
+  #      to confirm the installed shape resolves end-to-end.
+  #
+  # Excluded from the default `pnpm check` because the install smoke
+  # spends 5-15s on dependency resolution. Wired into prepublishOnly
+  # so `npm publish` cannot succeed if the actual install path is
+  # broken even when dry-run invariants look fine.
+  section "publish install smoke (actual pack + tar + fresh install)"
+
+  local version tgz_name tgz_path
+  version=$(node -p "require('${REPO_DIR}/package.json').version")
+  tgz_name="pi-shell-acp-${version}.tgz"
+  tgz_path="${REPO_DIR}/${tgz_name}"
+  rm -f "$tgz_path"
+
+  echo "[check-pack-install] npm pack -> ${tgz_name}"
+  (cd "$REPO_DIR" && npm pack 2>&1 | tail -1) || {
+    fail "[check-pack-install] npm pack failed"
+    return 1
+  }
+
+  if [ ! -f "$tgz_path" ]; then
+    fail "[check-pack-install] tarball not produced: $tgz_path"
+    return 1
+  fi
+
+  # tar -tf invariants — cross-check against dry-run shape. Same
+  # required/forbidden axes as check_pack; if they disagree, the
+  # dry-run resolver and the actual tarball diverged (npm bug or
+  # files allowlist drift) and publish must not proceed.
+  local tar_files pass=1 f pat
+  tar_files=$(tar -tf "$tgz_path" | sed 's|^package/||' | grep -v '/$' || true)
+
+  local tar_required=(
+    "package.json" "README.md" "LICENSE" "CHANGELOG.md"
+    "index.ts" "acp-bridge.ts" "event-mapper.ts" "engraving.ts"
+    "pi-context-augment.ts" "protocol.js" "run.sh"
+    "pi-extensions/entwurf.ts" "pi-extensions/entwurf-control.ts"
+    "pi-extensions/model-lock.ts" "pi-extensions/lib/entwurf-core.ts"
+    "mcp/pi-tools-bridge/src/index.ts"
+  )
+  for f in "${tar_required[@]}"; do
+    if ! grep -qxF "$f" <<<"$tar_files"; then
+      fail "[check-pack-install] tar missing required: $f"
+      pass=0
+    fi
+  done
+
+  local tar_forbidden=(
+    'pi-session-.*\.html$' '\.log$'
+    '^bench\.sh$' '^biome\.json$' '^tsconfig\.json$'
+    '^pnpm-(lock\.yaml|workspace\.yaml)$' '^NEXT\.md$'
+    '^plugins/' '^node_modules/'
+    '\.tmp-verify/' '\.agent-(reports|shell)/'
+  )
+  for pat in "${tar_forbidden[@]}"; do
+    local hit
+    hit=$(grep -E "$pat" <<<"$tar_files" || true)
+    if [ -n "$hit" ]; then
+      fail "[check-pack-install] tar contains forbidden pattern $pat:"
+      echo "$hit" | sed 's/^/    /' >&2
+      pass=0
+    fi
+  done
+
+  if [ "$pass" != "1" ]; then
+    rm -f "$tgz_path"
+    fail "[check-pack-install] tar -tf invariants violated"
+    return 1
+  fi
+  echo "[check-pack-install] tar -tf invariants pass ($(printf '%s\n' "$tar_files" | wc -l | tr -d ' ') files)"
+
+  # Fresh-temp install smoke. Uses pnpm because that is what this
+  # repo packages with; --ignore-workspace stops it from re-attaching
+  # to our pnpm-workspace.yaml; --ignore-scripts blocks the husky
+  # prepare hook (and any future install scripts) from running inside
+  # the consumer project. Peer deps are pinned to the 0.74.x baseline
+  # (NEXT.md confirmed facts) so the smoke matches the same shape an
+  # external pi user would have after `pi install`.
+  local tmp
+  tmp=$(mktemp -d -t pi-shell-acp-install-smoke.XXXXXX)
+  trap 'rm -rf "$tmp" "$tgz_path"' RETURN
+
+  printf '%s\n' '{ "name": "pi-shell-acp-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
+
+  echo "[check-pack-install] pnpm add into $tmp (with 0.74.x peers + typebox)"
+  local install_log
+  install_log=$(cd "$tmp" && pnpm add \
+    "$tgz_path" \
+    "@earendil-works/pi-ai@0.74.0" \
+    "@earendil-works/pi-coding-agent@0.74.0" \
+    "@earendil-works/pi-tui@0.74.0" \
+    "typebox@latest" \
+    --ignore-workspace --ignore-scripts 2>&1) || {
+    fail "[check-pack-install] pnpm add failed:"
+    echo "$install_log" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  }
+
+  # Resolve the installed package.json and confirm pi.extensions
+  # arrived intact. If pi.extensions is empty or missing, the
+  # consumer pi runtime would fail to register any extension.
+  local probe
+  probe=$(cd "$tmp" && node --input-type=module -e "
+    const m = await import('pi-shell-acp/package.json', { with: { type: 'json' } });
+    const pkg = m.default;
+    const exts = Array.isArray(pkg.pi?.extensions) ? pkg.pi.extensions.length : 0;
+    if (exts === 0) { console.error('pi.extensions missing or empty'); process.exit(1); }
+    console.log(pkg.version + ' (' + exts + ' extensions)');
+  " 2>&1) || {
+    fail "[check-pack-install] installed package probe failed:"
+    echo "$probe" | sed 's/^/    /' >&2
+    return 1
+  }
+  echo "[check-pack-install] installed: $probe"
+
+  ok "[check-pack-install] publish install smoke pass"
+  return 0
+}
+
 check_registration() {
   local verify_dir
   verify_dir="$REPO_DIR/.tmp-verify"
@@ -3327,6 +3455,9 @@ case "$cmd" in
     ;;
   check-pack)
     check_pack
+    ;;
+  check-pack-install)
+    check_pack_install
     ;;
   check-claude-sessions)
     check_claude_sessions "$TARGET_PROJECT_DIR"

@@ -81,7 +81,7 @@
 	},
 	"scripts": {
 		"prepare": "husky || true",
-		"prepublishOnly": "pnpm run check",
+		"prepublishOnly": "pnpm run check && pnpm run check-pack-install",
 		"setup": "./run.sh setup",
 		"smoke": "./run.sh smoke",
 		"smoke-claude": "./run.sh smoke-claude",
@@ -95,6 +95,7 @@
 		"check-dep-versions": "./run.sh check-dep-versions",
 		"check-sdk-surface": "./run.sh check-sdk-surface",
 		"check-pack": "./run.sh check-pack",
+		"check-pack-install": "./run.sh check-pack-install",
 		"check-claude-sessions": "./run.sh check-claude-sessions",
 		"typecheck": "tsc --noEmit && tsc -p mcp/tsconfig.json && tsc -p scripts/tsconfig.json",
 		"lint": "biome check .",
