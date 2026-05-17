@@ -126,24 +126,37 @@ Reference shape lives in [`pi/settings.reference.json`](./pi/settings.reference.
 
 ### Wiring `pi-tools-bridge` into an external MCP host
 
-The same `pi-tools-bridge` entry shape is accepted by other MCP-aware hosts (Claude Code, Codex, Gemini CLI, …). For example, in Claude Code:
+The same `pi-tools-bridge` entry shape is accepted by other MCP-aware hosts (Claude Code, Codex, Gemini CLI, …). For Claude Code, two equivalent paths — both result in the same loaded server:
+
+**Option A — CLI add:**
 
 ```bash
-# CLI add (user scope)
 claude mcp add --scope user pi-tools-bridge \
   bash /absolute/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh
-
-# or edit ~/.claude.json / project .mcp.json:
-# {
-#   "mcpServers": {
-#     "pi-tools-bridge": {
-#       "command": "bash",
-#       "args": ["/absolute/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh"],
-#       "env": { "PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code" }
-#     }
-#   }
-# }
 ```
+
+This writes the entry into `~/.claude.json`'s top-level `mcpServers`. `~/.claude.json` also holds OAuth tokens and cache, so it is not safe to share or version-control. Good for one-off setup.
+
+**Option B — separated `~/.mcp.json` (recommended for SSOT / dotfile workflows):**
+
+```json
+{
+  "mcpServers": {
+    "pi-tools-bridge": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "/absolute/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh"
+      ],
+      "env": {
+        "PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code"
+      }
+    }
+  }
+}
+```
+
+Claude Code reads `~/.mcp.json` in addition to `~/.claude.json`'s top-level `mcpServers`. Keeping the entry in `~/.mcp.json` makes it shareable and version-controllable (e.g. via a dotfiles or `agent-config` repo) without exposing the OAuth-bearing `~/.claude.json`. The `env` block identifies the calling host on the receiver render — omit it and `entwurf_send` shows `external-mcp/unknown-host`.
 
 Prerequisites on the host running the external MCP client:
 
@@ -156,6 +169,8 @@ From an external MCP host:
 - `entwurf`, `entwurf_resume`, `entwurf_peers` work directly.
 - `entwurf_send` delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
 - `entwurf_self` refuses to return — it requires a pi session sender envelope (`PI_SESSION_ID` + `PI_AGENT_ID`).
+
+For external MCP hosts with a primary instruction file (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex, `GEMINI.md` for Gemini CLI), propagating the Asymmetric Mitsein workflow rules into that file lets the host auto-apply them without per-call clarification — which entwurf tools are valid from outside a pi session, the default `mode` / `wants_reply`, and the natural-language-to-tool-call mapping. On Claude Code, the `mcp__*` permission wildcard (or per-tool entries) in `permissions.allow` removes the first-call trust prompt friction.
 
 See the MCP entry in [Concept primer](#concept-primer) and the sender envelope contract in [AGENTS.md](./AGENTS.md).
 
