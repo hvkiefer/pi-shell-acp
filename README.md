@@ -32,9 +32,9 @@ A few words that look unusual for a coding tool.
 
 `pi-shell-acp` is a thin ACP bridge — it connects pi to a local Claude/Codex/Gemini backend the operator has already installed and authenticated. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` / `gemini` already trusts is what pi-shell-acp uses.
 
-`pi` accepts four install sources for the bridge — `npm:` or `git:`, each in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A fifth path is a local clone for hacking on the bridge. After any of them, copy the `piShellAcpProvider` block from [`pi/settings.reference.json`](./pi/settings.reference.json) into your project settings — see [Settings](#settings) below.
+`pi` accepts four install sources for the bridge — `npm:` or `git:`, each in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A fifth path is a local clone for hacking on the bridge.
 
-The post-install `run.sh install .` step writes the `piShellAcpProvider` entry into the target project's `.pi/settings.json` with the correct absolute path for `pi-tools-bridge/start.sh`. The exact location of `run.sh` depends on which install path was used.
+After installing the package, run `run.sh install .` in your target project. The script writes the `piShellAcpProvider` block into `.pi/settings.json` with the correct absolute path for `pi-tools-bridge/start.sh` — no hand-editing required. The exact location of `run.sh` depends on which install path was used (each section below shows it). For manual configuration, [`pi/settings.reference.json`](./pi/settings.reference.json) is the reference shape — see [Settings](#settings) below.
 
 ### From npm — global (Phase 3 target)
 

@@ -2544,7 +2544,8 @@ check_pack() {
   #
   # Runs `npm pack --dry-run --json`, then asserts:
   #   - runtime-critical files and the public verification/docs
-  #     surface (run.sh, scripts/, docs/, demo/) are present;
+  #     surface (run.sh, scripts/, curated docs/assets/*.gif,
+  #     demo/) are present;
   #   - private/dev residue is absent (session dumps, debug logs,
   #     dev configs, workspace metadata, the OpenClaw plugin
   #     monorepo sibling that ships as its own npm package).
