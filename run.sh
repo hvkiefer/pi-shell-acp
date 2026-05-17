@@ -2756,6 +2756,36 @@ check_pack_install() {
   }
   echo "[check-pack-install] installed: $probe"
 
+  # Pi package loader smoke — actual `pi` reads the manifest and
+  # registers the provider. rc=0 + the curated model list in the
+  # output means pi accepted the package as a real extension, not
+  # just a well-shaped npm tarball. `--list-models` does not spawn
+  # the Claude/Codex/Gemini backends, so this stays credential-free
+  # and safe to run in CI. Output goes to stderr; capture both
+  # streams with 2>&1.
+  if ! command -v pi >/dev/null 2>&1; then
+    fail "[check-pack-install] pi binary not on PATH — cannot run loader smoke"
+    return 1
+  fi
+
+  local loader_out
+  loader_out=$(cd "$tmp" && pi -e "$tmp/node_modules/pi-shell-acp" --list-models pi-shell-acp 2>&1) || {
+    fail "[check-pack-install] pi loader smoke failed (exit non-zero):"
+    echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  }
+  if ! grep -q "pi-shell-acp" <<<"$loader_out"; then
+    fail "[check-pack-install] pi loader output missing pi-shell-acp model surface:"
+    echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  fi
+  if ! grep -q "claude-sonnet-4-6" <<<"$loader_out"; then
+    fail "[check-pack-install] pi loader output missing claude-sonnet-4-6 anchor:"
+    echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  fi
+  echo "[check-pack-install] pi loader smoke pass (pi-shell-acp registered, claude-sonnet-4-6 anchor)"
+
   ok "[check-pack-install] publish install smoke pass"
   return 0
 }
