@@ -96,6 +96,7 @@
 		"check-sdk-surface": "./run.sh check-sdk-surface",
 		"check-pack": "./run.sh check-pack",
 		"check-pack-install": "./run.sh check-pack-install",
+		"test:pack": "pnpm run check-pack && pnpm run check-pack-install",
 		"check-claude-sessions": "./run.sh check-claude-sessions",
 		"typecheck": "tsc --noEmit && tsc -p mcp/tsconfig.json && tsc -p scripts/tsconfig.json",
 		"lint": "biome check .",
