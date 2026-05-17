@@ -515,6 +515,20 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 
 가장 가까운 패턴 = **`@benvargas/pi-synthetic-provider`** (provider extension, scope 패키지, `files: ["extensions/", "README.md", "LICENSE"]`). 향후 multi-resource (skills + themes + commands) 가 되면 **mitsupi** 패턴 참고.
 
+### Publish preflight — pi.dev / npm 직전 보류 항목
+
+> 오늘 처리하지 않음. 0.7.0 cut / npm publish 직전 다시 열 것.
+
+- **npm name 재확인**: `npm view pi-shell-acp` 는 2026-05-17 현재 `E404 Not Found` 로 비어 있음. publish 직전 다시 확인 — bare name `pi-shell-acp` 유지가 README 설치면이 가장 깔끔하나, 선점되면 `@junghan0611/pi-shell-acp` 로 즉시 전환해야 함.
+- **pi gallery preview**: `package.json#pi.image` 또는 `pi.video` 추가. `packages.md` 기준 `pi-package` gallery card 에 노출되는 첫인상. 기존 `docs/assets/pi-shell-acp-demo.gif` 는 임시로 가능하지만, 공개면에서는 새 이미지/데모로 교체 예정.
+- **새 데모 GIF 생성**: 예전 `demo/` 의 tmux 방식으로 재녹화. 현재 0.6.x/0.7.0 설치면과 실제 동작을 보여주는 GIF 로 만들 것. README 가 참조하는 `docs/assets/pi-shell-acp-demo.gif` 교체 시 `files` allowlist / `check-pack` forbidden pattern 유지 확인.
+- **프로젝트 이미지 / GLGMAN 세계관**: pi.dev 카드용 대표 이미지도 별도 생성 후보. 입력 자료:
+  - botlog: `/home/junghan/sync/org/botlog/20260423T141759--힣맨-프롤로그-2탄-—-힣의-드라이버-담금질된-한-자루-분신의-각인__acp_agent_botlog_digitalgarden_entwurf_harness_mcp_pi_prologue.org`
+  - prompt seed: `/home/junghan/repos/gh/agent-config/commands/glg-image.md` — "You are generating an image inside the GLGMAN Universe." 유지
+  - 보강 요구: GLGMAN 명시, "담금질된 한 자루 드라이버", pi-shell-acp / entwurf / MCP / local bridge / sibling backends 정체성 반영. 오늘 생성하지 말고 내일 프롬프트부터 다시 다듬기.
+- **다른 기기 실제 설치 테스트**: 이번 push 된 버전은 아직 실사용/타기기 설치 테스트 전. thinkpad 외 NUC/Oracle 등에서 `pi install git:...` 또는 packed tarball/local npm 경로로 실제 `run.sh install .` → `pi --list-models pi-shell-acp` → 최소 smoke 확인.
+- **agent-config 소비자 리뷰 반영**: agent-config 담당자 리뷰 결과는 긍정. 남은 publish 직전 작은 결정은 위 `npm name` / `pi.image` 두 축. 설치자 관점 문서 재현성은 operational test 로 다시 확인.
+
 ---
 
 ## Phase 3 — OpenClaw 정식 등록 (Phase 1 + 2 안정 후)
