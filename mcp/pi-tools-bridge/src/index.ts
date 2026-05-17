@@ -216,26 +216,35 @@ const server = new McpServer({ name: "pi-tools-bridge", version: "0.1.0" });
 
 // Transparency envelope.
 //
-// Every entwurf_send carries a structured sender envelope so the receiver
-// renders WHO (agentId, sessionId), FROM WHERE (cwd), and WHEN (timestamp UTC,
-// displayed in KST). All four fields are mandatory — a missing field means
-// the wiring is broken (pi-shell-acp's acp-bridge.ts didn't inject PI_AGENT_ID,
-// entwurf-control didn't set PI_SESSION_ID, MCP child detached from the
-// process.env it should inherit, …). Crash-loud at the read site rather than
-// rendering "(unknown ...)" silently. See AGENTS.md Code Principle "Never
-// warn. Throw."
+// pi-session senders carry a structured sender envelope so the receiver renders
+// WHO (agentId, sessionId), FROM WHERE (cwd), and WHEN (timestamp UTC,
+// displayed in KST). `entwurf_self` is identity-required and therefore stays
+// strict: missing PI_SESSION_ID / PI_AGENT_ID is a wiring break. `entwurf_send`
+// is identity-enhanced, not identity-required: an explicitly wired external MCP
+// host (Claude Code, Codex, Gemini, …) may deliver into live pi sessions even
+// though it has no replyable pi session identity. In that case we attach an
+// external, non-replyable envelope so the receiver sees the origin honestly.
 class EntwurfEnvelopeWiringError extends Error {
 	constructor(missing: string[]) {
 		super(
 			`entwurf sender envelope wiring incomplete — missing env: ${missing.join(", ")}. ` +
 				"This MCP child should inherit PI_SESSION_ID (from entwurf-control) and PI_AGENT_ID " +
-				"(from pi-shell-acp/acp-bridge.ts). If you launched pi without --entwurf-control or " +
-				"outside the pi-shell-acp bridge, entwurf_send / entwurf_self are not callable from here.",
+				"(from pi-shell-acp/acp-bridge.ts). entwurf_self is only callable from a pi session " +
+				"launched with --entwurf-control through the pi-shell-acp bridge.",
 		);
 	}
 }
 
-function buildSenderEnvelope(): { sessionId: string; agentId: string; cwd: string; timestamp: string } {
+interface SenderEnvelope {
+	sessionId: string;
+	agentId: string;
+	cwd: string;
+	timestamp: string;
+	origin?: "pi-session" | "external-mcp";
+	replyable?: boolean;
+}
+
+function buildStrictPiSenderEnvelope(): SenderEnvelope {
 	const sessionId = process.env.PI_SESSION_ID?.trim();
 	const agentId = process.env.PI_AGENT_ID?.trim();
 	const cwd = process.cwd();
@@ -249,6 +258,23 @@ function buildSenderEnvelope(): { sessionId: string; agentId: string; cwd: strin
 		agentId: agentId as string,
 		cwd,
 		timestamp: new Date().toISOString(),
+		origin: "pi-session",
+		replyable: true,
+	};
+}
+
+function buildSendSenderEnvelope(): SenderEnvelope {
+	const sessionId = process.env.PI_SESSION_ID?.trim();
+	const agentId = process.env.PI_AGENT_ID?.trim();
+	const cwd = process.cwd();
+	if (sessionId && agentId && cwd) return buildStrictPiSenderEnvelope();
+	return {
+		sessionId: "external-mcp",
+		agentId: process.env.PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID?.trim() || "external-mcp/unknown-host",
+		cwd,
+		timestamp: new Date().toISOString(),
+		origin: "external-mcp",
+		replyable: false,
 	};
 }
 
@@ -294,9 +320,11 @@ server.tool(
 		"when you genuinely want a conversational response back — it shows as '(wants reply)' on " +
 		"the receiver render. It is not a delivery flag, not a wait/poll, not a contract; whether " +
 		"the receiver replies is decided by the message body. " +
-		"The sender envelope (agentId / sessionId / cwd / timestamp) is attached " +
-		"automatically from PI_AGENT_ID + PI_SESSION_ID + cwd + now; the receiver renders all " +
-		"four fields so the operator immediately sees who sent and from where.",
+		"When called from inside a pi session, a replyable sender envelope is attached " +
+		"automatically from PI_AGENT_ID + PI_SESSION_ID + cwd + now. When called from an " +
+		"explicitly wired external MCP host, delivery is still allowed but the envelope is " +
+		"marked external/non-replyable; wants_reply=true is rejected because there is no pi " +
+		"session address to reply to.",
 	{
 		sessionId: z.string().min(1).describe("Target session id (UUID)"),
 		message: z.string().min(1).describe("Message text to deliver"),
@@ -311,10 +339,16 @@ server.tool(
 	},
 	async ({ sessionId, message, mode, wants_reply }) => {
 		try {
-			const sender = buildSenderEnvelope(); // throws on wiring break
+			const sender = buildSendSenderEnvelope();
+			const effectiveWantsReply = wants_reply === true;
+			if (effectiveWantsReply && sender.replyable === false) {
+				return textErr(
+					"entwurf_send error: wants_reply=true requires a replyable pi-session sender envelope; " +
+						"external MCP hosts can deliver messages but cannot request a reply path.",
+				);
+			}
 			const sock = await resolveControlSocket(sessionId);
 			const effectiveMode = mode ?? "follow_up";
-			const effectiveWantsReply = wants_reply === true;
 			const resp = await rpcCall(sock, {
 				type: "send",
 				message,
@@ -362,7 +396,7 @@ server.tool(
 	{},
 	async () => {
 		try {
-			const sender = buildSenderEnvelope();
+			const sender = buildStrictPiSenderEnvelope();
 			const socketPath = path.join(ENTWURF_DIR, `${sender.sessionId}${SOCKET_SUFFIX}`);
 			const kst = formatKstTimestamp(sender.timestamp);
 			const lines = [

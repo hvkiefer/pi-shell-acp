@@ -15,6 +15,11 @@
 
 ---
 
+## Immediate Priority — 2026-05-17
+
+- **External MCP `entwurf_send` unblock** — Claude Code / Codex / Gemini 같은 외부 MCP host 가 live pi session 으로 메시지를 보낼 수 있게 한다. `entwurf_self` 는 pi-session identity required 로 유지. `entwurf_send` 는 identity-enhanced 로 낮춰 외부 sender 는 `origin=external-mcp`, `replyable=false`; `wants_reply=true` 는 외부 sender 에서 거부. 목적: 2026-06-15 Anthropic billing 전환 전에 pi Claude 와 Claude Code 를 한 달간 섞어 쓰며 터지는 지점을 미리 잡기.
+- **다음 한 걸음** — 실제 Claude Code MCP catalog 에 `pi-tools-bridge` 를 wiring 해서 live pi session 으로 송신 smoke. 그 뒤 Phase 2 pi.dev 패키징 작업으로 복귀.
+
 ## Strategic Frame — 정공법 4-Phase (2026-05-15 재정렬)
 
 > 결정 (2026-05-15 GLG):

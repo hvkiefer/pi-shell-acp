@@ -142,6 +142,8 @@ export interface SenderEnvelope {
 	agentId: string;
 	cwd: string;
 	timestamp: string; // ISO 8601 UTC
+	origin?: "pi-session" | "external-mcp";
+	replyable?: boolean;
 }
 
 interface RpcSendCommand {
@@ -489,6 +491,8 @@ interface SenderInfo {
 	cwd?: string;
 	timestamp?: string; // ISO 8601 UTC; rendered in KST
 	wants_reply?: boolean;
+	origin?: "pi-session" | "external-mcp";
+	replyable?: boolean;
 }
 
 function parseSenderInfo(text: string): SenderInfo | null {
@@ -505,6 +509,8 @@ function parseSenderInfo(text: string): SenderInfo | null {
 				cwd?: unknown;
 				timestamp?: unknown;
 				wants_reply?: unknown;
+				origin?: unknown;
+				replyable?: unknown;
 				// Legacy field — pre-rename transcripts may carry reply_requested
 				// in the JSON. Accept as fallback so old payloads still render
 				// the badge correctly. Removed from the send-side schema.
@@ -521,16 +527,27 @@ function parseSenderInfo(text: string): SenderInfo | null {
 					: typeof parsed.reply_requested === "boolean"
 						? parsed.reply_requested
 						: undefined;
+			const originRaw = pickString(parsed.origin);
 			const info: SenderInfo = {
 				sessionId: pickString(parsed.sessionId),
 				agentId: pickString(parsed.agentId),
 				cwd: pickString(parsed.cwd),
 				timestamp: pickString(parsed.timestamp),
 				wants_reply: wantsReplyRaw,
+				origin: originRaw === "pi-session" || originRaw === "external-mcp" ? originRaw : undefined,
+				replyable: typeof parsed.replyable === "boolean" ? parsed.replyable : undefined,
 			};
 			// Return only when at least one field carries a value; otherwise let
 			// the caller render the unadorned label rather than a phantom header.
-			if (info.sessionId || info.agentId || info.cwd || info.timestamp || info.wants_reply !== undefined) {
+			if (
+				info.sessionId ||
+				info.agentId ||
+				info.cwd ||
+				info.timestamp ||
+				info.wants_reply !== undefined ||
+				info.origin ||
+				info.replyable !== undefined
+			) {
 				return info;
 			}
 		} catch {
@@ -637,10 +654,12 @@ const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => 
 
 		const agentId = senderInfo.agentId ?? "(unknown agent)";
 		const cwd = senderInfo.cwd ? abbreviateHome(senderInfo.cwd) : "(unknown cwd)";
-		box.addChild(new Text(theme.fg("dim", `from: ${agentId} @ ${cwd}`), 0, 0));
+		const originBadge = senderInfo.origin === "external-mcp" ? "  [external MCP]" : "";
+		box.addChild(new Text(theme.fg("dim", `from: ${agentId} @ ${cwd}${originBadge}`), 0, 0));
 
 		const sessionId = senderInfo.sessionId ?? "(unknown sessionId)";
-		box.addChild(new Text(theme.fg("dim", `sessionId: ${sessionId}`), 0, 0));
+		const replyable = senderInfo.replyable === false ? "  (non-replyable)" : "";
+		box.addChild(new Text(theme.fg("dim", `sessionId: ${sessionId}${replyable}`), 0, 0));
 	} else {
 		box.addChild(new Text(labelBase, 0, 0));
 	}
@@ -938,6 +957,8 @@ async function handleCommand(
 					agentId: sender.agentId,
 					cwd: sender.cwd,
 					timestamp: sender.timestamp,
+					...(sender.origin ? { origin: sender.origin } : {}),
+					...(typeof sender.replyable === "boolean" ? { replyable: sender.replyable } : {}),
 					...(wantsReply ? { wants_reply: true } : {}),
 				})}</sender_info>`
 			: "";

@@ -99,15 +99,15 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 3a. entwurf_send envelope wiring break — missing PI_AGENT_ID / PI_SESSION_ID.
-#     0.4.14 contract: the bridge MUST throw EntwurfEnvelopeWiringError before
-#     it even tries to resolve a socket. Pre-0.4.14 tests asserted on a stale
-#     "target" argument name and false-greened on schema validation; the
-#     post-0.4.14 distinction is that the request is schema-valid but the env
-#     is incomplete, so the only correct failure surface is the envelope error.
+# 3a. entwurf_send external MCP path — missing PI_AGENT_ID / PI_SESSION_ID.
+#     entwurf_send is identity-enhanced, not identity-required: external MCP
+#     hosts may deliver to live pi sessions without a replyable pi sender
+#     envelope. With a synthetic missing target, the correct negative surface is
+#     therefore socket resolution, not envelope wiring. entwurf_self remains the
+#     strict identity-required tool below.
 # ----------------------------------------------------------------------------
 
-echo "[3a] entwurf_send envelope wiring break (no PI_AGENT_ID / PI_SESSION_ID)"
+echo "[3a] entwurf_send external MCP path (no PI_AGENT_ID / PI_SESSION_ID)"
 
 SEND_WIRING=$(
   # unset both env keys for this subshell, then call
@@ -121,11 +121,29 @@ SEND_WIRING=$(
   '
 )
 if echo "$SEND_WIRING" | grep -q '"isError":true' \
-   && echo "$SEND_WIRING" | grep -q 'envelope wiring incomplete' \
-   && echo "$SEND_WIRING" | grep -q 'PI_AGENT_ID'; then
-  ok "envelope wiring break surfaces (no PI_AGENT_ID / PI_SESSION_ID)"
+   && echo "$SEND_WIRING" | grep -qE '(No pi control socket|control dir not found)'; then
+  ok "external MCP send reaches socket resolution without pi sender env"
 else
-  fail "envelope wiring break did not surface: ${SEND_WIRING:0:300}"
+  fail "external MCP send did not reach socket resolution: ${SEND_WIRING:0:300}"
+fi
+
+echo "[3a.1] entwurf_send external MCP rejects wants_reply=true"
+
+SEND_EXTERNAL_REPLY=$(
+  env -u PI_AGENT_ID -u PI_SESSION_ID bash -c '
+    {
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+      printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_send\",\"arguments\":{\"sessionId\":\"'$SYNTHETIC_SESSION_ID'\",\"message\":\"hi\",\"wants_reply\":true}}}"
+      sleep 0.5
+    } | timeout 10 "'$HERE'/start.sh" 2>/dev/null | grep "\"id\":11" || true
+  '
+)
+if echo "$SEND_EXTERNAL_REPLY" | grep -q '"isError":true' \
+   && echo "$SEND_EXTERNAL_REPLY" | grep -q 'wants_reply=true requires a replyable pi-session sender envelope'; then
+  ok "external MCP send cannot request reply path"
+else
+  fail "external MCP wants_reply guard did not surface: ${SEND_EXTERNAL_REPLY:0:300}"
 fi
 
 # ----------------------------------------------------------------------------
@@ -316,6 +334,8 @@ fi
 #    Positive: env present → response carries sessionId / agentId / cwd /
 #    timestamp / socketPath.
 #    Negative: env missing → EntwurfEnvelopeWiringError surfaced as isError.
+#    This strictness now belongs to entwurf_self only; entwurf_send permits an
+#    external non-replyable sender path.
 # ----------------------------------------------------------------------------
 
 echo "[5a] entwurf_self positive (envelope present)"

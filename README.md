@@ -17,13 +17,15 @@ pi
 
 > **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends.
 
+> **Anthropic subscription billing.** From 2026-06-15, Anthropic third-party agent paths (ACP, Agent SDK, `claude -p`, pi-shell-acp's Claude backend) consume a separate Agent SDK credit pool, distinct from Claude chat and the `claude` CLI used as an interactive terminal. `pi-shell-acp` respects that distinction — no bypass, no emulation — and preserves capability dignity across all three backends (see [AGENTS.md](./AGENTS.md) invariants #7, #9, #10). The recommended default runtime leans toward paths outside Anthropic's Agent SDK metering (Codex / Gemini); Claude remains a strong coding worker invoked when its quality is worth the credit cost. The operator decides the mix.
+
 ## Concept primer
 
 A few words that look unusual for a coding tool.
 
 - **Entwurf** (기투, projection-of-self) — sibling sessions with their own runtime boundary. Not "delegate," not "worker," not "sub-agent." Spawn, resume, and live peer messaging are first-class.
 - **Engraving** — optional short operator text delivered through each backend's native identity carrier. Not a giant hidden prompt, not a tool catalog.
-- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval.
+- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Gemini, …) when the operator chooses. `entwurf_self` requires a pi session sender envelope; `entwurf_send` can deliver to live pi sessions from an explicitly wired external MCP host, but only pi-session senders are replyable.
 - **Session persistence** — re-attaches pi to the same remote ACP session. Does not hydrate backend transcripts into pi history.
 
 ## Install
@@ -122,6 +124,41 @@ Reference shape lives in [`pi/settings.reference.json`](./pi/settings.reference.
 
 `appendSystemPrompt: false` is intentional. Pi / AGENTS context rides the first-user augment; putting it into the Claude `_meta.systemPrompt` carrier can route OAuth sessions to metered "extra usage" billing.
 
+### Wiring `pi-tools-bridge` into an external MCP host
+
+The same `pi-tools-bridge` entry shape is accepted by other MCP-aware hosts (Claude Code, Codex, Gemini CLI, …). For example, in Claude Code:
+
+```bash
+# CLI add (user scope)
+claude mcp add --scope user pi-tools-bridge \
+  bash /absolute/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh
+
+# or edit ~/.claude.json / project .mcp.json:
+# {
+#   "mcpServers": {
+#     "pi-tools-bridge": {
+#       "command": "bash",
+#       "args": ["/absolute/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh"],
+#       "env": { "PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code" }
+#     }
+#   }
+# }
+```
+
+Prerequisites on the host running the external MCP client:
+
+- `pi` on PATH (for `entwurf` / `entwurf_resume` spawn paths).
+- `~/.pi/agent/entwurf-targets.json` (target registry) when calling `entwurf`.
+- A live pi session launched with `--entwurf-control` populates `~/.pi/entwurf-control/<sessionId>.sock`; required for `entwurf_send` and `entwurf_peers`.
+
+From an external MCP host:
+
+- `entwurf`, `entwurf_resume`, `entwurf_peers` work directly.
+- `entwurf_send` delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
+- `entwurf_self` refuses to return — it requires a pi session sender envelope (`PI_SESSION_ID` + `PI_AGENT_ID`).
+
+See the MCP entry in [Concept primer](#concept-primer) and the sender envelope contract in [AGENTS.md](./AGENTS.md).
+
 ## Per-backend operating surface
 
 Each backend keeps its native model / API / tools; pi-shell-acp shapes only what enters from pi. All three backends honor explicit `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`, and `GEMINI_SYSTEM_MD` exports when set by the operator.
@@ -190,7 +227,7 @@ A two-pane recording covers the surface end-to-end — sibling spawn, cross-proc
 
 </details>
 
-Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same envelope for the current session. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling.
+Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same envelope for the current session. External MCP hosts can call `entwurf_send` with a marked non-replyable envelope, while `entwurf_self` remains pi-session-only. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected from non-replyable external senders.
 
 In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
