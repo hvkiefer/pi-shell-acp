@@ -15,17 +15,113 @@
 
 ---
 
+## Top Bug (2026-05-18 PM) — in-pi `entwurf_send` server-side stuck
+
+> **Priority over publish preflight.** publish 준비는 이 버그 잡힌 후. 0.6.x patch
+> bump 후보. 새 코드 변경은 아직 0 — 진단/reproduce 단계.
+
+### 증거 (incident timeline)
+
+- **Caller**: native pi GPT-5.5 분신 (`019e38bd-bdf4-...`), in-pi `entwurf_send`
+  tool 호출 with `mode=follow_up, wait_until=turn_end`.
+- **Receiver**: voscli `019e38bc-2373-...` (pi-shell-acp/claude-opus-4-7,
+  `--entwurf-control` 켜진 정상 native pi). control socket 정상 (`get_info`
+  응답 `idle:true`).
+- **결과**: 5분 후 timeout. caller abort.
+- **결정적 단서**: receiver jsonl `2026-05-18T01-38-34-483Z_019e38bc-...jsonl`
+  의 14:00 ~ 14:04 KST 구간에 `custom_message customType=entwurf-message`
+  **0개**. 직전 정상 send (13:52:48) 는 같은 패턴으로 박혀 있었음.
+  → **send RPC 가 receiver server-side 에서 처리도 persist 도 되지 않음.**
+- 14:04:42 user message 의 본문은 사용자가 손으로 GPT힣 결과를 복사해
+  receiver 에 붙여넣은 우회 흔적 (`"entwurf Task ID: 5f46b77d..."`).
+
+### RPC 흐름 (`pi-extensions/entwurf-control.ts:1061-1177`)
+
+`waitForEvent=turn_end` 일 때 client (caller):
+
+1. socket connect
+2. **subscribe 먼저** (`{ type: "subscribe", event: "turn_end" }`) — server 의
+   현재 `lastTurnIndex` 를 baseline 으로 받음
+3. send (`{ type: "send", message, mode, sender, wants_reply }`)
+4. wait — turn_end event 의 `turnIndex > baselineTurnIndex` 조건 만족까지
+5. 5분 timeout
+
+정상이면 receiver 가:
+
+- subscribe response 보냄 (`baselineTurnIndex` 포함)
+- send 처리 → receiver jsonl 에 `entwurf-message` append → send response success
+- (follow_up + idle 이면 `isIdle` direct promote → 즉시 turn 시작)
+- turn 끝 → pi-level `turn_end` event → server 가 subscription socket 으로
+  broadcast → caller resolve
+
+### 후보 cause (우선순위 순)
+
+| # | 후보 | 진단 단서 |
+|---|------|----------|
+| 1 | **receiver send 처리 자체에서 fail/hang** — jsonl persist 도 안 됨 | jsonl 흔적 0개와 직접 일치. **가장 유력.** |
+| 2 | `follow_up + idle` 의 `isIdle` direct promote 검출 갭 — 메시지는 큐잉됐는데 turn 시작 trigger 안 됨 | 큐잉됐다면 jsonl 에 entwurf-message 가 박혀야 정상. 후보 1 과 겹치지 않으면 제외 |
+| 3 | socket server connection 처리 race — subscribe + send 두 RPC 가 같은 connection 에 sequential, server 가 한 응답만 처리하고 hang | (line 1097-1101) 두 write 의 race. receiver 측 connection handler 확인 필요 |
+| 4 | ACP backend (Claude opus) turn end → pi-level `turn_end` event 사상 갭 | 13:52 의 정상 turn 은 사상됨. 이 후보면 가끔만 발생 — 재현 어려움 |
+| 5 | 같은 receiver 에 caller 가 여러 connection 만들었을 때의 state contention | low priority |
+
+### Reproduce 방법 (다음 한 걸음)
+
+같은 receiver 패턴 두 개 띄우고:
+
+```text
+1. cwd A: pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-7
+   → receiver sessionId R
+2. cwd B: pi --entwurf-control --provider openai-codex --model gpt-5.5
+   → caller. in-pi entwurf_send 호출 (sessionId=R, mode=follow_up,
+     wait_until=turn_end) 100회 반복. 각 호출 사이 receiver idle.
+3. 측정:
+   - timeout 발생률
+   - receiver jsonl 에 entwurf-message append 성공률
+   - send response 도착 vs subscribe response 도착 race
+   - server side 에 stderr/log 박기 — connection event / send handler entry/exit
+```
+
+발생 패턴 잡히면 후보 1~3 좁힘. 단발성이면 socket race / ACP turn_end 사상 갭
+방향, 매번 발생이면 send handler 자체 갭.
+
+### 차단 영향
+
+- **publish preflight 5 항목 보류**. 이 버그가 잡혀야 0.6.x patch bump
+  또는 0.7.0 cut 후 publish 정공법.
+- `entwurf_send` 운영 권장 (간이): caller 가 `wait_until=message_processed`
+  또는 omit (no wait) 사용. `turn_end` 는 description 도 best-effort 명시.
+  단 receiver-side 갭이 진짜면 `message_processed` 도 5초 timeout 가능 —
+  근본 해결은 reproduce + fix 후.
+
+### 처리 단계 — TODO
+
+1. **Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 비슷한
+   shell smoke). receiver/caller 두 pi 띄우고 100회 send 시도 + 측정.
+2. **server-side instrumentation** — `entwurf-control.ts` 의 connection
+   handler / send handler 에 `console.error` 한 줄 (entry / exit / error)
+   임시 박아 incident reproduce 시 trace.
+3. **후보 1 fix** — send handler 의 try/catch 정합성, append-entry 실패 시
+   error response 명시, async timing.
+4. **회귀 게이트** — reproduce smoke 가 GREEN 으로 정착되면 `pnpm check`
+   chain 에 흡수 (단 두 pi 띄우는 게 무거우면 별도 `./run.sh
+   check-entwurf-stuck` manual gate).
+
+> 이 항목은 closed 될 때까지 NEXT 의 맨 앞 자리 유지. Cross-repo follow-up
+> 의 (a)~(e) 와 별도 — 그 항목들은 운영 가능, 이건 send path 자체의 정합성.
+
+---
+
 ## Immediate Priority — 2026-05-17 (한 달 sprint)
 
-> **Status (2026-05-18 EOD)** — remote SSH shell-quote incident **closed**
-> (commits `632306c` fix + `996a175` docs, GPT힣 PM review accepted).
-> `check-shell-quote` smoke gate (16 assertions) in `pnpm check` chain.
-> Remote entwurf follow-ups (a)~(e) parked in §Cross-repo follow-ups.
+> **Status (2026-05-18 PM 갱신)** — remote SSH shell-quote 패치 closed
+> (commits `632306c` fix + `996a175` docs + `b40e99b` realign, GPT힣 PM
+> review accepted). `check-shell-quote` smoke gate (16 assertions) GREEN.
 >
-> **Next focus** — return to **Phase 2 publish preflight** (5 항목, line ~518
-> below: npm name 재확인 / `pi.image` gallery preview / 새 데모 GIF / 프로젝트
-> 이미지 (GLGMAN) / 다른 기기 실제 설치 테스트). Asymmetric Mitsein sprint Step
-> 3a/3b 는 publish 와 병행 가능 — 자연 도착 데이터 누적 기다림.
+> **새 top bug 발견** — in-pi `entwurf_send` server-side stuck (위 §Top Bug
+> 참고). publish preflight 보다 **우선**.
+>
+> **Next focus** — top bug reproduce smoke 작성 + 진단 → fix → 회귀 게이트.
+> Phase 2 publish preflight (line ~528 below) 는 top bug closed 후 진입.
 >
 > **위치**: Phase 1 의 **0.6.0 개발 release** 안의 한 축. OpenClaw 검증
 > (✅ Phase 1.8/1.9) 과 함께 0.6.0 에 묶여 닫힘. 0.6.0 = 기능 추가 종료점 —
