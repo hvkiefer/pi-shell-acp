@@ -54,17 +54,20 @@
 - turn 끝 → pi-level `turn_end` event → server 가 subscription socket 으로
   broadcast → caller resolve
 
-### 후보 cause (우선순위 순)
+### 후보 cause (우선순위 순) — 2026-05-18 PM PM 리뷰 반영
 
 | # | 후보 | 진단 단서 |
 |---|------|----------|
-| 1 | **receiver send 처리 자체에서 fail/hang** — jsonl persist 도 안 됨 | jsonl 흔적 0개와 직접 일치. **가장 유력.** |
-| 2 | `follow_up + idle` 의 `isIdle` direct promote 검출 갭 — 메시지는 큐잉됐는데 turn 시작 trigger 안 됨 | 큐잉됐다면 jsonl 에 entwurf-message 가 박혀야 정상. 후보 1 과 겹치지 않으면 제외 |
-| 3 | socket server connection 처리 race — subscribe + send 두 RPC 가 같은 connection 에 sequential, server 가 한 응답만 처리하고 hang | (line 1097-1101) 두 write 의 race. receiver 측 connection handler 확인 필요 |
+| 1 | **server data loop 의 `handleCommand(...)` 가 `await`/`catch` 없이 floating** (`entwurf-control.ts:1039`). `handleCommand` 는 async — rejection 이 silent 처리되어 client 는 5분 timeout 만 봄. **가장 유력 (PM 직접 지적, fact-confirmed).** | line 1039: `handleCommand(pi, state, parsed.command!, socket);` — `await`/`.catch`/`void` 모두 없음. jsonl persist 0과 정합. |
+| 2 | **같은 connection 의 subscribe + send handler interleave** — line 1022 의 while loop 가 handleCommand 완료 안 기다리고 다음 line 처리. 두 async handler 가 동시 실행되며 state 충돌 가능. | line 1019-1041 직접 확인. 후보 1 의 부산물 또는 별개 race. |
+| 3 | `follow_up + idle` 의 `isIdle` direct promote 검출 갭 — 메시지는 큐잉됐는데 turn 시작 trigger 안 됨 | 큐잉됐다면 jsonl 에 entwurf-message 가 박혀야 정상. 후보 1 과 겹치지 않으면 제외 |
 | 4 | ACP backend (Claude opus) turn end → pi-level `turn_end` event 사상 갭 | 13:52 의 정상 turn 은 사상됨. 이 후보면 가끔만 발생 — 재현 어려움 |
 | 5 | 같은 receiver 에 caller 가 여러 connection 만들었을 때의 state contention | low priority |
 
-### Reproduce 방법 (다음 한 걸음)
+### Reproduce 방법 (다음 한 걸음, PM 보강 반영)
+
+핵심 — **`message_processed` 와 `turn_end` 를 반드시 분리 측정**. 같이 던지면
+"send handler 문제냐 turn completion 문제냐" 가 안 갈라짐.
 
 같은 receiver 패턴 두 개 띄우고:
 
@@ -72,17 +75,33 @@
 1. cwd A: pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-7
    → receiver sessionId R
 2. cwd B: pi --entwurf-control --provider openai-codex --model gpt-5.5
-   → caller. in-pi entwurf_send 호출 (sessionId=R, mode=follow_up,
-     wait_until=turn_end) 100회 반복. 각 호출 사이 receiver idle.
-3. 측정:
-   - timeout 발생률
-   - receiver jsonl 에 entwurf-message append 성공률
-   - send response 도착 vs subscribe response 도착 race
-   - server side 에 stderr/log 박기 — connection event / send handler entry/exit
-```
+   → caller. in-pi entwurf_send 호출, 두 phase 분리:
 
-발생 패턴 잡히면 후보 1~3 좁힘. 단발성이면 socket race / ACP turn_end 사상 갭
-방향, 매번 발생이면 send handler 자체 갭.
+   Phase A — wait_until=message_processed × 100회 (각 호출 사이 receiver idle)
+   Phase B — wait_until=turn_end × 100회
+
+3. 측정 (각 send 에 nonce 부여 — `[stuck-smoke nonce=<uuid>] ...`):
+
+   client milestone (timing 기록):
+   - socket connected
+   - subscribe response 받음 (turn_end phase 만 해당)
+   - send response 받음
+   - turn_end event 받음 (turn_end phase 만 해당)
+   - timeout
+
+   receiver-side:
+   - jsonl 에 nonce 박힘 여부 — `grep "stuck-smoke nonce=<uuid>" <jsonl>`
+
+4. variant — subscribe + send 의 ordering race 분리:
+   - back-to-back: 현재 코드와 동일
+   - subscribe-ack-first: subscribe response 받은 후에 send write
+   두 variant 모두 turn_end phase 에 100회 비교
+
+5. 결과 해석:
+   - Phase A 가 timeout/fail → send handler/socket 쪽 (후보 1+2 확정)
+   - Phase A 성공, Phase B 만 fail → direct promote / turn_end event 쪽 (후보 3+4)
+   - subscribe-ack-first variant 가 back-to-back 대비 개선 → race 확인 (후보 2)
+```
 
 ### 차단 영향
 
@@ -90,21 +109,39 @@
   또는 0.7.0 cut 후 publish 정공법.
 - `entwurf_send` 운영 권장 (간이): caller 가 `wait_until=message_processed`
   또는 omit (no wait) 사용. `turn_end` 는 description 도 best-effort 명시.
-  단 receiver-side 갭이 진짜면 `message_processed` 도 5초 timeout 가능 —
-  근본 해결은 reproduce + fix 후.
+  단 후보 1 (handleCommand floating) 이 진짜면 `message_processed` 도 같은
+  silent rejection — Phase A 분리 측정이 그것을 갈라줌. 근본 해결은
+  reproduce + fix 후.
 
-### 처리 단계 — TODO
+### 처리 단계 — TODO (PM 보강 반영)
 
-1. **Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 비슷한
-   shell smoke). receiver/caller 두 pi 띄우고 100회 send 시도 + 측정.
-2. **server-side instrumentation** — `entwurf-control.ts` 의 connection
-   handler / send handler 에 `console.error` 한 줄 (entry / exit / error)
+1. **Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 shell
+   smoke). receiver/caller 두 pi 띄우고 위 Phase A/B + variant 측정. nonce
+   기반 jsonl persist 검증.
+2. **server-side instrumentation** — `entwurf-control.ts:1019` connection
+   handler + `handleCommand` entry/exit/error 에 `console.error` 한 줄
    임시 박아 incident reproduce 시 trace.
-3. **후보 1 fix** — send handler 의 try/catch 정합성, append-entry 실패 시
-   error response 명시, async timing.
+3. **후보 1 fix (instrumentation + near-fix)** — line 1039 의
+   `handleCommand(...)` 호출을 안전하게 감싸기:
+
+   ```ts
+   void handleCommand(pi, state, parsed.command!, socket).catch((error) => {
+     writeResponse(socket, {
+       type: "response",
+       command: parsed.command?.type ?? "unknown",
+       success: false,
+       error: `handler failed: ${error instanceof Error ? error.message : String(error)}`,
+     });
+   });
+   ```
+
+   이 한 줄이 silent rejection 을 client 에게 명시 error 로 surface — 진단이면서
+   거의 fix. 단 root cause 가 다른 곳일 수도 있으니, 이 fix 후에도 reproduce
+   smoke 가 stable GREEN 인지 확인 필수.
 4. **회귀 게이트** — reproduce smoke 가 GREEN 으로 정착되면 `pnpm check`
    chain 에 흡수 (단 두 pi 띄우는 게 무거우면 별도 `./run.sh
-   check-entwurf-stuck` manual gate).
+   check-entwurf-stuck` manual gate). 회귀 게이트가 stable 해진 후에만
+   publish preflight 재진입.
 
 > 이 항목은 closed 될 때까지 NEXT 의 맨 앞 자리 유지. Cross-repo follow-up
 > 의 (a)~(e) 와 별도 — 그 항목들은 운영 가능, 이건 send path 자체의 정합성.
