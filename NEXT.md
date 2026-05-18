@@ -115,13 +115,22 @@
 
 ### 처리 단계 — TODO (PM 보강 반영)
 
-- ✅ **1단계 — near-fix landed** (commit `2beb213`, 2026-05-18 14:32). `entwurf-control.ts:1039` 의 `handleCommand(...)` 호출을 `void handleCommand(...).catch(...)` 로 감쌈. silent rejection 이 explicit `success:false, error:"handler failed: ..."` response 로 surface — "handler exploded" vs "wait timed out" 구분 가능. ordering 결정: parallel handling 유지 (no await). per-command ordering 은 client (subscribe-before-send) 와 handler 독립성이 책임지고, data event 안에서 await 하면 unrelated handler 까지 serialize 되어 부작용 큼. 향후 race 가 reproduce 에 다시 잡히면 **per-socket command queue** 가 정공법 (await in data handler 아님). 결정 rationale 은 inline comment 에 박힘.
+- ✅ **1단계 — near-fix landed** (commit `2beb213`, 2026-05-18 14:32). `entwurf-control.ts:1039` 의 `handleCommand(...)` 호출을 `void handleCommand(...).catch(...)` 로 감쌈. silent rejection 이 explicit `success:false, error:"handler failed: ..."` response 로 surface — "handler exploded" vs "wait timed out" 구분 가능. ordering 결정: parallel handling 유지 (no await). per-command ordering 은 client (subscribe-before-send) 와 handler 독립성이 책임지고, data event 안에서 await 하면 같은 socket 의 후속 command 가 serialize 되고 socket close teardown 이 꼬임. 향후 race 가 reproduce 에 다시 잡히면 **per-socket command queue** 가 정공법 (await in data handler 아님). 결정 rationale 은 inline comment 에 박힘.
 
-- ☐ **2단계 — Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 shell smoke). receiver/caller 두 pi 띄우고 §Reproduce 방법 의 Phase A/B + variant 측정. nonce 기반 jsonl persist 검증. **1단계 fix 후에도 두 번째 root cause 가 숨어있는지 확인** — fix 자체가 root cause 정합인지, 아니면 race/promote 갭이 별도 존재인지 갈라줌.
+- ✅ **1단계+D — client-side close-before-response landed** (commit `d563743`, 2026-05-18 14:41). `sendRpcCommand` 가 close 이전 timeout 만 reject 신호로 가졌음. settled guard + `socket.on("close", ...)` 추가 — server 가 응답 전 connection 끊으면 즉시 `connection closed before response` 로 reject (5분 wait 안 기다림). 정상 resolve 후 자연 close 는 settled guard 가 no-op 처리.
 
-- ☐ **3단계 — server-side instrumentation** (reproduce 가 잡히면) — `entwurf-control.ts:1019` connection handler + `handleCommand` entry/exit/error 에 `console.error` 한 줄 임시 박아 reproduce 시 trace.
+- ✅ **2단계 — reproduce smoke landed** (commit `<pending>`, 2026-05-18). `scripts/check-entwurf-send-stuck.ts` + `./run.sh check-entwurf-stuck` (또는 `pnpm check-entwurf-stuck`). **manual gate** — `pnpm check` chain 에 안 들어감. 실 receiver pi + 실 API 비용. operator 가 receiver 띄우고 sessionId 전달.
+  - 사용: `./run.sh check-entwurf-stuck --target <sessionId> [--trials N] [--phase A|B|both] [--variant back-to-back|ack-first|both]`
+  - measure: connect / subscribeAck / sendAck / turnEnd / settled milestones + receiver jsonl 의 nonce persist 검증.
+  - 진단 골격:
+    - Phase A 가 timeout/closed/persist=❌ → send handler/socket 갭 (후보 1+2 의 잔여 또는 별도 root cause)
+    - Phase A 성공, Phase B 만 timeout → completion 갭 (후보 3+4)
+    - back-to-back vs ack-first 차이 → race 후보 #2 확인 → per-socket queue 정공법 진입
+  - **다음 한 걸음 — operator 손에서 1차 reproduce 실행**. `pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-7` 띄우고 sessionId 받아 `--trials 5 --phase both --variant both` 1회. 결과 패턴 보고 N 확장 또는 fix 추가.
 
-- ☐ **4단계 — 회귀 게이트** — reproduce smoke 가 GREEN 으로 정착되면 `pnpm check` chain 에 흡수 (단 두 pi 띄우는 게 무거우면 별도 `./run.sh check-entwurf-stuck` manual gate). 회귀 게이트가 stable 해진 후에만 publish preflight 재진입.
+- ☐ **3단계 — server-side instrumentation** (reproduce 가 RED 잡히면) — `entwurf-control.ts:1019` connection handler + `handleCommand` entry/exit/error 에 `console.error` 한 줄 임시 박아 reproduce 시 trace.
+
+- ☐ **4단계 — 회귀 게이트 stable 화 + publish preflight 재진입** — `check-entwurf-stuck` 의 baseline 결과 (예: trials 100 × phase both = 200/200 success/persist) 가 정착되면 publish preflight 5 항목 재진입. 단 `check-entwurf-stuck` 는 manual gate 유지 (실 receiver + API 비용).
 
 > 이 항목은 closed 될 때까지 NEXT 의 맨 앞 자리 유지. Cross-repo follow-up
 > 의 (a)~(e) 와 별도 — 그 항목들은 운영 가능, 이건 send path 자체의 정합성.
