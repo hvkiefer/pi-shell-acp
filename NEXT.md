@@ -125,24 +125,22 @@
   - auto-receiver 가 tmux 로 `pi --no-extensions -e <repo>/pi-extensions/entwurf-control.ts --entwurf-control --provider ... --model ...` 띄움 — installed stale 회피, working tree 코드 검증. exit/SIGINT/SIGTERM 에서 tmux kill cleanup.
   - measure: connect / subscribeAck / sendAck / turnEnd / settled milestones + receiver jsonl 의 nonce persist 검증.
 
-- ✅ **2단계 — 1차 자동 reproduce 결과 (2026-05-18 15:01)**: **RED — 1단계+D fix 가 second root cause 못 잡음.**
-  - `--auto-receiver --phase B --variant back-to-back --trials 2`:
-    - trial 1: success, turnEnd 5031ms (정상 첫 turn)
-    - trial 2: **timeout 60s**, connect/subAck/sendAck 모두 0ms 도착 (RPC 정상 수신), turn_end event 만 영원히 안 옴
-  - 패턴 분석:
-    - send handler 갭 (후보 1+2) 은 1단계 fix 가 잡음 — Phase A 3/3 success.
-    - **두 번째 trial 의 stuck = completion 갭** (후보 #3 또는 #4). 같은 receiver 의 첫 turn 은 정상, 두 번째 turn 의 turn_end 만 fire 안 됨.
-    - 강력 의심: 후보 #3 **`isIdle` direct promote 검출 갭**. 첫 turn 후 receiver internal state 가 idle 처럼 보이지만 두 번째 follow_up send 가 turn 시작 trigger 못 함.
-    - 차순위: 후보 #4 ACP backend turn_end → pi-level turn_end 사상 갭 (하지만 이번 receiver 는 native openai-codex/gpt-5.4 라 ACP path 무관 — 후보 #4 가능성 낮음. native pi 자체의 turn lifecycle 갭일 수 있음).
-  - 또 한 가지: receiver 의 jsonl 파일이 첫 turn 후에도 생성 안 됨 (persist 검증 불가). `--no-extensions -e <ec>` 로 띄운 receiver 는 session jsonl 가 default extension/agent 책임이라 안 생성될 가능성. fresh-extension 강제 패턴의 trade-off — 진단 측면 한계, fix scope 와 직교.
+- ✅ **2단계 — 정확한 reproduce 결과 (commit `e8395eb` 의 script 정정 후, 2026-05-18 15:14)**: **RED — turn_end delivery/correlation 갭**.
+  - 초기 60713ce 의 "direct promote 갭" 해석은 **폐기**. PM 가 manual jsonl 검증에서 직접 정정: trial 2 도 message persist + turn 시작 + assistant response 까지 정상. receiver 측은 healthy. 우리 첫 보고가 false RED 였던 이유 = script 의 `findReceiverJsonl()` 가 main 에서 한 번만 호출되어 auto-receiver 의 lazy jsonl 생성 (첫 메시지 도착 시) 을 놓침.
+  - script 정정 후 `--auto-receiver --phase B --variant back-to-back --trials 2`:
+    - trial 1: success, turnEnd 7967ms, **persist=✅**
+    - trial 2: **timeout 60s, persist=✅** — receiver jsonl 에 nonce 박힘 + assistant response 까지 정상 진행, 단 **caller 의 wait_until=turn_end 가 두 번째 turn 의 turn_end event 를 받지 못함**.
+  - 새 진단 (정확):
+    - send handler / RPC 자체 정상 (Phase A + Phase B 의 subAck/sendAck 모두 0–4ms 도착).
+    - receiver 의 turn lifecycle 정상 (jsonl persist + assistant response).
+    - **갭 위치 = turn_end event 의 delivery 또는 correlation**. 즉 (a) `pi.on("turn_end")` emitter 가 두 번째 turn 에 fire 안 됨, (b) fire 됐지만 subscription broadcast 가 fail, (c) broadcast 됐지만 client 의 baseline 비교 (`eventTurnIndex <= baselineTurnIndex`) 가 stale 로 discard, (d) socket close timing 으로 event 누락 — 4 후보.
+  - 후보 #3 (`isIdle direct promote` 갭) 와 #4 (ACP turn_end 사상 갭) 는 **이 시나리오와 직접 무관** — direct promote 는 fire 됐고 (turn 시작), receiver 도 native openai-codex 라 ACP path 무관. 두 후보 strike-through.
 
-- ☐ **3단계 — server-side instrumentation (NEXT 한 걸음)**: `entwurf-control.ts:1019` connection handler + `handleCommand` 의 `send` case + turn_end emitter (line 1341-1363) 에 `console.error("[stuck-instr] ...")` 임시 박아 trial 2 stuck 시점에 server 가 어디까지 진행하는지 trace. 후보:
-  - send handler 가 정상 처리되어 message 큐잉됨? → `isIdle` 판단은 어디서?
-  - direct promote 가 실제로 trigger 됐는가?
-  - 또는 큐잉만 되고 turn 시작 trigger 안 됨 → 그게 갭.
-  - turn_end event 가 fire 됐는데 subscription broadcast 가 fail? (가능성 낮음 — turnEndSubscriptions 가 in-process map 이라)
-  
-  instrumentation 박은 채 `--auto-receiver --phase B --trials 2` 한 번 더 돌리면 정확한 stuck point 잡힘. 그 후 진짜 fix 박을 위치 결정.
+- ☐ **3단계 — server-side + client-side instrumentation (NEXT 한 걸음, 위치 변경)**: PM 권장 위치로 변경. send/isIdle 영역 아님.
+  - **server**: `entwurf-control.ts:1341-1363` 의 `pi.on("turn_end", ...)` emitter — handler 진입/탈출 + `state.turnEndSubscriptions.length` + `event.turnIndex` + write 시도 결과.
+  - **server**: subscribe handler (`handleCommand` 의 `subscribe` case) — registration 시점 + baselineTurnIndex 계산값.
+  - **client**: `sendRpcCommand` 의 turn_end event handler (line 1143-1186) — 매 incoming event 의 `msg.data.turnIndex` + `baselineTurnIndex` + discard 결정 + socket close 시점.
+  - instrumentation 박은 채 `--auto-receiver --phase B --variant back-to-back --trials 2` 1회 → trial 2 timeout 시점에 4 후보 중 어느 것인지 즉시 좁힘.
 
 - ☐ **4단계 — fix 적용 + 회귀 게이트 stable 화 + publish preflight 재진입** — 3단계 instrumentation 으로 정확한 stuck point 찾고 (`isIdle` 검출 / direct promote / turn_end fire 중 어느 것) 정공법 fix 박음. 그 후 `--auto-receiver --trials 20 --phase B --variant both` 같은 baseline 으로 `40/40 success` 같은 결과 정착 후 publish preflight 5 항목 재진입.
 
