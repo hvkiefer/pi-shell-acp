@@ -115,33 +115,13 @@
 
 ### 처리 단계 — TODO (PM 보강 반영)
 
-1. **Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 shell
-   smoke). receiver/caller 두 pi 띄우고 위 Phase A/B + variant 측정. nonce
-   기반 jsonl persist 검증.
-2. **server-side instrumentation** — `entwurf-control.ts:1019` connection
-   handler + `handleCommand` entry/exit/error 에 `console.error` 한 줄
-   임시 박아 incident reproduce 시 trace.
-3. **후보 1 fix (instrumentation + near-fix)** — line 1039 의
-   `handleCommand(...)` 호출을 안전하게 감싸기:
+- ✅ **1단계 — near-fix landed** (commit `2beb213`, 2026-05-18 14:32). `entwurf-control.ts:1039` 의 `handleCommand(...)` 호출을 `void handleCommand(...).catch(...)` 로 감쌈. silent rejection 이 explicit `success:false, error:"handler failed: ..."` response 로 surface — "handler exploded" vs "wait timed out" 구분 가능. ordering 결정: parallel handling 유지 (no await). per-command ordering 은 client (subscribe-before-send) 와 handler 독립성이 책임지고, data event 안에서 await 하면 unrelated handler 까지 serialize 되어 부작용 큼. 향후 race 가 reproduce 에 다시 잡히면 **per-socket command queue** 가 정공법 (await in data handler 아님). 결정 rationale 은 inline comment 에 박힘.
 
-   ```ts
-   void handleCommand(pi, state, parsed.command!, socket).catch((error) => {
-     writeResponse(socket, {
-       type: "response",
-       command: parsed.command?.type ?? "unknown",
-       success: false,
-       error: `handler failed: ${error instanceof Error ? error.message : String(error)}`,
-     });
-   });
-   ```
+- ☐ **2단계 — Reproduce smoke** — `scripts/check-entwurf-send-stuck.ts` (또는 shell smoke). receiver/caller 두 pi 띄우고 §Reproduce 방법 의 Phase A/B + variant 측정. nonce 기반 jsonl persist 검증. **1단계 fix 후에도 두 번째 root cause 가 숨어있는지 확인** — fix 자체가 root cause 정합인지, 아니면 race/promote 갭이 별도 존재인지 갈라줌.
 
-   이 한 줄이 silent rejection 을 client 에게 명시 error 로 surface — 진단이면서
-   거의 fix. 단 root cause 가 다른 곳일 수도 있으니, 이 fix 후에도 reproduce
-   smoke 가 stable GREEN 인지 확인 필수.
-4. **회귀 게이트** — reproduce smoke 가 GREEN 으로 정착되면 `pnpm check`
-   chain 에 흡수 (단 두 pi 띄우는 게 무거우면 별도 `./run.sh
-   check-entwurf-stuck` manual gate). 회귀 게이트가 stable 해진 후에만
-   publish preflight 재진입.
+- ☐ **3단계 — server-side instrumentation** (reproduce 가 잡히면) — `entwurf-control.ts:1019` connection handler + `handleCommand` entry/exit/error 에 `console.error` 한 줄 임시 박아 reproduce 시 trace.
+
+- ☐ **4단계 — 회귀 게이트** — reproduce smoke 가 GREEN 으로 정착되면 `pnpm check` chain 에 흡수 (단 두 pi 띄우는 게 무거우면 별도 `./run.sh check-entwurf-stuck` manual gate). 회귀 게이트가 stable 해진 후에만 publish preflight 재진입.
 
 > 이 항목은 closed 될 때까지 NEXT 의 맨 앞 자리 유지. Cross-repo follow-up
 > 의 (a)~(e) 와 별도 — 그 항목들은 운영 가능, 이건 send path 자체의 정합성.
