@@ -15,137 +15,58 @@
 
 ---
 
-## Top Bug (2026-05-18 PM) — in-pi `entwurf_send` server-side stuck
+## Closed (2026-05-18 PM) — `wait_until=turn_end` surface 제거
 
-> **Priority over publish preflight.** publish 준비는 이 버그 잡힌 후. 0.6.x patch
-> bump 후보. 새 코드 변경은 아직 0 — 진단/reproduce 단계.
+오늘 하루 추적한 "in-pi `entwurf_send` server-side stuck" 은 **버그가 아니라
+설계 드리프트**였다. 원인은 코드 race 가 아니라 `entwurf_send` 가 fire-and-forget
+이어야 하는데도 `wait_until=turn_end` 라는 worker-style wait surface 를 안고
+있었다는 것. AGENTS.md L133 ("`entwurf_send` is fire-and-forget: no `wait_until`
+on the MCP bridge") 이 SSOT 였고, 코드의 in-pi tool / startup CLI / RPC 인프라가
+그 진실을 부정하고 있었음. 정공법은 turn_end correlation 정교화가 아니라
+**해당 surface 자체의 제거**.
 
-### 증거 (incident timeline)
+### 제거된 것
 
-- **Caller**: native pi GPT-5.5 분신 (`019e38bd-bdf4-...`), in-pi `entwurf_send`
-  tool 호출 with `mode=follow_up, wait_until=turn_end`.
-- **Receiver**: voscli `019e38bc-2373-...` (pi-shell-acp/claude-opus-4-7,
-  `--entwurf-control` 켜진 정상 native pi). control socket 정상 (`get_info`
-  응답 `idle:true`).
-- **결과**: 5분 후 timeout. caller abort.
-- **결정적 단서**: receiver jsonl `2026-05-18T01-38-34-483Z_019e38bc-...jsonl`
-  의 14:00 ~ 14:04 KST 구간에 `custom_message customType=entwurf-message`
-  **0개**. 직전 정상 send (13:52:48) 는 같은 패턴으로 박혀 있었음.
-  → **send RPC 가 receiver server-side 에서 처리도 persist 도 되지 않음.**
-- 14:04:42 user message 의 본문은 사용자가 손으로 GPT힣 결과를 복사해
-  receiver 에 붙여넣은 우회 흔적 (`"entwurf Task ID: 5f46b77d..."`).
+- `pi-extensions/entwurf-control.ts`
+  - in-pi `entwurf_send` tool 스키마의 `wait_until` 필드
+  - `RpcSubscribeCommand`, `RpcEvent`, `TurnEndSubscription` 타입
+  - `SocketState.turnEndSubscriptions`, `SocketState.lastTurnIndex`
+  - `handleCommand` 의 subscribe handler
+  - `sendRpcCommand` 의 `waitForEvent` branch + baseline turnIndex 상관관계
+  - `pi.on("turn_end", ...)` emitter (subscription broadcast)
+  - `writeEvent` helper
+  - `TurnEndEvent` import
+  - startup CLI `--entwurf-send-wait turn_end` 입력은 startup-time refuse —
+    `reportStartupControlSend` 으로 error 출력 후 startup send 만 drop (pi session
+    자체는 계속 살아있음, 다른 invalid arg 처리 패턴과 동일);
+    `--entwurf-send-wait message_processed` 는 backward-compat no-op 으로 수용
+- `scripts/check-entwurf-send-stuck.ts` → `scripts/check-entwurf-delivery.ts`
+  로 rename + Phase B (turn_end) 제거. delivery-ack 만 검증.
+- `run.sh` / `package.json`: `check-entwurf-stuck` → `check-entwurf-delivery`.
 
-### RPC 흐름 (`pi-extensions/entwurf-control.ts:1061-1177`)
+### 보존된 것 (오늘 커밋 중 잘못 들어온 게 아닌 부분)
 
-`waitForEvent=turn_end` 일 때 client (caller):
+- ✅ `2beb213` (handleCommand floating fix) — RPC handler rejection 을 명시적
+  error response 로 surface. wait_until 과 무관한 일반 RPC 정합성 개선.
+- ✅ `d563743` (close-before-response) — `sendRpcCommand` 에 settled guard +
+  `socket.on("close", ...)` 추가. wait_until 과 무관한 일반 RPC 정합성 개선.
+- ✅ `632306c` (remote SSH shell-quote) — 별개 incident, 그대로 살아있음.
+- ✅ `0a43ddf` 의 `--auto-receiver` tmux 자동화 골조 — Phase A 만 남기고
+   `check-entwurf-delivery` 로 이전.
 
-1. socket connect
-2. **subscribe 먼저** (`{ type: "subscribe", event: "turn_end" }`) — server 의
-   현재 `lastTurnIndex` 를 baseline 으로 받음
-3. send (`{ type: "send", message, mode, sender, wants_reply }`)
-4. wait — turn_end event 의 `turnIndex > baselineTurnIndex` 조건 만족까지
-5. 5분 timeout
+### AGENTS.md 변경
 
-정상이면 receiver 가:
+L133 "no `wait_until` on the MCP bridge" 문장에 다음을 추가: in-pi `entwurf_send`
+tool 과 entwurf-control RPC surface 도 같은 규칙. subscribe / turn_end / baseline
+correlation 모두 없음. 송신 RPC ack 가 전체 delivery contract (= `message_processed`
+semantics). caller-owned 결과가 필요하면 `entwurf(mode=async)` + `entwurf_resume`,
+peer reply 가 필요하면 message body 에 명시하고 receiver 가 별도 `entwurf_send`
+로 보내게 함.
 
-- subscribe response 보냄 (`baselineTurnIndex` 포함)
-- send 처리 → receiver jsonl 에 `entwurf-message` append → send response success
-- (follow_up + idle 이면 `isIdle` direct promote → 즉시 turn 시작)
-- turn 끝 → pi-level `turn_end` event → server 가 subscription socket 으로
-  broadcast → caller resolve
+### 차단 풀림
 
-### 후보 cause (우선순위 순) — 2026-05-18 PM PM 리뷰 반영
-
-| # | 후보 | 진단 단서 |
-|---|------|----------|
-| 1 | **server data loop 의 `handleCommand(...)` 가 `await`/`catch` 없이 floating** (`entwurf-control.ts:1039`). `handleCommand` 는 async — rejection 이 silent 처리되어 client 는 5분 timeout 만 봄. **가장 유력 (PM 직접 지적, fact-confirmed).** | line 1039: `handleCommand(pi, state, parsed.command!, socket);` — `await`/`.catch`/`void` 모두 없음. jsonl persist 0과 정합. |
-| 2 | **같은 connection 의 subscribe + send handler interleave** — line 1022 의 while loop 가 handleCommand 완료 안 기다리고 다음 line 처리. 두 async handler 가 동시 실행되며 state 충돌 가능. | line 1019-1041 직접 확인. 후보 1 의 부산물 또는 별개 race. |
-| 3 | `follow_up + idle` 의 `isIdle` direct promote 검출 갭 — 메시지는 큐잉됐는데 turn 시작 trigger 안 됨 | 큐잉됐다면 jsonl 에 entwurf-message 가 박혀야 정상. 후보 1 과 겹치지 않으면 제외 |
-| 4 | ACP backend (Claude opus) turn end → pi-level `turn_end` event 사상 갭 | 13:52 의 정상 turn 은 사상됨. 이 후보면 가끔만 발생 — 재현 어려움 |
-| 5 | 같은 receiver 에 caller 가 여러 connection 만들었을 때의 state contention | low priority |
-
-### Reproduce 방법 (다음 한 걸음, PM 보강 반영)
-
-핵심 — **`message_processed` 와 `turn_end` 를 반드시 분리 측정**. 같이 던지면
-"send handler 문제냐 turn completion 문제냐" 가 안 갈라짐.
-
-같은 receiver 패턴 두 개 띄우고:
-
-```text
-1. cwd A: pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-7
-   → receiver sessionId R
-2. cwd B: pi --entwurf-control --provider openai-codex --model gpt-5.5
-   → caller. in-pi entwurf_send 호출, 두 phase 분리:
-
-   Phase A — wait_until=message_processed × 100회 (각 호출 사이 receiver idle)
-   Phase B — wait_until=turn_end × 100회
-
-3. 측정 (각 send 에 nonce 부여 — `[stuck-smoke nonce=<uuid>] ...`):
-
-   client milestone (timing 기록):
-   - socket connected
-   - subscribe response 받음 (turn_end phase 만 해당)
-   - send response 받음
-   - turn_end event 받음 (turn_end phase 만 해당)
-   - timeout
-
-   receiver-side:
-   - jsonl 에 nonce 박힘 여부 — `grep "stuck-smoke nonce=<uuid>" <jsonl>`
-
-4. variant — subscribe + send 의 ordering race 분리:
-   - back-to-back: 현재 코드와 동일
-   - subscribe-ack-first: subscribe response 받은 후에 send write
-   두 variant 모두 turn_end phase 에 100회 비교
-
-5. 결과 해석:
-   - Phase A 가 timeout/fail → send handler/socket 쪽 (후보 1+2 확정)
-   - Phase A 성공, Phase B 만 fail → direct promote / turn_end event 쪽 (후보 3+4)
-   - subscribe-ack-first variant 가 back-to-back 대비 개선 → race 확인 (후보 2)
-```
-
-### 차단 영향
-
-- **publish preflight 5 항목 보류**. 이 버그가 잡혀야 0.6.x patch bump
-  또는 0.7.0 cut 후 publish 정공법.
-- `entwurf_send` 운영 권장 (간이): caller 가 `wait_until=message_processed`
-  또는 omit (no wait) 사용. `turn_end` 는 description 도 best-effort 명시.
-  단 후보 1 (handleCommand floating) 이 진짜면 `message_processed` 도 같은
-  silent rejection — Phase A 분리 측정이 그것을 갈라줌. 근본 해결은
-  reproduce + fix 후.
-
-### 처리 단계 — TODO (PM 보강 반영)
-
-- ✅ **1단계 — near-fix landed** (commit `2beb213`, 2026-05-18 14:32). `entwurf-control.ts:1039` 의 `handleCommand(...)` 호출을 `void handleCommand(...).catch(...)` 로 감쌈. silent rejection 이 explicit `success:false, error:"handler failed: ..."` response 로 surface — "handler exploded" vs "wait timed out" 구분 가능. ordering 결정: parallel handling 유지 (no await). per-command ordering 은 client (subscribe-before-send) 와 handler 독립성이 책임지고, data event 안에서 await 하면 같은 socket 의 후속 command 가 serialize 되고 socket close teardown 이 꼬임. 향후 race 가 reproduce 에 다시 잡히면 **per-socket command queue** 가 정공법 (await in data handler 아님). 결정 rationale 은 inline comment 에 박힘.
-
-- ✅ **1단계+D — client-side close-before-response landed** (commit `d563743`, 2026-05-18 14:41). `sendRpcCommand` 가 close 이전 timeout 만 reject 신호로 가졌음. settled guard + `socket.on("close", ...)` 추가 — server 가 응답 전 connection 끊으면 즉시 `connection closed before response` 로 reject (5분 wait 안 기다림). 정상 resolve 후 자연 close 는 settled guard 가 no-op 처리.
-
-- ✅ **2단계 — reproduce smoke landed** (commit `048ba61` manual + commit `0a43ddf` `--auto-receiver`, 2026-05-18 14:45–15:06). `scripts/check-entwurf-send-stuck.ts` + `./run.sh check-entwurf-stuck`. **manual gate** — `pnpm check` chain 에 안 들어감. 실 pi spawn + 실 API 비용.
-  - 사용 (auto, 권장): `./run.sh check-entwurf-stuck --auto-receiver [--auto-receiver-provider openai-codex] [--auto-receiver-model gpt-5.4] [--trials N] [--phase A|B|both] [--variant back-to-back|ack-first|both]`
-  - 사용 (manual, 옛 경로): `./run.sh check-entwurf-stuck --target <sessionId> ...`
-  - auto-receiver 가 tmux 로 `pi --no-extensions -e <repo>/pi-extensions/entwurf-control.ts --entwurf-control --provider ... --model ...` 띄움 — installed stale 회피, working tree 코드 검증. exit/SIGINT/SIGTERM 에서 tmux kill cleanup.
-  - measure: connect / subscribeAck / sendAck / turnEnd / settled milestones + receiver jsonl 의 nonce persist 검증.
-
-- ✅ **2단계 — 정확한 reproduce 결과 (commit `e8395eb` 의 script 정정 후, 2026-05-18 15:14)**: **RED — turn_end delivery/correlation 갭**.
-  - 초기 60713ce 의 "direct promote 갭" 해석은 **폐기**. PM 가 manual jsonl 검증에서 직접 정정: trial 2 도 message persist + turn 시작 + assistant response 까지 정상. receiver 측은 healthy. 우리 첫 보고가 false RED 였던 이유 = script 의 `findReceiverJsonl()` 가 main 에서 한 번만 호출되어 auto-receiver 의 lazy jsonl 생성 (첫 메시지 도착 시) 을 놓침.
-  - script 정정 후 `--auto-receiver --phase B --variant back-to-back --trials 2`:
-    - trial 1: success, turnEnd 7967ms, **persist=✅**
-    - trial 2: **timeout 60s, persist=✅** — receiver jsonl 에 nonce 박힘 + assistant response 까지 정상 진행, 단 **caller 의 wait_until=turn_end 가 두 번째 turn 의 turn_end event 를 받지 못함**.
-  - 새 진단 (정확):
-    - send handler / RPC 자체 정상 (Phase A + Phase B 의 subAck/sendAck 모두 0–4ms 도착).
-    - receiver 의 turn lifecycle 정상 (jsonl persist + assistant response).
-    - **갭 위치 = turn_end event 의 delivery 또는 correlation**. 즉 (a) `pi.on("turn_end")` emitter 가 두 번째 turn 에 fire 안 됨, (b) fire 됐지만 subscription broadcast 가 fail, (c) broadcast 됐지만 client 의 baseline 비교 (`eventTurnIndex <= baselineTurnIndex`) 가 stale 로 discard, (d) socket close timing 으로 event 누락 — 4 후보.
-  - 후보 #3 (`isIdle direct promote` 갭) 와 #4 (ACP turn_end 사상 갭) 는 **이 시나리오와 직접 무관** — direct promote 는 fire 됐고 (turn 시작), receiver 도 native openai-codex 라 ACP path 무관. 두 후보 strike-through.
-
-- ☐ **3단계 — server-side + client-side instrumentation (NEXT 한 걸음, 위치 변경)**: PM 권장 위치로 변경. send/isIdle 영역 아님.
-  - **server**: `entwurf-control.ts:1341-1363` 의 `pi.on("turn_end", ...)` emitter — handler 진입/탈출 + `state.turnEndSubscriptions.length` + `event.turnIndex` + write 시도 결과.
-  - **server**: subscribe handler (`handleCommand` 의 `subscribe` case) — registration 시점 + baselineTurnIndex 계산값.
-  - **client**: `sendRpcCommand` 의 turn_end event handler (line 1143-1186) — 매 incoming event 의 `msg.data.turnIndex` + `baselineTurnIndex` + discard 결정 + socket close 시점.
-  - instrumentation 박은 채 `--auto-receiver --phase B --variant back-to-back --trials 2` 1회 → trial 2 timeout 시점에 4 후보 중 어느 것인지 즉시 좁힘.
-
-- ☐ **4단계 — fix 적용 + 회귀 게이트 stable 화 + publish preflight 재진입** — 3단계 instrumentation 으로 정확한 stuck point 찾고 (`isIdle` 검출 / direct promote / turn_end fire 중 어느 것) 정공법 fix 박음. 그 후 `--auto-receiver --trials 20 --phase B --variant both` 같은 baseline 으로 `40/40 success` 같은 결과 정착 후 publish preflight 5 항목 재진입.
-
-> 이 항목은 closed 될 때까지 NEXT 의 맨 앞 자리 유지. Cross-repo follow-up
-> 의 (a)~(e) 와 별도 — 그 항목들은 운영 가능, 이건 send path 자체의 정합성.
+- publish preflight 5 항목은 이제 진입 가능. 0.6.x patch bump 후보.
+- Cross-repo follow-up 의 (a)~(e) 와 충돌 없음.
 
 ---
 
@@ -155,11 +76,13 @@
 > (commits `632306c` fix + `996a175` docs + `b40e99b` realign, GPT힣 PM
 > review accepted). `check-shell-quote` smoke gate (16 assertions) GREEN.
 >
-> **새 top bug 발견** — in-pi `entwurf_send` server-side stuck (위 §Top Bug
-> 참고). publish preflight 보다 **우선**.
+> "Top bug" 로 추적하던 `entwurf_send` stuck 은 **closed (2026-05-18 PM)**:
+> 버그가 아니라 `wait_until=turn_end` 가 send-is-throw 위반인 설계 드리프트
+> 였다. 해당 surface 제거 (§Closed 참고). publish preflight 진입 가능.
 >
-> **Next focus** — top bug reproduce smoke 작성 + 진단 → fix → 회귀 게이트.
-> Phase 2 publish preflight (line ~528 below) 는 top bug closed 후 진입.
+> **Next focus** — publish preflight 5 항목 재진입 (Phase 2 publish, line
+> ~528 below). Wait surface 제거 후 회귀 — `pnpm check`, `smoke-all`,
+> `check-entwurf-delivery` (rename 됨) — 모두 green 인지 확인 후 진입.
 >
 > **위치**: Phase 1 의 **0.6.0 개발 release** 안의 한 축. OpenClaw 검증
 > (✅ Phase 1.8/1.9) 과 함께 0.6.0 에 묶여 닫힘. 0.6.0 = 기능 추가 종료점 —

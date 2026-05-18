@@ -40,7 +40,7 @@ Usage:
   ./run.sh check-mcp                  # local deterministic check of normalizeMcpServers() — no Claude/ACP subprocess
   ./run.sh check-model-lock           # deterministic unit test for pi-extensions/model-lock.ts (4-quadrant + edge cases, no API)
   ./run.sh check-shell-quote          # POSIX-safety gate for shellQuote (remote SSH arg quoting in entwurf paths) — source parity + behavior matrix, no SSH
-  ./run.sh check-entwurf-stuck --target <sessionId> [...]  # MANUAL reproduce gate for 2026-05-18 in-pi entwurf_send server-side stuck (Phase A/B + variant). Needs live receiver + real API budget — not in pnpm check
+  ./run.sh check-entwurf-delivery --target <sessionId> [...]  # MANUAL delivery-ack gate (send RPC + jsonl persist) for in-pi entwurf_send. Send-is-throw — no turn-completion wait. Needs live receiver — not in pnpm check
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
@@ -1109,17 +1109,14 @@ check_shell_quote() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-shell-quote.ts)
 }
 
-check_entwurf_stuck() {
-  # Manual reproduce gate for the 2026-05-18 in-pi entwurf_send server-side
-  # stuck top bug. NOT in pnpm check chain — requires a live receiver pi
-  # session and burns real provider API budget on Phase B (turn_end) trials.
-  # Operator launches the receiver (e.g. `pi --entwurf-control --provider
-  # pi-shell-acp --model claude-opus-4-7`), passes its sessionId via
-  # --target. Use sparingly until reproduce signal is established.
-  #   ./run.sh check-entwurf-stuck --target <sessionId> [--trials N]
-  #     [--phase A|B|both] [--variant back-to-back|ack-first|both]
-  # See scripts/check-entwurf-send-stuck.ts header + NEXT.md §Top Bug.
-  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-send-stuck.ts "$@")
+check_entwurf_delivery() {
+  # Manual delivery-ack gate for in-pi entwurf_send. NOT in pnpm check chain
+  # — requires a live receiver pi session. Verifies (1) send RPC ack and
+  # (2) jsonl persist on the receiver. Nothing else. Send-is-throw: turn
+  # completion / assistant output capture is intentionally out of scope.
+  #   ./run.sh check-entwurf-delivery [--target <sessionId> | --auto-receiver] [--trials N]
+  # See scripts/check-entwurf-delivery.ts header.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-delivery.ts "$@")
 }
 
 check_mcp() {
@@ -3498,9 +3495,9 @@ case "$cmd" in
   check-shell-quote)
     check_shell_quote
     ;;
-  check-entwurf-stuck)
+  check-entwurf-delivery)
     shift
-    check_entwurf_stuck "$@"
+    check_entwurf_delivery "$@"
     ;;
   check-backends)
     check_backends

@@ -25,7 +25,16 @@
  *   (`--entwurf-session`, `--entwurf-send-message`)
  * - Retrieve the last assistant message from a session
  * - Clear/rewind sessions to their initial state
- * - Subscribe to turn_end events for async coordination
+ *
+ * Send-is-throw — no `wait_until=turn_end`. Every send is fire-and-forget at the
+ * delivery boundary: the RPC ack confirms the receiver enqueued the message
+ * (`message_processed` semantics) and that is the end of the contract. The
+ * older `wait_until=turn_end` surface was removed (2026-05-18) because it
+ * turned `entwurf_send` into "await sibling's turn completion", which is a
+ * worker pattern that contradicts pi-shell-acp's identity. Callers that need
+ * a result they own should use `entwurf(mode=async)` + `entwurf_resume`; peers
+ * that want a reply should say so in the message body and let the receiver send
+ * a separate `entwurf_send` back. See AGENTS.md `Send-is-throw`.
  *
  * Once loaded the extension registers a `entwurf_send` tool that allows
  * the AI to communicate with other pi sessions programmatically.
@@ -35,9 +44,11 @@
  *
  * One-shot startup send:
  *   pi -p --entwurf-control --entwurf-session <session-id> --entwurf-send-message <text>
- *     [--entwurf-send-mode steer|follow_up] [--entwurf-send-wait turn_end|message_processed]
- *     [--entwurf-send-include-sender-info]
- *   (startup send is one-way by default; use --entwurf-send-wait turn_end to capture response on stdout)
+ *     [--entwurf-send-mode steer|follow_up] [--entwurf-send-include-sender-info]
+ *   (startup send is fire-and-forget; the legacy --entwurf-send-wait turn_end
+ *    flag is refused at startup with an error report — the pi session itself
+ *    continues, the startup send is simply not attempted; --entwurf-send-wait
+ *    message_processed is accepted as a no-op for backward compatibility.)
  *
  * Addressing is sessionId-only. The UUIDv7 sessionId is the only stable
  * identity a peer needs; alias / sessionName surfaces are deliberately not
@@ -57,10 +68,10 @@
  *   - { type: "get_info" }
  *   - { type: "clear", summarize?: boolean }
  *   - { type: "abort" }
- *   - { type: "subscribe", event: "turn_end" }
  *
  *   Responses are JSON objects with { type: "response", command, success, data?, error? }
- *   Events are JSON objects with { type: "event", event, data?, subscriptionId? }
+ *   (No event channel — the turn_end subscribe surface was removed with the
+ *    Send-is-throw cleanup; see note above.)
  */
 
 import { promises as fs } from "node:fs";
@@ -80,7 +91,6 @@ import type {
 	ExtensionContext,
 	MessageRenderer,
 	ToolRenderResultOptions,
-	TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
@@ -116,13 +126,6 @@ interface RpcResponse {
 	error?: string;
 	data?: unknown;
 	id?: string;
-}
-
-interface RpcEvent {
-	type: "event";
-	event: string;
-	data?: unknown;
-	subscriptionId?: string;
 }
 
 // Unified command structure
@@ -171,44 +174,21 @@ interface RpcAbortCommand {
 	id?: string;
 }
 
-interface RpcSubscribeCommand {
-	type: "subscribe";
-	event: "turn_end";
-	id?: string;
-}
-
 interface RpcGetInfoCommand {
 	type: "get_info";
 	id?: string;
 }
 
-type RpcCommand =
-	| RpcSendCommand
-	| RpcGetMessageCommand
-	| RpcClearCommand
-	| RpcAbortCommand
-	| RpcSubscribeCommand
-	| RpcGetInfoCommand;
+type RpcCommand = RpcSendCommand | RpcGetMessageCommand | RpcClearCommand | RpcAbortCommand | RpcGetInfoCommand;
 
 // ============================================================================
-// Subscription Management
+// Server State
 // ============================================================================
-
-interface TurnEndSubscription {
-	socket: net.Socket;
-	subscriptionId: string;
-}
 
 interface SocketState {
 	server: net.Server | null;
 	socketPath: string | null;
 	context: ExtensionContext | null;
-	turnEndSubscriptions: TurnEndSubscription[];
-	// Monotonic turnIndex of the most recent turn_end fired while this extension
-	// was loaded. Used as a baseline so that a `wait_until=turn_end` subscriber
-	// ignores the turn that was already running when it subscribed.
-	// Undefined until the first turn_end fires.
-	lastTurnIndex?: number;
 }
 
 // ============================================================================
@@ -377,14 +357,6 @@ async function getLiveSessionsWithInfo(): Promise<EnrichedSession[]> {
 function writeResponse(socket: net.Socket, response: RpcResponse): void {
 	try {
 		socket.write(`${JSON.stringify(response)}\n`);
-	} catch {
-		// Socket may be closed
-	}
-}
-
-function writeEvent(socket: net.Socket, event: RpcEvent): void {
-	try {
-		socket.write(`${JSON.stringify(event)}\n`);
 	} catch {
 		// Socket may be closed
 	}
@@ -808,35 +780,6 @@ async function handleCommand(
 		return;
 	}
 
-	// Subscribe to turn_end
-	if (command.type === "subscribe") {
-		if (command.event === "turn_end") {
-			const subscriptionId = id ?? `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-			state.turnEndSubscriptions.push({ socket, subscriptionId });
-
-			const cleanup = () => {
-				const idx = state.turnEndSubscriptions.findIndex((s) => s.subscriptionId === subscriptionId);
-				if (idx !== -1) state.turnEndSubscriptions.splice(idx, 1);
-			};
-			socket.once("close", cleanup);
-			socket.once("error", cleanup);
-
-			// Baseline: if a subscriber comes in while a turn is already running, we must
-			// not surface *that* turn_end back as "the result of my send" — it was in
-			// flight before our send arrived. We hand the subscriber the latest
-			// completed turnIndex we have seen so it can filter to turn_end events
-			// with a strictly greater turnIndex.
-			respond(true, "subscribe", {
-				subscriptionId,
-				event: "turn_end",
-				baselineTurnIndex: state.lastTurnIndex,
-			});
-			return;
-		}
-		respond(false, "subscribe", undefined, `Unknown event type: ${command.event}`);
-		return;
-	}
-
 	// Get last message
 	if (command.type === "get_message") {
 		const message = getLastAssistantMessage(ctx);
@@ -1042,13 +985,12 @@ async function createServer(pi: ExtensionAPI, state: SocketState, socketPath: st
 				// failure as an explicit error response so callers can distinguish
 				// "handler exploded" from "wait timed out". Parallel execution
 				// across the same connection is preserved — we do not await —
-				// because per-command ordering is enforced by the client (subscribe
-				// before send) and the server-side handlers themselves are
-				// independent. If a future change requires strict per-connection
-				// serialization, a per-socket command queue is the cleaner move
-				// than awaiting in this data handler — awaiting here would
-				// serialize subsequent commands on the same socket and tangle
-				// teardown ordering during socket close.
+				// because current RPC commands are single-response operations and
+				// do not require strict per-socket serialization. If a future
+				// multi-command dependency appears, add an explicit per-socket
+				// command queue rather than awaiting in this data handler — awaiting
+				// here would serialize subsequent commands on the same socket and
+				// tangle teardown ordering during socket close.
 				const commandName = parsed.command?.type ?? "unknown";
 				void handleCommand(pi, state, parsed.command!, socket).catch((error) => {
 					const message = error instanceof Error ? error.message : String(error);
@@ -1077,15 +1019,14 @@ async function createServer(pi: ExtensionAPI, state: SocketState, socketPath: st
 
 interface RpcClientOptions {
 	timeout?: number;
-	waitForEvent?: "turn_end";
 }
 
 async function sendRpcCommand(
 	socketPath: string,
 	command: RpcCommand,
 	options: RpcClientOptions = {},
-): Promise<{ response: RpcResponse; event?: { message?: ExtractedMessage; turnIndex?: number } }> {
-	const { timeout = 5000, waitForEvent } = options;
+): Promise<{ response: RpcResponse }> {
+	const { timeout = 5000 } = options;
 
 	return new Promise((resolve, reject) => {
 		const socket = net.createConnection(socketPath);
@@ -1096,12 +1037,6 @@ async function sendRpcCommand(
 		}, timeout);
 
 		let buffer = "";
-		let response: RpcResponse | null = null;
-		// turn_end correlation: set from the subscribe response. Any turn_end
-		// with turnIndex <= baselineTurnIndex is the in-flight turn that was
-		// already running when we subscribed and is NOT the answer to our send.
-		let baselineTurnIndex: number | undefined;
-		let baselineResolved = false;
 		// settled guard: a single Promise can only be resolved or rejected
 		// once. close/error/timeout/data can all race to terminate the RPC,
 		// so every terminal path goes through doResolve/doReject which
@@ -1111,10 +1046,7 @@ async function sendRpcCommand(
 		// listeners would attempt to write on a destroyed socket.
 		let settled = false;
 
-		const doResolve = (value: {
-			response: RpcResponse;
-			event?: { message?: ExtractedMessage; turnIndex?: number };
-		}) => {
+		const doResolve = (value: { response: RpcResponse }) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timeoutHandle);
@@ -1133,17 +1065,6 @@ async function sendRpcCommand(
 		};
 
 		socket.on("connect", () => {
-			// Order matters for turn_end correlation.
-			// Subscribe FIRST so the server registers us before it starts
-			// processing the send (which triggers the turn whose turn_end
-			// we want to catch). Writing send first opens a race where the
-			// subscribe arrives too late and we miss the right turn_end,
-			// or catch a stale turn_end from a turn that was already in
-			// flight.
-			if (waitForEvent === "turn_end") {
-				const subscribeCmd: RpcSubscribeCommand = { type: "subscribe", event: "turn_end" };
-				socket.write(`${JSON.stringify(subscribeCmd)}\n`);
-			}
 			socket.write(`${JSON.stringify(command)}\n`);
 		});
 
@@ -1158,52 +1079,8 @@ async function sendRpcCommand(
 
 				try {
 					const msg = JSON.parse(line);
-
-					// Handle response
-					if (msg.type === "response") {
-						if (msg.command === "subscribe" && waitForEvent === "turn_end" && !baselineResolved) {
-							// Capture baseline turnIndex from subscribe response so
-							// we can filter out the pre-existing in-flight turn_end.
-							const data = msg.data as { baselineTurnIndex?: number } | undefined;
-							baselineTurnIndex = data?.baselineTurnIndex;
-							baselineResolved = true;
-							continue;
-						}
-						if (msg.command === command.type) {
-							// If not waiting for event, we're done — resolve directly with msg
-							// so the response value is statically non-null (avoids TS2322 on
-							// the `response: RpcResponse | null` declaration). Only the
-							// event-waiting branch needs to stash the response for later.
-							if (!waitForEvent) {
-								doResolve({ response: msg });
-								return;
-							}
-							response = msg;
-						}
-						continue;
-					}
-
-					// Handle turn_end event
-					if (msg.type === "event" && msg.event === "turn_end" && waitForEvent === "turn_end") {
-						// Discard any turn_end whose turnIndex is not strictly
-						// greater than the baseline we saw at subscribe time.
-						// Those belong to the turn that was already running
-						// before our send arrived.
-						const eventTurnIndex = typeof msg.data?.turnIndex === "number" ? msg.data.turnIndex : undefined;
-						if (
-							baselineResolved &&
-							typeof baselineTurnIndex === "number" &&
-							typeof eventTurnIndex === "number" &&
-							eventTurnIndex <= baselineTurnIndex
-						) {
-							continue;
-						}
-
-						if (!response) {
-							doReject(new Error("Received event before response"));
-							return;
-						}
-						doResolve({ response, event: msg.data || {} });
+					if (msg.type === "response" && msg.command === command.type) {
+						doResolve({ response: msg });
 						return;
 					}
 				} catch {
@@ -1214,11 +1091,11 @@ async function sendRpcCommand(
 
 		// Server closed the connection before any response arrived. Without
 		// this branch the caller's only failure signal would be the
-		// configured wait timeout (5s default, 5 minutes for
-		// waitForEvent=turn_end), which is exactly the failure mode of the
-		// 2026-05-18 receiver-side stuck incident. The settled guard makes
-		// this a no-op when we already resolved cleanly — every successful
-		// RPC ends with socket.end() and triggers a natural close.
+		// configured wait timeout, which is exactly the failure mode the
+		// 2026-05-18 receiver-side stuck incident surfaced through. The
+		// settled guard makes this a no-op when we already resolved
+		// cleanly — every successful RPC ends with socket.end() and
+		// triggers a natural close.
 		socket.on("close", () => {
 			doReject(new Error("connection closed before response"));
 		});
@@ -1257,7 +1134,6 @@ async function stopControlServer(state: SocketState): Promise<void> {
 
 	const socketPath = state.socketPath;
 	state.socketPath = null;
-	state.turnEndSubscriptions = [];
 	await new Promise<void>((resolve) => state.server?.close(() => resolve()));
 	state.server = null;
 	await removeSocket(socketPath);
@@ -1316,7 +1192,9 @@ export default function (pi: ExtensionAPI) {
 		default: "steer",
 	});
 	pi.registerFlag(ENTWURF_SEND_WAIT_FLAG, {
-		description: "Startup send wait mode: turn_end or message_processed",
+		description:
+			"Deprecated startup send wait mode. Only 'message_processed' is accepted (no-op for backward compat); " +
+			"'turn_end' is refused at startup with an error report — entwurf_send is fire-and-forget.",
 		type: "string",
 	});
 	pi.registerFlag(ENTWURF_SEND_INCLUDE_SENDER_FLAG, {
@@ -1330,7 +1208,6 @@ export default function (pi: ExtensionAPI) {
 		server: null,
 		socketPath: null,
 		context: null,
-		turnEndSubscriptions: [],
 	};
 
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
@@ -1389,30 +1266,9 @@ export default function (pi: ExtensionAPI) {
 		await stopControlServer(state);
 	});
 
-	// Fire turn_end events to subscribers
-	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionContext) => {
-		// Track the latest turnIndex seen by this extension regardless of whether
-		// anyone is subscribed — future subscribers need this as a baseline.
-		state.lastTurnIndex = event.turnIndex;
-
-		if (state.turnEndSubscriptions.length === 0) return;
-
-		const lastMessage = getLastAssistantMessage(ctx);
-		const eventData = { message: lastMessage, turnIndex: event.turnIndex };
-
-		// Fire to all subscribers (one-shot)
-		const subscriptions = [...state.turnEndSubscriptions];
-		state.turnEndSubscriptions = [];
-
-		for (const sub of subscriptions) {
-			writeEvent(sub.socket, {
-				type: "event",
-				event: "turn_end",
-				data: eventData,
-				subscriptionId: sub.subscriptionId,
-			});
-		}
-	});
+	// No turn_end subscription / event channel. Send-is-throw: the send RPC ack
+	// is the entire delivery contract. See Send-is-throw note in the header
+	// docblock and AGENTS.md.
 }
 
 // ============================================================================
@@ -1455,13 +1311,6 @@ function registerSessionTool(pi: ExtensionAPI, state: SocketState): void {
 				default: "steer",
 			}),
 		),
-		wait_until: Type.Optional(
-			StringEnum(["turn_end", "message_processed"] as const, {
-				description:
-					"Wait behavior for send. Prefer message_processed. turn_end is best-effort only; " +
-					"prefer reply-back via entwurf_send or entwurf(mode=async) when you need a caller-owned result.",
-			}),
-		),
 	});
 
 	type EntwurfSendParams = {
@@ -1469,7 +1318,6 @@ function registerSessionTool(pi: ExtensionAPI, state: SocketState): void {
 		action?: "send" | "get_message" | "clear";
 		message?: string;
 		mode?: "steer" | "follow_up";
-		wait_until?: "turn_end" | "message_processed";
 	};
 
 	const registerTool = pi.registerTool as (def: any) => void;
@@ -1489,11 +1337,12 @@ Target:
 
 For action=send:
 - mode: steer (immediate) or follow_up (after task).
-- wait_until=message_processed: queue ack only. Recommended.
-- wait_until=turn_end: native-path best-effort only. Prefer reply-back via entwurf_send.
 
-Use this tool for notification / peer messaging. If the caller needs a result it owns,
-prefer entwurf(mode=async) + entwurf_resume instead.
+Send-is-throw: every send is fire-and-forget at the delivery boundary. The
+RPC ack confirms the receiver enqueued the message (= message_processed
+semantics) and the contract ends there. If the caller needs a result it owns,
+prefer entwurf(mode=async) + entwurf_resume. If a peer should reply, say so in
+the message body and let the receiver send a separate entwurf_send back.
 
 Messages include sender session info for replies.`,
 		parameters: entwurfSendParameters,
@@ -1591,79 +1440,24 @@ Messages include sender session info for replies.`,
 					sender,
 				};
 
-				// Determine wait behavior
-				if (params.wait_until === "message_processed") {
-					// Just send and confirm delivery
-					const result = await sendRpcCommand(socketPath, sendCommand);
-					if (!result.response.success) {
-						return {
-							content: [{ type: "text", text: `Failed: ${result.response.error ?? "unknown error"}` }],
-							isError: true,
-							details: result,
-						};
-					}
-					return {
-						content: [{ type: "text", text: "Message delivered to session" }],
-						// `sender` is preserved on success so renderResult can
-						// draw the [entwurf sent →] box with from / cwd / timestamp.
-						// `delivered: true` is the marker renderResult uses to
-						// distinguish "send result" from "get_message result".
-						details: {
-							...(result.response.data as Record<string, unknown> | undefined),
-							sender,
-							delivered: true,
-						},
-					};
-				}
-
-				if (params.wait_until === "turn_end") {
-					// Send and wait for turn to complete
-					const result = await sendRpcCommand(socketPath, sendCommand, {
-						timeout: 300000, // 5 minutes
-						waitForEvent: "turn_end",
-					});
-
-					if (!result.response.success) {
-						return {
-							content: [{ type: "text", text: `Failed: ${result.response.error ?? "unknown error"}` }],
-							isError: true,
-							details: result,
-						};
-					}
-
-					const lastMessage = result.event?.message;
-					if (!lastMessage) {
-						return {
-							content: [{ type: "text", text: "Turn completed but no assistant message found" }],
-							details: { turnIndex: result.event?.turnIndex },
-						};
-					}
-
-					return {
-						content: [{ type: "text", text: lastMessage.content }],
-						details: { message: lastMessage, turnIndex: result.event?.turnIndex },
-					};
-				}
-
-				// No wait - just send
+				// Send-is-throw — one RPC, one ack. The send RPC ack already
+				// represents "receiver enqueued the message" (message_processed
+				// semantics); there is no longer a turn_end wait surface.
+				// `delivered: true` in details is what renderResult keys on to
+				// draw the [entwurf sent →] box together with the sender envelope.
 				const result = await sendRpcCommand(socketPath, sendCommand);
 				if (!result.response.success) {
 					return {
 						content: [{ type: "text", text: `Failed: ${result.response.error ?? "unknown error"}` }],
 						isError: true,
-						// Even on failure, the renderer needs to fall through to
-						// the error path; no sender envelope inject here because
-						// the [entwurf sent →] box is reserved for actual sends.
-
+						// Error path: no sender envelope injection — the
+						// [entwurf sent →] box is reserved for actual sends.
 						details: result,
 					};
 				}
 
 				return {
-					content: [{ type: "text", text: `Message sent to session ${displayTarget || targetSessionId}` }],
-					// Same shape as the message_processed branch above —
-					// renderResult keys on `delivered` and reads `sender` to
-					// draw the [entwurf sent →] box.
+					content: [{ type: "text", text: `Message delivered to session ${displayTarget || targetSessionId}` }],
 					details: {
 						...(result.response.data as Record<string, unknown> | undefined),
 						sender,
@@ -1696,11 +1490,7 @@ Messages include sender session info for replies.`,
 			// Add action-specific info
 			if (action === "send") {
 				const mode = args.mode ?? "steer";
-				const wait = args.wait_until;
-				let info = theme.fg("muted", ` (${mode}`);
-				if (wait) info += theme.fg("dim", `, wait: ${wait}`);
-				info += theme.fg("muted", ")");
-				header += info;
+				header += theme.fg("muted", ` (${mode})`);
 			} else {
 				header += theme.fg("muted", ` (${action})`);
 			}
@@ -1747,9 +1537,8 @@ Messages include sender session info for replies.`,
 			// Detect action from details structure
 			const hasMessage = details && "message" in details && details.message;
 			const hasCleared = details && "cleared" in details;
-			const hasTurnIndex = details && "turnIndex" in details;
 
-			// get_message or turn_end result with message
+			// get_message result with message
 			if (hasMessage) {
 				const message = details.message as ExtractedMessage;
 				const icon = theme.fg("success", "✓");
@@ -1759,10 +1548,6 @@ Messages include sender session info for replies.`,
 					container.addChild(new Text(icon + theme.fg("muted", " Message received"), 0, 0));
 					container.addChild(new Spacer(1));
 					container.addChild(new Markdown(message.content, 0, 0, getMarkdownTheme()));
-					if (hasTurnIndex) {
-						container.addChild(new Spacer(1));
-						container.addChild(new Text(theme.fg("dim", `Turn #${details.turnIndex}`), 0, 0));
-					}
 					return container;
 				}
 
@@ -1770,7 +1555,6 @@ Messages include sender session info for replies.`,
 				const preview = message.content.length > 200 ? message.content.slice(0, 200) + "..." : message.content;
 				const lines = preview.split("\n").slice(0, 5);
 				let text = icon + theme.fg("muted", " Message received");
-				if (hasTurnIndex) text += theme.fg("dim", ` (turn #${details.turnIndex})`);
 				text += "\n" + theme.fg("toolOutput", lines.join("\n"));
 				if (message.content.split("\n").length > 5 || message.content.length > 200) {
 					text += "\n" + theme.fg("dim", "(Ctrl+O to expand)");
@@ -1786,7 +1570,7 @@ Messages include sender session info for replies.`,
 				return new Text(icon + " " + theme.fg("muted", msg), 0, 0);
 			}
 
-			// send result (no wait or message_processed)
+			// send result — single ack path, send-is-throw.
 			//
 			// First-class [entwurf sent →] box. Mirrors the receive-side
 			// [entwurf received ⟵] customMessage region so directionality is
@@ -1874,7 +1658,6 @@ type StartupControlSendOptions = {
 	target: string;
 	message: string;
 	mode: "steer" | "follow_up";
-	waitUntil?: "turn_end" | "message_processed";
 	includeSenderInfo: boolean;
 };
 
@@ -1882,13 +1665,6 @@ function normalizeMode(raw: string): "steer" | "follow_up" | null {
 	const value = raw.trim().toLowerCase();
 	if (value === "steer") return "steer";
 	if (value === "follow_up" || value === "follow-up" || value === "followup") return "follow_up";
-	return null;
-}
-
-function normalizeWaitUntil(raw: string): "turn_end" | "message_processed" | null {
-	const value = raw.trim().toLowerCase();
-	if (value === "turn_end" || value === "turn-end") return "turn_end";
-	if (value === "message_processed" || value === "message-processed") return "message_processed";
 	return null;
 }
 
@@ -1919,16 +1695,40 @@ function parseStartupControlSendOptions(pi: ExtensionAPI): { options?: StartupCo
 		return { error: `Invalid --${ENTWURF_SEND_MODE_FLAG}: ${rawMode}. Use steer|follow_up.` };
 	}
 
+	// Send-is-throw cleanup (2026-05-18): the only wait surface the bridge
+	// exposed was message_processed (delivery ack — same as the default send)
+	// and turn_end (await sibling's turn completion — pi-shell-acp identity
+	// violation). The flag is kept for backward compat at the CLI level so
+	// existing scripts do not break, but:
+	//   - --entwurf-send-wait turn_end          → refuse the startup send with
+	//     an explicit error report. Do not silently demote to message_processed;
+	//     the user explicitly asked for a contract we no longer honor and that
+	//     intent must surface. The error flows through reportStartupControlSend
+	//     (same path as any other invalid arg in this parser), so the pi
+	//     session itself continues — only the one-shot startup send is dropped.
+	//   - --entwurf-send-wait message_processed → accepted as no-op (the
+	//     default already has message_processed semantics).
 	const rawWait = getStringFlag(pi, ENTWURF_SEND_WAIT_FLAG);
-	let waitUntil: "turn_end" | "message_processed" | undefined;
 	if (rawWait) {
-		const normalized = normalizeWaitUntil(rawWait);
-		if (!normalized) {
+		const value = rawWait.trim().toLowerCase();
+		if (value === "turn_end" || value === "turn-end") {
 			return {
-				error: `Invalid --${ENTWURF_SEND_WAIT_FLAG}: ${rawWait}. Use turn_end|message_processed.`,
+				error:
+					`--${ENTWURF_SEND_WAIT_FLAG}=turn_end is no longer supported. ` +
+					`entwurf_send is fire-and-forget (send-is-throw). ` +
+					`If you need a caller-owned result, use entwurf(mode=async) + entwurf_resume; ` +
+					`if a peer should reply, say so in the message body and let the receiver send back.`,
 			};
 		}
-		waitUntil = normalized;
+		if (value !== "message_processed" && value !== "message-processed") {
+			return {
+				error:
+					`Invalid --${ENTWURF_SEND_WAIT_FLAG}: ${rawWait}. ` +
+					`Only 'message_processed' is accepted (deprecated no-op for backward compat).`,
+			};
+		}
+		// Accepted; no-op. The default send path already gives message_processed
+		// semantics (RPC ack = receiver enqueued the message).
 	}
 
 	const includeSenderInfo = pi.getFlag(ENTWURF_SEND_INCLUDE_SENDER_FLAG) === true;
@@ -1938,7 +1738,6 @@ function parseStartupControlSendOptions(pi: ExtensionAPI): { options?: StartupCo
 			target: target!,
 			message: message!,
 			mode,
-			waitUntil,
 			includeSenderInfo,
 		},
 	};
@@ -1969,7 +1768,7 @@ async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: ExtensionCon
 		return;
 	}
 
-	const { target, message, mode, waitUntil, includeSenderInfo } = parsed.options;
+	const { target, message, mode, includeSenderInfo } = parsed.options;
 	if (!isSafeSessionId(target)) {
 		reportStartupControlSend(ctx, `Invalid target session id: ${target} (sessionId-only — no name aliases)`, "error");
 		return;
@@ -1998,44 +1797,18 @@ async function maybeHandleStartupControlSend(pi: ExtensionAPI, ctx: ExtensionCon
 		sender,
 	};
 
+	// Single send path, send-is-throw. The RPC ack confirms the receiver
+	// enqueued the message (= message_processed semantics). We surface that
+	// as "Message delivered to ${target}" — chosen so existing tooling that
+	// greps for /message processed|delivered/ (e.g. session-messaging-smoke.sh)
+	// keeps passing after the wait_until cleanup.
 	try {
-		if (waitUntil === "turn_end") {
-			const result = await sendRpcCommand(socketPath, sendCommand, {
-				timeout: 300000,
-				waitForEvent: "turn_end",
-			});
-			if (!result.response.success) {
-				reportStartupControlSend(ctx, `Failed to send: ${result.response.error ?? "unknown error"}`, "error");
-				return;
-			}
-			const lastMessage = result.event?.message;
-			if (!lastMessage?.content) {
-				reportStartupControlSend(ctx, `Message delivered to ${target}; turn completed without assistant output.`);
-				return;
-			}
-			if (ctx.hasUI) {
-				pi.sendMessage(
-					{
-						customType: "control-send",
-						content: `Startup response from ${target}:\n\n${lastMessage.content}`,
-						display: true,
-					},
-					{ triggerTurn: false },
-				);
-			} else {
-				console.log(lastMessage.content);
-			}
-			return;
-		}
-
 		const result = await sendRpcCommand(socketPath, sendCommand, { timeout: 30000 });
 		if (!result.response.success) {
 			reportStartupControlSend(ctx, `Failed to send: ${result.response.error ?? "unknown error"}`, "error");
 			return;
 		}
-
-		const waitLabel = waitUntil === "message_processed" ? " (message processed)" : "";
-		reportStartupControlSend(ctx, `Message sent to ${target}${waitLabel}`);
+		reportStartupControlSend(ctx, `Message delivered to ${target}`);
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : "unknown error";
 		reportStartupControlSend(ctx, `Failed to send to ${target}: ${msg}`, "error");

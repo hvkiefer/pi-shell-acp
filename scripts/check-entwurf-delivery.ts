@@ -1,36 +1,39 @@
 /**
- * check-entwurf-send-stuck — reproduce gate for the 2026-05-18 top bug.
+ * check-entwurf-delivery — delivery-ack gate for in-pi entwurf_send.
  *
- * Drives the entwurf-control unix-socket RPC against a live receiver pi
- * session and measures whether send messages reach the receiver (jsonl
- * persist) and what the wait surface returns (response / event / timeout /
- * close). Splits the matrix into the two layers the incident left
- * ambiguous: send handler reliability (Phase A) vs turn completion event
- * reliability (Phase B), and exposes the subscribe/send ordering variant
- * so a server-side race shows up against the back-to-back baseline.
+ * Renamed from check-entwurf-send-stuck (2026-05-18). The former script
+ * tried to prove two layers separately:
+ *   - former Phase A: send handler reliability (`wait_until=message_processed`)
+ *   - former Phase B: turn completion reliability (`wait_until=turn_end`)
+ * Phase B was a calcification of a contract that did not belong in pi-shell-acp:
+ * `entwurf_send` is fire-and-forget (Send-is-throw). Waiting on the receiver's
+ * turn completion is a worker pattern, not a peer-message pattern, and the
+ * right tool for caller-owned results is `entwurf(mode=async)` + `entwurf_resume`.
+ * That surface was removed and Phase B with it.
  *
- * Receiver is launched by the operator (not this script) so we do not
- * burn provider API budget on automated spawn:
+ * What this gate verifies:
+ *   1. send RPC reaches the receiver and the response acks (success / failure).
+ *   2. the message is persisted into the receiver's session jsonl
+ *      (nonce-tagged grep, best-effort).
  *
- *   $ cd <some dir>
- *   $ pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-7
+ * Anything beyond that — whether the receiver started a turn, whether the
+ * receiver finished it, whether the assistant produced output — is OUT OF
+ * SCOPE for this gate, by design.
  *
- * The receiver's sessionId appears in its status bar / get_info response.
- * Pass it via --target.
+ * Receiver options:
+ *   --target <sessionId>     manual — operator has launched a receiver pi
+ *                            with `pi --entwurf-control --provider ... --model ...`.
+ *   --auto-receiver          auto — tmux-spawn a fresh receiver loaded from
+ *                            the working-tree entwurf-control.ts, then tear
+ *                            it down on exit. Avoids stale-installed-extension
+ *                            confusion. Default provider/model is the cheapest
+ *                            native pair so trials cost ~$0 even at 100 sends.
  *
- *   $ ./run.sh check-entwurf-stuck --target <sessionId>
+ * Manual gate. Not in `pnpm check`. Spawns a real pi and burns provider API
+ * budget per trial (only via the receiver's idle handshake — sends themselves
+ * are RPC-only and free).
  *
- * Default trial count is small (5) so a first pass does not blow real-API
- * budget. Push it up with --trials when you want statistical signal.
- * Phase B trials trigger an actual receiver turn each — that is the cost
- * driver. Phase A trials do not start a turn.
- *
- * No fix here. This script's job is to gather evidence so we know whether
- * commits 2beb213 (server-side handleCommand .catch) and d563743
- * (client-side close-before-response) are sufficient, or whether a
- * second root cause is still hiding behind them.
- *
- * Companion docs: NEXT.md §Top Bug → §Reproduce 방법.
+ * Companion docs: NEXT.md.
  */
 
 import { spawnSync } from "node:child_process";
@@ -52,10 +55,7 @@ interface Args {
 	autoReceiverModel: string;
 	receiverBootTimeoutMs: number;
 	trials: number;
-	phase: "A" | "B" | "both";
-	variant: "back-to-back" | "ack-first" | "both";
-	turnEndTimeoutMs: number;
-	messageProcessedTimeoutMs: number;
+	sendTimeoutMs: number;
 }
 
 function parseArgs(): Args {
@@ -65,10 +65,7 @@ function parseArgs(): Args {
 		autoReceiverModel: "gpt-5.4",
 		receiverBootTimeoutMs: 30_000,
 		trials: 5,
-		phase: "both",
-		variant: "back-to-back",
-		turnEndTimeoutMs: 60_000,
-		messageProcessedTimeoutMs: 5_000,
+		sendTimeoutMs: 5_000,
 	};
 	const rest = argv.slice(2);
 	for (let i = 0; i < rest.length; i += 1) {
@@ -98,22 +95,8 @@ function parseArgs(): Args {
 				out.trials = Number.parseInt(value, 10);
 				i += 1;
 				break;
-			case "--phase":
-				if (value !== "A" && value !== "B" && value !== "both") usage(`invalid --phase: ${value}`);
-				out.phase = value;
-				i += 1;
-				break;
-			case "--variant":
-				if (value !== "back-to-back" && value !== "ack-first" && value !== "both") usage(`invalid --variant: ${value}`);
-				out.variant = value;
-				i += 1;
-				break;
-			case "--turn-end-timeout-ms":
-				out.turnEndTimeoutMs = Number.parseInt(value, 10);
-				i += 1;
-				break;
-			case "--message-processed-timeout-ms":
-				out.messageProcessedTimeoutMs = Number.parseInt(value, 10);
+			case "--send-timeout-ms":
+				out.sendTimeoutMs = Number.parseInt(value, 10);
 				i += 1;
 				break;
 			case "-h":
@@ -132,30 +115,29 @@ function parseArgs(): Args {
 function usage(error?: string): never {
 	if (error) stdout.write(`error: ${error}\n\n`);
 	stdout.write(
-		`usage: check-entwurf-send-stuck [--target <sessionId> | --auto-receiver] [options]\n` +
+		`usage: check-entwurf-delivery [--target <sessionId> | --auto-receiver] [options]\n` +
 			`\n` +
 			`receiver selection (exactly one):\n` +
 			`  --target <sessionId>                manual: operator has launched the receiver pi.\n` +
 			`  --auto-receiver                     auto: tmux-spawn a fresh receiver loaded from\n` +
 			`                                      the working-tree entwurf-control.ts, then tear\n` +
-			`                                      it down on exit. Avoids the stale-installed-\n` +
-			`                                      extension confusion that bit us today.\n` +
+			`                                      it down on exit.\n` +
 			`\n` +
 			`auto-receiver knobs:\n` +
 			`  --auto-receiver-provider <name>     default openai-codex\n` +
-			`  --auto-receiver-model <id>          default gpt-5.4 (cheap; opus only when needed)\n` +
+			`  --auto-receiver-model <id>          default gpt-5.4 (cheap; switch to opus only when needed)\n` +
 			`  --receiver-boot-timeout-ms <N>      default 30000\n` +
 			`\n` +
-			`trial matrix:\n` +
-			`  --trials <N>                        trials per (phase × variant). default 5.\n` +
-			`  --phase A | B | both                A=message_processed, B=turn_end. default both.\n` +
-			`  --variant back-to-back | ack-first | both\n` +
-			`                                      subscribe/send ordering for Phase B. default back-to-back.\n` +
-			`  --message-processed-timeout-ms <N>  default 5000.\n` +
-			`  --turn-end-timeout-ms <N>           default 60000 (shorter than prod 300000 for fast iteration).\n` +
+			`trial knobs:\n` +
+			`  --trials <N>                        default 5.\n` +
+			`  --send-timeout-ms <N>               default 5000.\n` +
 			`\n` +
-			`output: per-trial milestones + summary. exit 0 if every trial in every\n` +
-			`phase/variant resolved successfully and persisted in receiver jsonl, else 1.\n`,
+			`Send-is-throw: this gate verifies delivery-ack only (RPC ack + jsonl persist).\n` +
+			`No turn-completion wait, no assistant-output capture. Use entwurf(mode=async)\n` +
+			`+ entwurf_resume when the caller needs to own a result.\n` +
+			`\n` +
+			`output: per-trial milestones + summary. exit 0 if every trial acked successfully\n` +
+			`and persisted in receiver jsonl, else 1.\n`,
 	);
 	exit(error ? 2 : 0);
 }
@@ -169,9 +151,7 @@ const ENTWURF_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 interface RpcMilestones {
 	startedAt: number;
 	connectedAt?: number;
-	subscribeAckAt?: number;
 	sendAckAt?: number;
-	turnEndAt?: number;
 	settledAt?: number;
 }
 
@@ -186,13 +166,7 @@ interface TrialResult {
 	persistCheckedAt?: number;
 }
 
-interface RpcOptions {
-	waitForEvent?: "turn_end";
-	timeoutMs: number;
-	ackBeforeSend: boolean; // only meaningful when waitForEvent === "turn_end"
-}
-
-function rpcSend(socketPath: string, message: string, nonce: string, options: RpcOptions): Promise<TrialResult> {
+function rpcSend(socketPath: string, message: string, nonce: string, timeoutMs: number): Promise<TrialResult> {
 	const trial: TrialResult = {
 		nonce,
 		outcome: "error",
@@ -206,11 +180,8 @@ function rpcSend(socketPath: string, message: string, nonce: string, options: Rp
 
 		let buffer = "";
 		let settled = false;
-		let response: { success?: boolean; error?: string } | null = null;
-		let baselineTurnIndex: number | undefined;
-		let baselineResolved = false;
 
-		const timeout = setTimeout(() => socket.destroy(new Error("timeout")), options.timeoutMs);
+		const timeout = setTimeout(() => socket.destroy(new Error("timeout")), timeoutMs);
 
 		const settle = (outcome: TrialOutcome, errMsg?: string) => {
 			if (settled) return;
@@ -224,14 +195,15 @@ function rpcSend(socketPath: string, message: string, nonce: string, options: Rp
 			resolve(trial);
 		};
 
-		const writeSend = () => {
+		socket.on("connect", () => {
+			trial.milestones.connectedAt = Date.now();
 			const sendCmd = {
 				type: "send",
 				message,
 				mode: "follow_up",
 				sender: {
-					sessionId: "stuck-smoke",
-					agentId: "smoke/check-entwurf-send-stuck",
+					sessionId: "delivery-smoke",
+					agentId: "smoke/check-entwurf-delivery",
 					cwd: process.cwd(),
 					timestamp: new Date().toISOString(),
 					origin: "external-mcp",
@@ -240,17 +212,6 @@ function rpcSend(socketPath: string, message: string, nonce: string, options: Rp
 				wants_reply: false,
 			};
 			socket.write(`${JSON.stringify(sendCmd)}\n`);
-		};
-
-		socket.on("connect", () => {
-			trial.milestones.connectedAt = Date.now();
-			if (options.waitForEvent === "turn_end") {
-				const subscribeCmd = { type: "subscribe", event: "turn_end" };
-				socket.write(`${JSON.stringify(subscribeCmd)}\n`);
-				if (!options.ackBeforeSend) writeSend();
-			} else {
-				writeSend();
-			}
 		});
 
 		socket.on("data", (chunk) => {
@@ -263,42 +224,10 @@ function rpcSend(socketPath: string, message: string, nonce: string, options: Rp
 				if (!line) continue;
 				try {
 					const msg = JSON.parse(line);
-					if (msg.type === "response") {
-						if (msg.command === "subscribe" && !baselineResolved) {
-							trial.milestones.subscribeAckAt = Date.now();
-							const data = msg.data as { baselineTurnIndex?: number } | undefined;
-							baselineTurnIndex = data?.baselineTurnIndex;
-							baselineResolved = true;
-							if (options.waitForEvent === "turn_end" && options.ackBeforeSend) writeSend();
-							continue;
-						}
-						if (msg.command === "send") {
-							trial.milestones.sendAckAt = Date.now();
-							response = msg;
-							if (msg.success === false) {
-								settle("response-not-success", msg.error ?? "(no error message)");
-								return;
-							}
-							if (options.waitForEvent !== "turn_end") {
-								settle("success");
-								return;
-							}
-						}
-						continue;
-					}
-					if (msg.type === "event" && msg.event === "turn_end" && options.waitForEvent === "turn_end") {
-						const evtTurnIndex = typeof msg.data?.turnIndex === "number" ? msg.data.turnIndex : undefined;
-						if (
-							baselineResolved &&
-							typeof baselineTurnIndex === "number" &&
-							typeof evtTurnIndex === "number" &&
-							evtTurnIndex <= baselineTurnIndex
-						) {
-							continue;
-						}
-						trial.milestones.turnEndAt = Date.now();
-						if (!response) {
-							settle("error", "received turn_end before send response");
+					if (msg.type === "response" && msg.command === "send") {
+						trial.milestones.sendAckAt = Date.now();
+						if (msg.success === false) {
+							settle("response-not-success", msg.error ?? "(no error message)");
 							return;
 						}
 						settle("success");
@@ -318,7 +247,7 @@ function rpcSend(socketPath: string, message: string, nonce: string, options: Rp
 		socket.on("error", (error) => {
 			if (settled) return;
 			const msg = error instanceof Error ? error.message : String(error);
-			if (msg === "timeout") settle("timeout", "timed out waiting for response/event");
+			if (msg === "timeout") settle("timeout", "timed out waiting for response");
 			else settle("error", msg);
 		});
 	});
@@ -348,7 +277,7 @@ function findReceiverJsonl(target: string): string | null {
 }
 
 function jsonlContainsNonce(jsonlPath: string, nonce: string): boolean {
-	const result = spawnSync("grep", ["-l", `stuck-smoke nonce=${nonce}`, jsonlPath], {
+	const result = spawnSync("grep", ["-l", `delivery-smoke nonce=${nonce}`, jsonlPath], {
 		stdio: ["ignore", "pipe", "ignore"],
 	});
 	return result.status === 0;
@@ -388,16 +317,13 @@ async function spawnAutoReceiver(args: Args): Promise<SpawnedReceiver> {
 	if (tmuxCheck.status !== 0) throw new Error("tmux not found on PATH — required for --auto-receiver");
 
 	const baseline = listExistingSockets();
-	const tmuxSession = `stuck-smoke-${crypto.randomUUID().slice(0, 8)}`;
+	const tmuxSession = `delivery-smoke-${crypto.randomUUID().slice(0, 8)}`;
 	// Spawn the receiver from os.tmpdir() with --no-context-files /
 	// --no-skills / --no-extensions so the first prompt does not pull in
 	// the host repo's AGENTS.md, skills, or other extensions as context.
-	// Without this the receiver burned ~$0.04 per Phase-B trial reading
-	// pi-shell-acp's AGENTS — fine for one-off runs, ruinous for the
-	// 100-trial baselines we want from this gate. -e still loads our
-	// working-tree entwurf-control.ts so the actual code under test is
-	// fresh, not the globally-installed extension.
-	const tmpReceiverCwd = fs.mkdtempSync(path.join(os.tmpdir(), "stuck-smoke-receiver-"));
+	// -e still loads our working-tree entwurf-control.ts so the actual code
+	// under test is fresh, not the globally-installed extension.
+	const tmpReceiverCwd = fs.mkdtempSync(path.join(os.tmpdir(), "delivery-smoke-receiver-"));
 	const piCmd = [
 		"cd",
 		tmpReceiverCwd,
@@ -416,10 +342,10 @@ async function spawnAutoReceiver(args: Args): Promise<SpawnedReceiver> {
 	].join(" ");
 
 	stdout.write(
-		`[stuck-smoke] auto-receiver: spawning in tmux session ${tmuxSession}\n` +
-			`              cwd: ${tmpReceiverCwd}\n` +
-			`              cmd: ${piCmd}\n` +
-			`              extension: ${ENTWURF_CONTROL_TS}\n`,
+		`[delivery-smoke] auto-receiver: spawning in tmux session ${tmuxSession}\n` +
+			`                 cwd: ${tmpReceiverCwd}\n` +
+			`                 cmd: ${piCmd}\n` +
+			`                 extension: ${ENTWURF_CONTROL_TS}\n`,
 	);
 
 	const spawnResult = spawnSync("tmux", ["new", "-d", "-s", tmuxSession, piCmd], {
@@ -467,7 +393,7 @@ async function spawnAutoReceiver(args: Args): Promise<SpawnedReceiver> {
 		throw new Error(`receiver socket appeared but never reported idle within ${args.receiverBootTimeoutMs}ms`);
 	}
 
-	stdout.write(`[stuck-smoke] auto-receiver: sessionId=${newSessionId} ready (idle)\n`);
+	stdout.write(`[delivery-smoke] auto-receiver: sessionId=${newSessionId} ready (idle)\n`);
 	return { sessionId: newSessionId, tmuxSession, socketPath };
 }
 
@@ -519,35 +445,19 @@ function getReceiverInfo(socketPath: string): Promise<ReceiverInfo | null> {
 }
 
 // ============================================================================
-// Phase runners
+// Trial driver
 // ============================================================================
-
-interface PhaseSummary {
-	phase: "A" | "B";
-	variant: "back-to-back" | "ack-first";
-	trials: TrialResult[];
-}
 
 async function runTrial(
 	socketPath: string,
 	sessionId: string,
-	phase: "A" | "B",
-	variant: "back-to-back" | "ack-first",
 	idx: number,
 	total: number,
 	args: Args,
 ): Promise<TrialResult> {
 	const nonce = crypto.randomUUID().slice(0, 8);
-	const message = `[stuck-smoke nonce=${nonce}] phase=${phase} variant=${variant} trial=${idx + 1}/${total}`;
-	const opts: RpcOptions =
-		phase === "A"
-			? { timeoutMs: args.messageProcessedTimeoutMs, ackBeforeSend: false }
-			: {
-					waitForEvent: "turn_end",
-					timeoutMs: args.turnEndTimeoutMs,
-					ackBeforeSend: variant === "ack-first",
-				};
-	const trial = await rpcSend(socketPath, message, nonce, opts);
+	const message = `[delivery-smoke nonce=${nonce}] trial=${idx + 1}/${total}`;
+	const trial = await rpcSend(socketPath, message, nonce, args.sendTimeoutMs);
 
 	// Persist check — best-effort. Re-resolve the jsonl path every trial:
 	// auto-receiver does not create the session jsonl until the first
@@ -567,13 +477,7 @@ async function runTrial(
 function renderMilestones(m: RpcMilestones): string {
 	const dt = (after?: number, before = m.startedAt) =>
 		after !== undefined ? `${(after - before).toString().padStart(5, " ")}ms` : "  -  ";
-	return [
-		`connect=${dt(m.connectedAt)}`,
-		`subAck=${dt(m.subscribeAckAt)}`,
-		`sendAck=${dt(m.sendAckAt)}`,
-		`turnEnd=${dt(m.turnEndAt)}`,
-		`settled=${dt(m.settledAt)}`,
-	].join(" ");
+	return [`connect=${dt(m.connectedAt)}`, `sendAck=${dt(m.sendAckAt)}`, `settled=${dt(m.settledAt)}`].join(" ");
 }
 
 function renderTrial(t: TrialResult, idx: number, total: number): string {
@@ -583,46 +487,22 @@ function renderTrial(t: TrialResult, idx: number, total: number): string {
 	return `  trial ${idx + 1}/${total}  ${status}  persist=${persist}  ${renderMilestones(t.milestones)}${err}`;
 }
 
-async function runPhase(
-	socketPath: string,
-	sessionId: string,
-	phase: "A" | "B",
-	variant: "back-to-back" | "ack-first",
-	args: Args,
-): Promise<PhaseSummary> {
-	const label = phase === "A" ? "Phase A — message_processed" : `Phase B — turn_end (${variant})`;
-	stdout.write(`\n[stuck-smoke] ${label} × ${args.trials}\n`);
-	const trials: TrialResult[] = [];
-	for (let i = 0; i < args.trials; i += 1) {
-		const trial = await runTrial(socketPath, sessionId, phase, variant, i, args.trials, args);
-		stdout.write(`${renderTrial(trial, i, args.trials)}\n`);
-		trials.push(trial);
-	}
-	return { phase, variant, trials };
-}
-
-// ============================================================================
-// Summary
-// ============================================================================
-
-function summarize(summaries: PhaseSummary[]): boolean {
-	stdout.write(`\n[stuck-smoke] ─── summary ───\n`);
-	let allGreen = true;
-	for (const s of summaries) {
-		const label = s.phase === "A" ? "A msg_proc      " : `B turn_end ${s.variant.padEnd(13, " ")}`;
-		const total = s.trials.length;
-		const success = s.trials.filter((t) => t.outcome === "success").length;
-		const persisted = s.trials.filter((t) => t.persisted).length;
-		const timeouts = s.trials.filter((t) => t.outcome === "timeout").length;
-		const closes = s.trials.filter((t) => t.outcome === "closed").length;
-		const errors = s.trials.filter((t) => t.outcome === "error" || t.outcome === "response-not-success").length;
-		stdout.write(
-			`  ${label}  success=${success}/${total}  persist=${persisted}/${total}  ` +
-				`timeout=${timeouts}  close=${closes}  error=${errors}\n`,
-		);
-		if (success !== total || persisted !== total) allGreen = false;
-	}
-	stdout.write(`\n[stuck-smoke] verdict: ${allGreen ? "GREEN — no stuck observed" : "RED — see per-trial details"}\n`);
+function summarize(trials: TrialResult[]): boolean {
+	stdout.write(`\n[delivery-smoke] ─── summary ───\n`);
+	const total = trials.length;
+	const success = trials.filter((t) => t.outcome === "success").length;
+	const persisted = trials.filter((t) => t.persisted).length;
+	const timeouts = trials.filter((t) => t.outcome === "timeout").length;
+	const closes = trials.filter((t) => t.outcome === "closed").length;
+	const errors = trials.filter((t) => t.outcome === "error" || t.outcome === "response-not-success").length;
+	stdout.write(
+		`  delivery  success=${success}/${total}  persist=${persisted}/${total}  ` +
+			`timeout=${timeouts}  close=${closes}  error=${errors}\n`,
+	);
+	const allGreen = success === total && persisted === total;
+	stdout.write(
+		`\n[delivery-smoke] verdict: ${allGreen ? "GREEN — delivery + persist OK" : "RED — see per-trial details"}\n`,
+	);
 	return allGreen;
 }
 
@@ -645,7 +525,7 @@ async function main(): Promise<void> {
 		const cleanup = () => {
 			if (spawned) {
 				killTmuxSession(spawned.tmuxSession);
-				stdout.write(`[stuck-smoke] auto-receiver: tmux session ${spawned.tmuxSession} killed\n`);
+				stdout.write(`[delivery-smoke] auto-receiver: tmux session ${spawned.tmuxSession} killed\n`);
 				spawned = null;
 			}
 		};
@@ -676,37 +556,27 @@ async function main(): Promise<void> {
 	}
 	if (info.idle === false) {
 		stdout.write(
-			`warning: receiver reports idle=false; trials run against a busy receiver may not exercise the\n` +
-				`         follow_up + idle direct-promote path the incident reproduces from.\n`,
+			`warning: receiver reports idle=false; trials run against a busy receiver still ack\n` +
+				`         on enqueue, but the message lands as follow_up.\n`,
 		);
 	}
-	// jsonl path is re-resolved every trial inside runTrial — auto-receiver
-	// does not create the jsonl until the first message arrives, so a path
-	// captured here would be permanently null for the first run.
 	stdout.write(
-		`[stuck-smoke] target sessionId=${target}\n` +
-			`              cwd=${info.cwd ?? "(unknown)"}\n` +
-			`              model=${info.model?.provider ?? "?"}/${info.model?.id ?? "?"}\n` +
-			`              idle=${info.idle === true ? "yes" : info.idle === false ? "NO" : "?"}\n` +
-			`              trials=${args.trials} phase=${args.phase} variant=${args.variant}\n` +
-			`              timeouts: msg_proc=${args.messageProcessedTimeoutMs}ms turn_end=${args.turnEndTimeoutMs}ms\n`,
+		`[delivery-smoke] target sessionId=${target}\n` +
+			`                 cwd=${info.cwd ?? "(unknown)"}\n` +
+			`                 model=${info.model?.provider ?? "?"}/${info.model?.id ?? "?"}\n` +
+			`                 idle=${info.idle === true ? "yes" : info.idle === false ? "NO" : "?"}\n` +
+			`                 trials=${args.trials}  send_timeout=${args.sendTimeoutMs}ms\n`,
 	);
 
-	const summaries: PhaseSummary[] = [];
-
-	if (args.phase === "A" || args.phase === "both") {
-		summaries.push(await runPhase(socketPath, target, "A", "back-to-back", args));
+	stdout.write(`\n[delivery-smoke] delivery × ${args.trials}\n`);
+	const trials: TrialResult[] = [];
+	for (let i = 0; i < args.trials; i += 1) {
+		const trial = await runTrial(socketPath, target, i, args.trials, args);
+		stdout.write(`${renderTrial(trial, i, args.trials)}\n`);
+		trials.push(trial);
 	}
 
-	if (args.phase === "B" || args.phase === "both") {
-		const variants: ("back-to-back" | "ack-first")[] =
-			args.variant === "both" ? ["back-to-back", "ack-first"] : [args.variant];
-		for (const v of variants) {
-			summaries.push(await runPhase(socketPath, target, "B", v, args));
-		}
-	}
-
-	const ok = summarize(summaries);
+	const ok = summarize(trials);
 	exit(ok ? 0 : 1);
 }
 
