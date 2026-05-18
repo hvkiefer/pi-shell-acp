@@ -46,7 +46,11 @@ import { argv, exit, stdout } from "node:process";
 // ============================================================================
 
 interface Args {
-	target: string;
+	target?: string;
+	autoReceiver: boolean;
+	autoReceiverProvider: string;
+	autoReceiverModel: string;
+	receiverBootTimeoutMs: number;
 	trials: number;
 	phase: "A" | "B" | "both";
 	variant: "back-to-back" | "ack-first" | "both";
@@ -56,6 +60,10 @@ interface Args {
 
 function parseArgs(): Args {
 	const out: Partial<Args> = {
+		autoReceiver: false,
+		autoReceiverProvider: "openai-codex",
+		autoReceiverModel: "gpt-5.4",
+		receiverBootTimeoutMs: 30_000,
 		trials: 5,
 		phase: "both",
 		variant: "back-to-back",
@@ -69,6 +77,21 @@ function parseArgs(): Args {
 		switch (key) {
 			case "--target":
 				out.target = value;
+				i += 1;
+				break;
+			case "--auto-receiver":
+				out.autoReceiver = true;
+				break;
+			case "--auto-receiver-provider":
+				out.autoReceiverProvider = value;
+				i += 1;
+				break;
+			case "--auto-receiver-model":
+				out.autoReceiverModel = value;
+				i += 1;
+				break;
+			case "--receiver-boot-timeout-ms":
+				out.receiverBootTimeoutMs = Number.parseInt(value, 10);
 				i += 1;
 				break;
 			case "--trials":
@@ -101,17 +124,29 @@ function parseArgs(): Args {
 				usage(`unknown arg: ${key}`);
 		}
 	}
-	if (!out.target) usage("missing --target <sessionId>");
+	if (!out.target && !out.autoReceiver) usage("missing --target <sessionId> (or --auto-receiver)");
+	if (out.target && out.autoReceiver) usage("--target and --auto-receiver are mutually exclusive");
 	return out as Args;
 }
 
 function usage(error?: string): never {
 	if (error) stdout.write(`error: ${error}\n\n`);
 	stdout.write(
-		`usage: check-entwurf-send-stuck --target <sessionId> [options]\n` +
+		`usage: check-entwurf-send-stuck [--target <sessionId> | --auto-receiver] [options]\n` +
 			`\n` +
-			`options:\n` +
-			`  --target <sessionId>                target pi sessionId (UUID). REQUIRED.\n` +
+			`receiver selection (exactly one):\n` +
+			`  --target <sessionId>                manual: operator has launched the receiver pi.\n` +
+			`  --auto-receiver                     auto: tmux-spawn a fresh receiver loaded from\n` +
+			`                                      the working-tree entwurf-control.ts, then tear\n` +
+			`                                      it down on exit. Avoids the stale-installed-\n` +
+			`                                      extension confusion that bit us today.\n` +
+			`\n` +
+			`auto-receiver knobs:\n` +
+			`  --auto-receiver-provider <name>     default openai-codex\n` +
+			`  --auto-receiver-model <id>          default gpt-5.4 (cheap; opus only when needed)\n` +
+			`  --receiver-boot-timeout-ms <N>      default 30000\n` +
+			`\n` +
+			`trial matrix:\n` +
 			`  --trials <N>                        trials per (phase × variant). default 5.\n` +
 			`  --phase A | B | both                A=message_processed, B=turn_end. default both.\n` +
 			`  --variant back-to-back | ack-first | both\n` +
@@ -320,6 +355,108 @@ function jsonlContainsNonce(jsonlPath: string, nonce: string): boolean {
 }
 
 // ============================================================================
+// Auto-receiver — tmux-spawn a fresh pi loaded from working-tree extension
+// ============================================================================
+
+const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const ENTWURF_CONTROL_TS = path.join(REPO_ROOT, "pi-extensions", "entwurf-control.ts");
+
+interface SpawnedReceiver {
+	sessionId: string;
+	tmuxSession: string;
+	socketPath: string;
+}
+
+function listExistingSockets(): Set<string> {
+	const out = new Set<string>();
+	if (!fs.existsSync(ENTWURF_DIR)) return out;
+	for (const entry of fs.readdirSync(ENTWURF_DIR)) {
+		if (entry.endsWith(".sock")) out.add(entry);
+	}
+	return out;
+}
+
+function killTmuxSession(name: string): void {
+	spawnSync("tmux", ["kill-session", "-t", name], { stdio: "ignore" });
+}
+
+async function spawnAutoReceiver(args: Args): Promise<SpawnedReceiver> {
+	if (!fs.existsSync(ENTWURF_CONTROL_TS)) {
+		throw new Error(`working-tree entwurf-control.ts not found at ${ENTWURF_CONTROL_TS}`);
+	}
+	const tmuxCheck = spawnSync("tmux", ["-V"], { stdio: "ignore" });
+	if (tmuxCheck.status !== 0) throw new Error("tmux not found on PATH — required for --auto-receiver");
+
+	const baseline = listExistingSockets();
+	const tmuxSession = `stuck-smoke-${crypto.randomUUID().slice(0, 8)}`;
+	const piCmd = [
+		"pi",
+		"--no-extensions",
+		"-e",
+		ENTWURF_CONTROL_TS,
+		"--entwurf-control",
+		"--provider",
+		args.autoReceiverProvider,
+		"--model",
+		args.autoReceiverModel,
+	].join(" ");
+
+	stdout.write(
+		`[stuck-smoke] auto-receiver: spawning in tmux session ${tmuxSession}\n` +
+			`              cmd: ${piCmd}\n` +
+			`              extension: ${ENTWURF_CONTROL_TS}\n`,
+	);
+
+	const spawnResult = spawnSync("tmux", ["new", "-d", "-s", tmuxSession, piCmd], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	if (spawnResult.status !== 0) {
+		const stderr = spawnResult.stderr?.toString() ?? "(no stderr)";
+		throw new Error(`tmux new failed (exit ${spawnResult.status}): ${stderr}`);
+	}
+
+	const deadline = Date.now() + args.receiverBootTimeoutMs;
+	let newSessionId: string | null = null;
+	while (Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 500));
+		const current = listExistingSockets();
+		for (const entry of current) {
+			if (!baseline.has(entry)) {
+				newSessionId = entry.replace(/\.sock$/, "");
+				break;
+			}
+		}
+		if (newSessionId) break;
+	}
+	if (!newSessionId) {
+		killTmuxSession(tmuxSession);
+		throw new Error(`no new entwurf-control socket appeared within ${args.receiverBootTimeoutMs}ms`);
+	}
+
+	const socketPath = path.join(ENTWURF_DIR, `${newSessionId}.sock`);
+	// Wait until the receiver responds with idle:true — the pi process can
+	// register its socket before the bridge/model handshake settles, and
+	// hammering it during that window produces false-positive failures.
+	const idleDeadline = Date.now() + args.receiverBootTimeoutMs;
+	let idle = false;
+	while (Date.now() < idleDeadline) {
+		const info = await getReceiverInfo(socketPath);
+		if (info?.idle === true) {
+			idle = true;
+			break;
+		}
+		await new Promise((r) => setTimeout(r, 500));
+	}
+	if (!idle) {
+		killTmuxSession(tmuxSession);
+		throw new Error(`receiver socket appeared but never reported idle within ${args.receiverBootTimeoutMs}ms`);
+	}
+
+	stdout.write(`[stuck-smoke] auto-receiver: sessionId=${newSessionId} ready (idle)\n`);
+	return { sessionId: newSessionId, tmuxSession, socketPath };
+}
+
+// ============================================================================
 // Pre-flight — receiver alive and idle
 // ============================================================================
 
@@ -476,7 +613,37 @@ function summarize(summaries: PhaseSummary[]): boolean {
 
 async function main(): Promise<void> {
 	const args = parseArgs();
-	const socketPath = path.join(ENTWURF_DIR, `${args.target}.sock`);
+
+	let target: string;
+	let spawned: SpawnedReceiver | null = null;
+
+	if (args.autoReceiver) {
+		spawned = await spawnAutoReceiver(args);
+		target = spawned.sessionId;
+		// Ensure the tmux receiver is killed on every termination path: clean
+		// exit, fatal throw, ctrl+C, parent SIGTERM. Without this we leak pi
+		// processes that hold sockets and confuse subsequent runs.
+		const cleanup = () => {
+			if (spawned) {
+				killTmuxSession(spawned.tmuxSession);
+				stdout.write(`[stuck-smoke] auto-receiver: tmux session ${spawned.tmuxSession} killed\n`);
+				spawned = null;
+			}
+		};
+		process.on("exit", cleanup);
+		process.on("SIGINT", () => {
+			cleanup();
+			exit(130);
+		});
+		process.on("SIGTERM", () => {
+			cleanup();
+			exit(143);
+		});
+	} else {
+		target = args.target as string;
+	}
+
+	const socketPath = path.join(ENTWURF_DIR, `${target}.sock`);
 	if (!fs.existsSync(socketPath)) {
 		stdout.write(`error: socket not found at ${socketPath}\n`);
 		stdout.write(`hint: is the receiver running with --entwurf-control?\n`);
@@ -494,9 +661,9 @@ async function main(): Promise<void> {
 				`         follow_up + idle direct-promote path the incident reproduces from.\n`,
 		);
 	}
-	const jsonlPath = findReceiverJsonl(args.target);
+	const jsonlPath = findReceiverJsonl(target);
 	stdout.write(
-		`[stuck-smoke] target sessionId=${args.target}\n` +
+		`[stuck-smoke] target sessionId=${target}\n` +
 			`              cwd=${info.cwd ?? "(unknown)"}\n` +
 			`              model=${info.model?.provider ?? "?"}/${info.model?.id ?? "?"}\n` +
 			`              idle=${info.idle === true ? "yes" : info.idle === false ? "NO" : "?"}\n` +
