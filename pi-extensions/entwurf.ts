@@ -68,6 +68,10 @@ function getParentSessionId(pi: ExtensionAPI): string {
 	return sm?.getSessionId?.() ?? "__no_session__";
 }
 
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 // ============================================================================
 // Constants (async-only)
 // ============================================================================
@@ -207,8 +211,8 @@ async function runEntwurfAsync(
 	let args: string[];
 	if (isRemote) {
 		command = "ssh";
-		const envPrefix = parentSessionId ? `PARENT_SESSION_ID=${parentSessionId}` : "";
-		const remoteCmd = `cd ${cwd} && ${envPrefix} pi ${piArgs.map((a) => JSON.stringify(a)).join(" ")}`;
+		const envPrefix = parentSessionId ? `PARENT_SESSION_ID=${shellQuote(parentSessionId)} ` : "";
+		const remoteCmd = `cd ${shellQuote(cwd)} && ${envPrefix}pi ${piArgs.map(shellQuote).join(" ")}`;
 		args = [host, remoteCmd];
 	} else {
 		command = "pi";
@@ -325,20 +329,53 @@ async function runEntwurfAsync(
 				},
 				{ triggerTurn: true, deliverAs: "followUp" },
 			);
-		} else if (stderr) {
-			info.error = stderr.slice(0, 500);
-			info.output = info.error;
-			info.status = "failed";
+		} else if (isRemote) {
+			// Remote async sessions live on the SSH host, so the caller cannot analyze
+			// the JSONL directly. Completion must still be delivered; stderr is a
+			// diagnostic stream, not by itself a failure signal. The process exit code
+			// remains the transport-level authority here.
+			info.status = info.exitCode === 0 ? "completed" : "failed";
+			info.error = info.exitCode === 0 ? undefined : stderr.slice(0, 500) || `exit code ${info.exitCode}`;
+			info.output = info.error ?? `Remote session: ${info.sessionFile}`;
+			const stderrNote = stderr ? `stderr:\n${stderr.slice(0, 1000)}` : null;
 			pi.sendMessage(
 				{
 					customType: "entwurf-complete",
-					content: `❌ entwurf \`${taskId}\` failed (${host}): ${stderr.slice(0, 300)}`,
+					content: [
+						`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${taskId}\` ${info.status} (${host}, remote)`,
+						`Session: ${info.sessionFile}`,
+						stderrNote,
+					]
+						.filter(Boolean)
+						.join("\n\n"),
+					display: true,
+					details: {
+						taskId,
+						host,
+						status: info.status,
+						exitCode: info.exitCode,
+						error: info.error,
+						explicitExtensions: info.explicitExtensions,
+						warnings: info.warnings,
+					},
+				},
+				{ triggerTurn: true, deliverAs: "followUp" },
+			);
+		} else if (stderr || info.exitCode !== 0) {
+			info.status = "failed";
+			info.error = stderr.slice(0, 500) || `exit code ${info.exitCode} (no session file)`;
+			info.output = info.error;
+			pi.sendMessage(
+				{
+					customType: "entwurf-complete",
+					content: `❌ entwurf \`${taskId}\` failed (${host}, no session file): ${info.error}`,
 					display: true,
 					details: {
 						taskId,
 						host,
 						status: "failed",
-						error: stderr.slice(0, 500),
+						exitCode: info.exitCode,
+						error: info.error,
 						explicitExtensions: info.explicitExtensions,
 						warnings: info.warnings,
 					},
@@ -907,7 +944,7 @@ export default function (pi: ExtensionAPI) {
 			let args: string[];
 			if (isRemote) {
 				command = "ssh";
-				const remoteCmd = `pi ${piArgs.map((a) => JSON.stringify(a)).join(" ")}`;
+				const remoteCmd = `pi ${piArgs.map(shellQuote).join(" ")}`;
 				args = [host, remoteCmd];
 			} else {
 				command = "pi";
@@ -1024,6 +1061,56 @@ export default function (pi: ExtensionAPI) {
 								status: resumeInfo.status,
 								error: resumeInfo.error,
 								stopReason: resumeInfo.stopReason,
+								explicitExtensions: resumeInfo.explicitExtensions,
+								warnings: resumeInfo.warnings,
+							},
+						},
+						{ triggerTurn: true, deliverAs: "followUp" },
+					);
+				} else if (isRemote) {
+					resumeInfo.status = resumeInfo.exitCode === 0 ? "completed" : "failed";
+					resumeInfo.error =
+						resumeInfo.exitCode === 0 ? undefined : stderr.slice(0, 500) || `exit code ${resumeInfo.exitCode}`;
+					resumeInfo.output = resumeInfo.error ?? `Remote session: ${sessionFile}`;
+					const stderrNote = stderr ? `stderr:\n${stderr.slice(0, 1000)}` : null;
+					pi.sendMessage(
+						{
+							customType: "entwurf-complete",
+							content: [
+								`${resumeInfo.status === "failed" ? "❌" : "🏁"} resume \`${resumeTaskId}\` (← ${params.taskId}) ${resumeInfo.status} (${host}, remote)`,
+								`Session: ${sessionFile}`,
+								stderrNote,
+							]
+								.filter(Boolean)
+								.join("\n\n"),
+							display: true,
+							details: {
+								taskId: resumeTaskId,
+								originalTaskId: params.taskId,
+								status: resumeInfo.status,
+								exitCode: resumeInfo.exitCode,
+								error: resumeInfo.error,
+								explicitExtensions: resumeInfo.explicitExtensions,
+								warnings: resumeInfo.warnings,
+							},
+						},
+						{ triggerTurn: true, deliverAs: "followUp" },
+					);
+				} else if (stderr || resumeInfo.exitCode !== 0) {
+					resumeInfo.status = "failed";
+					resumeInfo.error = stderr.slice(0, 500) || `exit code ${resumeInfo.exitCode} (no session file)`;
+					resumeInfo.output = resumeInfo.error;
+					pi.sendMessage(
+						{
+							customType: "entwurf-complete",
+							content: `❌ resume \`${resumeTaskId}\` (← ${params.taskId}) failed (${host}, no session file): ${resumeInfo.error}`,
+							display: true,
+							details: {
+								taskId: resumeTaskId,
+								originalTaskId: params.taskId,
+								status: "failed",
+								exitCode: resumeInfo.exitCode,
+								error: resumeInfo.error,
 								explicitExtensions: resumeInfo.explicitExtensions,
 								warnings: resumeInfo.warnings,
 							},

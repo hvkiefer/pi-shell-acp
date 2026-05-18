@@ -47,6 +47,10 @@ const ENTWURF_TARGETS_PATH = process.env.PI_ENTWURF_TARGETS_PATH ?? path.join(AG
 export const DEFAULT_ENTWURF_MODEL = "openai-codex/gpt-5.4";
 export const ENTWURF_CODEX_ACP_ENV = "PI_ENTWURF_ACP_FOR_CODEX";
 
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -569,7 +573,10 @@ function resolveExplicitExtensionSpec(packageNeedle: string): ExplicitExtensionS
 	if (!source || source.startsWith("git:") || source.startsWith("npm:")) return null;
 
 	const localRoot = path.resolve(AGENT_DIR, source);
-	const remoteRoot = source.startsWith("/") ? source : `$HOME/.pi/agent/${source}`;
+	// Remote commands now single-quote every argument, so `$HOME` can no longer
+	// be left for the remote shell to expand. Resolve relative package sources
+	// against the canonical agent dir path before crossing SSH.
+	const remoteRoot = source.startsWith("/") ? source : path.posix.resolve(os.homedir(), ".pi", "agent", source);
 	const candidates = [
 		{ localPath: localRoot, remotePath: remoteRoot },
 		{ localPath: path.join(localRoot, "index.ts"), remotePath: `${remoteRoot}/index.ts` },
@@ -1039,7 +1046,11 @@ export async function runEntwurfResumeSync(
 			"-o",
 			`ConnectTimeout=${Number.isFinite(connectTimeout) && connectTimeout > 0 ? connectTimeout : 10}`,
 		];
-		const remoteCmd = `cd ${options.cwd ?? "~"} && pi ${piArgs.map((a) => JSON.stringify(a)).join(" ")}`;
+		// Remote resume cwd still intentionally preserves the pre-existing `~`
+		// fallback when no explicit override is provided; saved-header cwd alignment
+		// is tracked separately in issue #11.
+		const remoteCwd = options.cwd ? shellQuote(options.cwd) : "~";
+		const remoteCmd = `cd ${remoteCwd} && pi ${piArgs.map(shellQuote).join(" ")}`;
 		args = [...sshOptions, host, remoteCmd];
 	} else {
 		command = "pi";
@@ -1118,7 +1129,7 @@ export async function runEntwurfSync(task: string, options: EntwurfSyncOptions):
 			"-o",
 			`ConnectTimeout=${Number.isFinite(connectTimeout) && connectTimeout > 0 ? connectTimeout : 10}`,
 		];
-		const remoteCmd = `cd ${options.cwd ?? "~"} && pi ${piArgs.map((a) => JSON.stringify(a)).join(" ")}`;
+		const remoteCmd = `cd ${shellQuote(effectiveCwd)} && pi ${piArgs.map(shellQuote).join(" ")}`;
 		args = [...sshOptions, host, remoteCmd];
 	} else {
 		command = "pi";
