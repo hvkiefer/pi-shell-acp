@@ -233,6 +233,42 @@ function rawOutputHasError(rawOutput: unknown): boolean {
 	return (rawOutput as any).isError === true;
 }
 
+// Sanitize an inline fragment for the `[tool:*]` / `[permission:*]` notice
+// surface (any text that ends up between the bracket prefix and the trailing
+// newline pushed by pushNotice). Three classes of input contaminate this
+// surface and break downstream chat renderers — Telegram in particular:
+//
+//   1. Embedded newlines break the one-line notice contract (the next
+//      [tool:start] line ends up wrapped inside the previous notice).
+//   2. Unclosed triple-backtick fences (`\`\`\`console\n...`) inside a
+//      sliced summary make the chat renderer treat everything until the
+//      next fence as a single code block — swallowing subsequent
+//      [tool:start] / assistant text.
+//   3. Single backticks can still start inline-code spans that swallow the
+//      rest of the line on strict Markdown renderers.
+//
+// Strategy: collapse whitespace → single space; replace triple-backtick runs
+// with a `[fence]` placeholder (operator-visible signal that a fence was
+// present); replace remaining single backticks with a visually similar
+// non-backtick char (`'`); truncate with an ellipsis so operators can tell
+// the fragment was cut. Applied uniformly to tool titles, tool result
+// summaries, and permission decisions / titles.
+//
+// Caller picks `max`:
+//   - tool title:   80  (short identifier, fits single line)
+//   - summary:     160  (one-line body preview)
+//   - permission:   80  (decision label only; title sanitized separately)
+function sanitizeNoticeFragment(text: string | null | undefined, max: number): string {
+	if (!text) return "";
+	const collapsed = text.replace(/\s+/g, " ").trim();
+	const fenceSafe = collapsed.replace(/`{3,}/g, "[fence]").replace(/`/g, "'");
+	if (fenceSafe.length <= max) return fenceSafe;
+	return `${fenceSafe.slice(0, max - 1)}…`;
+}
+
+const NOTICE_TITLE_MAX = 80;
+const NOTICE_SUMMARY_MAX = 160;
+
 function titleForTool(update: any, previousTitle?: string, toolCallId?: string): string {
 	return String(update?.title ?? previousTitle ?? update?._meta?.claudeCode?.toolName ?? toolCallId ?? "Tool");
 }
@@ -422,14 +458,14 @@ function renderToolUpdate(state: AcpPiStreamState, update: any): void {
 		// late after sync tool calls, so ordinary in-stream tool notices now keep
 		// the temporal order honest.
 		if (isEntwurfSend && state.onEntwurfSent) return;
-		pushNotice(state, `\n[tool:start] ${title}\n`);
+		pushNotice(state, `\n[tool:start] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}\n`);
 		return;
 	}
 
 	if (update?._meta?.terminal_output && !previous?.notifiedRunning) {
 		next.notifiedRunning = true;
 		observedTools.set(toolCallId, next);
-		pushNotice(state, `\n[tool:running] ${title}\n`);
+		pushNotice(state, `\n[tool:running] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}\n`);
 	}
 
 	if (status && status !== previous?.status) {
@@ -508,7 +544,10 @@ function renderToolUpdate(state: AcpPiStreamState, update: any): void {
 					// Do not create an empty late customMessage. Let the ordinary
 					// [tool:done] notice surface so the operator at least sees the
 					// backend's raw behavior.
-					pushNotice(state, `\n[tool:done] ${title}${summary ? ` — ${summary.slice(0, 160)}` : ""}\n`);
+					pushNotice(
+						state,
+						`\n[tool:done] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}${summary ? ` — ${sanitizeNoticeFragment(summary, NOTICE_SUMMARY_MAX)}` : ""}\n`,
+					);
 					return;
 				}
 				try {
@@ -523,15 +562,24 @@ function renderToolUpdate(state: AcpPiStreamState, update: any): void {
 					// Renderer fault must not break the agent turn. Fall
 					// through to ordinary [tool:done] notice as a visible
 					// signal that the UI promotion failed.
-					pushNotice(state, `\n[tool:done] ${title}${summary ? ` — ${summary.slice(0, 160)}` : ""}\n`);
+					pushNotice(
+						state,
+						`\n[tool:done] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}${summary ? ` — ${sanitizeNoticeFragment(summary, NOTICE_SUMMARY_MAX)}` : ""}\n`,
+					);
 				}
 				return;
 			}
-			pushNotice(state, `\n[tool:done] ${title}${summary ? ` — ${summary.slice(0, 160)}` : ""}\n`);
+			pushNotice(
+				state,
+				`\n[tool:done] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}${summary ? ` — ${sanitizeNoticeFragment(summary, NOTICE_SUMMARY_MAX)}` : ""}\n`,
+			);
 		} else if (status === "failed") {
-			pushNotice(state, `\n[tool:failed] ${title}${summary ? ` — ${summary.slice(0, 160)}` : ""}\n`);
+			pushNotice(
+				state,
+				`\n[tool:failed] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}${summary ? ` — ${sanitizeNoticeFragment(summary, NOTICE_SUMMARY_MAX)}` : ""}\n`,
+			);
 		} else if (status === "cancelled") {
-			pushNotice(state, `\n[tool:cancelled] ${title}\n`);
+			pushNotice(state, `\n[tool:cancelled] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}\n`);
 		}
 	}
 }
@@ -558,10 +606,12 @@ function renderPermissionEvent(
 			// Fallback to the raw optionId for observability. ACP optionId strings
 			// are backend-defined; guessing by substring ("allow" / "reject")
 			// repeats the same matcher class of bug that broke Gemini tool titles.
-			decision = optionId || "selected";
+			// Sanitize because backend-defined values can carry newlines / fences
+			// that would otherwise break the one-line notice contract.
+			decision = sanitizeNoticeFragment(optionId, NOTICE_TITLE_MAX) || "selected";
 		}
 	}
-	pushNotice(state, `\n[permission:${decision}] ${title}\n`);
+	pushNotice(state, `\n[permission:${decision}] ${sanitizeNoticeFragment(title, NOTICE_TITLE_MAX)}\n`);
 }
 
 function applyAcpSessionUpdate(state: AcpPiStreamState, update: any): void {
