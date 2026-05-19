@@ -2668,6 +2668,12 @@ check_pack_install() {
   # spends 5-15s on dependency resolution. Wired into prepublishOnly
   # so `npm publish` cannot succeed if the actual install path is
   # broken even when dry-run invariants look fine.
+  #
+  # Force --dry-run=false because `npm publish --dry-run` exports
+  # npm_config_dry_run=true into lifecycle scripts. Without the explicit
+  # override, this nested actual-pack smoke prints the tarball name but
+  # does not write the .tgz file, causing prepublishOnly to fail before
+  # a real publish can be exercised.
   section "publish install smoke (actual pack + tar + fresh install)"
 
   local version tgz_name tgz_path
@@ -2681,7 +2687,7 @@ check_pack_install() {
   rm -f "$tgz_path"
 
   echo "[check-pack-install] npm pack -> ${tgz_name}"
-  (cd "$REPO_DIR" && npm pack 2>&1 | tail -1) || {
+  (cd "$REPO_DIR" && npm pack --dry-run=false 2>&1 | tail -1) || {
     fail "[check-pack-install] npm pack failed"
     return 1
   }

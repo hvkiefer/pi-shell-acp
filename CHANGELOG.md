@@ -4,6 +4,14 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.7.1 — 2026-05-19
+
+Patch release for the first npm publish path. `v0.7.0` was tagged on GitHub but intentionally not published to npm after the final dry-run found a lifecycle-script interaction; 0.7.1 carries the same public package surface with the publish guard fixed.
+
+### Fixed
+
+- Fixed `prepublishOnly` under `npm publish --dry-run`: the nested `check-pack-install` smoke now runs `npm pack --dry-run=false`, overriding npm's inherited `npm_config_dry_run=true` lifecycle environment. Without the override, `npm pack` printed the scoped tarball name but did not create the `.tgz`, causing the publish guard to fail with `tarball not produced` before a real publish could be exercised.
+
 ## 0.7.0 — 2026-05-18
 
 Phase 2 packaging-surface refactor closes and the clean-host install preflight clears on a real Ubuntu target (`cleanhost`: Stages 0–3, 4a, Stage 4 prep settings, and 4b authenticated runtime smoke for Claude / Codex / Gemini all verified — see [`docs/setup-clean-host.md`](./docs/setup-clean-host.md)). The 0.7.0 cut adopts the `@junghanacs` npm scope and pins the publish-ready surface; the actual `npm publish` is held for a separate round so the patch and the registry push do not blur into one another.
