@@ -423,8 +423,9 @@ export default function (pi: ExtensionAPI) {
 	// triggers TS2589 ("Type instantiation excessively deep") under 0.70.0's
 	// registerTool generic inference. Extraction flattens one recursion level.
 	const entwurfModeSchema = Type.Union([Type.Literal("sync"), Type.Literal("async")], {
-		description: "sync: wait for completion (default). async: return immediately with taskId.",
-		default: "sync",
+		description:
+			"async (default since 0.7.0): spawn and return immediately with taskId; the parent turn is not blocked. sync: wait for completion and block the parent turn — opt in only for short status checks (<5s).",
+		default: "async",
 	});
 	const entwurfParameters = Type.Object({
 		task: Type.String({ description: "The task to entwurf" }),
@@ -471,15 +472,15 @@ export default function (pi: ExtensionAPI) {
 		name: "entwurf",
 		label: "Entwurf",
 		description:
-			"Entwurf a task to an independent agent process. Spawns a separate pi instance (local or remote via SSH) and returns the result. Use when a task needs isolated execution or should run on a different machine.\n\nModes:\n- sync (default): Wait for completion, return result.\n- async: Spawn and return immediately. Get notified on completion. Use entwurf_status to check progress.",
+			"Entwurf a task to an independent agent process. Spawns a separate pi instance (local or remote via SSH) and returns the result. Use when a task needs isolated execution or should run on a different machine.\n\nModes:\n- async (default): Spawn and return immediately with a Task ID — the parent turn is not blocked. Get notified on completion. Use entwurf_status to check progress. Suitable for review, research, build, anything that takes more than a few seconds.\n- sync: Wait for completion, return result. Blocks the parent turn until the child finishes — use only for short status checks (<5s).",
 		promptSnippet: "Spawn independent agent for isolated task execution (local or SSH remote)",
 		promptGuidelines: [
 			"Use entwurf for tasks that should run in isolation — different cwd, different machine, or resource-intensive work.",
 			"For SSH remote: set host to SSH config name (e.g., 'gpu1i'). The remote must have pi installed.",
-			"mode='sync' (default): Wait for completion, return result. Use for quick checks, git status, simple commands.",
+			"mode='async' (default): Spawn and return immediately. Get notified on completion. Use entwurf_status to check progress. Default since 0.7.0 because review/research/build calls dominate spawn usage and blocking the parent turn for >30s reads as 'stuck' to the operator.",
 			"Spawn routing comes from the Entwurf Target Registry (~/.pi/agent/entwurf-targets.json). Caller passes provider+model (or qualified 'provider/model'); unregistered tuples are refused with a list of allowed targets. Default when omitted: openai-codex/gpt-5.4.",
 			"Bare model auto-resolves only when the registry has exactly one non-explicitOnly match. Example: 'gpt-5.4' resolves to native openai-codex; for ACP gpt-5.4, pass provider='pi-shell-acp' explicitly.",
-			"mode='async': Spawn and return immediately. Get notified on completion. Use entwurf_status to check progress.",
+			"mode='sync': Wait for completion, return result. Blocks the parent turn — opt in only for short status checks (<5s) or one-line queries where blocking is acceptable.",
 			"async entwurfs save sessions — use entwurf_status to check, or resume later.",
 			"When a task involves research, analysis, writing, or anything that takes more than a few seconds → use async.",
 			"Async entwurfs save sessions — use entwurf_status to check, or resume later.",
@@ -494,7 +495,13 @@ export default function (pi: ExtensionAPI) {
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			_ctx: ExtensionContext,
 		): Promise<AgentToolResult<unknown>> {
-			const mode = params.mode ?? "sync";
+			// Default `async` since 0.7.0 — review/research/build dominate spawn
+			// usage, and blocking the parent turn for >30s reads as "stuck" to the
+			// operator. Sync is opt-in for short status checks. Note: this is the
+			// in-pi tool surface; the external MCP host surface
+			// (mcp/pi-tools-bridge) intentionally exposes sync only — see that
+			// file's tool description for the deferred async design round.
+			const mode = params.mode ?? "async";
 
 			const guardSessionId = getParentSessionId(pi);
 			const guardTargetKey = resolveGuardTargetKey(params.provider, params.model);
@@ -717,15 +724,16 @@ export default function (pi: ExtensionAPI) {
 
 	// --- /entwurf command ---
 	pi.registerCommand("entwurf", {
-		description: "Entwurf task to independent agent — /entwurf [async] [host:] task",
+		description: "Entwurf task to independent agent — /entwurf [sync|async] [host:] task",
 		handler: async (args, ctx) => {
 			if (!args?.trim()) {
 				ctx.ui.notify(
-					"Usage: /entwurf [async] [host:] task\n" +
+					"Usage: /entwurf [sync|async] [host:] task\n" +
 						"Examples:\n" +
-						"  /entwurf check disk space          (sync, default)\n" +
-						"  /entwurf async gpu1i: train model  (async, remote)\n" +
-						"  /entwurf async build project       (async, long-running)",
+						"  /entwurf review NEXT.md            (async, default since 0.7.0)\n" +
+						"  /entwurf gpu1i: train model        (async, remote)\n" +
+						"  /entwurf sync git rev-parse HEAD   (sync, short status check)\n" +
+						"  /entwurf async build project       (async explicit — same as default)",
 					"warning",
 				);
 				return;
@@ -733,9 +741,16 @@ export default function (pi: ExtensionAPI) {
 
 			let host = "local";
 			let task = args.trim();
-			let mode: "sync" | "async" = "sync";
+			// Default `async` since 0.7.0 — review/research/build dominate. Sync is
+			// opt-in for short status checks.
+			let mode: "sync" | "async" = "async";
 
-			if (task.startsWith("async ")) {
+			if (task.startsWith("sync ")) {
+				mode = "sync";
+				task = task.slice(5).trim();
+			} else if (task.startsWith("async ")) {
+				// backward compat — explicit async is now the default, but accepting
+				// the keyword preserves the pre-0.7.0 muscle memory.
 				mode = "async";
 				task = task.slice(6).trim();
 			}

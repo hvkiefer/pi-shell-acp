@@ -120,7 +120,8 @@ Bridge identity, pi context, `~/AGENTS.md`, `cwd/AGENTS.md`, and date/cwd ride a
 Uses `entwurf` instead of `delegate` to avoid ecosystem collisions.
 
 - Spawning creates a sibling, not a worker.
-- Default mode is `sync`; async is opt-in.
+- **In-pi tool surface** (`pi-extensions/entwurf.ts`) defaults to `async` since 0.7.0 — review/research/build dominate spawn usage, and blocking the parent turn for >30 s reads as "stuck" to the operator. `sync` is opt-in for short status checks (<5 s).
+- **External MCP host surface** (`mcp/pi-tools-bridge/index.ts`) intentionally exposes **sync only** for now — the tool description carries that statement verbatim. For long work, throw async from inside a pi session, not from the external host. Async via MCP is a deferred design round (see NEXT.md "pi-tools-bridge MCP async surface").
 - Target registry: `pi/entwurf-targets.json`; native preferred, ACP route explicit with `provider="pi-shell-acp"`.
 - Identity Preservation Rule: no model override on resume.
 
