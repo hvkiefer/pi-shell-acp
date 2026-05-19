@@ -588,21 +588,41 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
 
 ### Publish preflight — pi.dev / npm publish 라운드
 
-> **Status (2026-05-19 EOD)** — npm publish 완료. `@junghanacs/pi-shell-acp@0.7.1`
-> 가 npm registry 에 박힘 (web UI: https://www.npmjs.com/package/@junghanacs/pi-shell-acp,
-> `npm dist-tags`: `latest: 0.7.1`). 다음 세션 진입점 = registry propagation
-> 확인 + clean-host 재현 + pi.dev gallery indexing 확인.
+> **Status (2026-05-19 late EOD)** — publish 라운드 **closed** + pi.dev gallery
+> 카드 등장 확인. `@junghanacs/pi-shell-acp@0.7.2` 가 npm registry `latest`
+> (`npm dist-tags`: `latest: 0.7.2`, versions `["0.7.1", "0.7.2"]`), `0.7.1` 은
+> deprecated (메시지: "0.7.1 ships .sh files without the executable bit (pnpm
+> pack mode normalization). Upgrade to 0.7.2."). hejdev6g fresh install 재현
+> (before: `-rw-rw-r--`, after 0.7.2: `-rwxr-xr-x`, `run.sh install .` no EACCES,
+> `pi --list-models pi-shell-acp` 6 models) GREEN. **§Phase 2 완전 closed →
+> §Phase 3 (OpenClaw 정식 등록) active sprint 진입**. 다음 진입점 = §Phase 3
+> 의 `3.2 bbot 버그 수정 → 3.3 SDK helper → 3.4 plugin npm publish 준비` 순서
+> (해당 section 의 §bbot incident anchor).
 >
-> **0.7.0 → 0.7.1 release 흐름 요약**:
+> **0.7.0 → 0.7.1 → 0.7.2 release 흐름 요약**:
 > - 0.7.0 (`@junghan0611` initial cut) → host info sanitize + scope rename
 >   `@junghan0611` → `@junghanacs` force-push rewrite (old hash `backup/pre-sanitize-f4eeed1`
 >   local 브랜치 안전망 보존) → GitHub release v0.7.0 tag pushed (npm 미발행)
 > - publish dry-run 에서 `prepublishOnly` 의 nested `check-pack-install` 가
 >   `npm_config_dry_run=true` 환경 변수 inherit 으로 fail → 0.7.1 로 bump,
 >   `run.sh` 의 nested pack 을 `npm pack --dry-run=false` 로 override
-> - 0.7.1 npm publish 진입 ✅ — `npm publish --access public` 통과
+> - 0.7.1 npm publish (`@junghanacs/pi-shell-acp` 첫 registry 진입). `pi install`
+>   직후 GPT힣 측 검증에서 `run.sh` / `mcp/pi-tools-bridge/start.sh` 등 모든 `.sh`
+>   가 `0644` (executable bit drop) — `pnpm pack` 의 mode normalization 이 root
+>   cause (`npm pack` 은 0755 보존, `pnpm pack` 만 깎음). 0.7.0 force-push 라운드
+>   에서 publish flow 가 npm → pnpm 으로 옮겨간 게 trigger.
+> - 0.7.2 mode regression patch — `scripts/postinstall-chmod.cjs` 신규 (CJS
+>   Node hook), `package.json` `scripts.postinstall` 등록, `run.sh check_pack`
+>   에 `.sh` mode regression gate (`npm pack --dry-run --json` 의 `mode` field 검사,
+>   `(mode & 0o111) === 0` 이면 fail), `check_pack` / `check_pack_install` required
+>   에 chmod 스크립트 자체 추가, README 에 npm badge + `junghanacs.com` 한 줄,
+>   `package.json` `author` 객체화 (`url: https://junghanacs.com/` → npmjs maintainer
+>   link 자동 활성), `docs/setup-clean-host.md` publish-prep section 을 historical
+>   가이드로 정합, `.gitignore` 에 `*.tgz` 추가. commit `cd092b7` →
+>   tag `v0.7.2` → `pnpm publish` GREEN → hejdev6g 재현 GREEN → 0.7.1 deprecate.
 >
-> **다음 세션 시작점** — `## 남은 publish 후 검증` 섹션 (아래) 의 step 1 부터.
+> **agent-config 소비자 ref 정합**: 현재 `git:` 추적 → publish 안정 확인 후 npm
+> path 또는 release tag 로 옮길 결정 (별도 라운드, 아래 §Publish 후 추가 후속 참고).
 
 - **npm name / scope 확정 (2026-05-19 final)**: **`@junghanacs/pi-shell-acp`** — bare name 안 함. 이유: (1) 출처 일관성 (`@junghanacs/openclaw-pi-shell-acp` 와 같은 패밀리), (2) npm `@junghanacs` user-scope 라 책임 명확 + 자동 권한, (3) scope 는 unique 라 선점 우려 무관. 어제 (2026-05-18) `@junghan0611` 로 일단 박혔다가, npm username 이 실제 `junghanacs` (브랜드 네임) 임이 드러나 2026-05-19 force-push rewrite 와 함께 rename (host info sanitize 와 같은 라운드). `package.json` name + version `0.7.0`, `run.sh` `PACKAGE_NAME`, README npm install 면, `check-pack-install` scoped tarball/import/path 모두 갱신 완료. 검증: `pnpm check` + `pnpm test:pack` green (`junghanacs-pi-shell-acp-0.7.0.tgz`, 42 files, scoped pi loader smoke pass).
 - **pi gallery preview**: `package.json#pi.image` 또는 `pi.video` 추가. `packages.md` 기준 `pi-package` gallery card 에 노출되는 첫인상. 기존 `docs/assets/pi-shell-acp-demo.gif` 는 임시로 가능하지만, 공개면에서는 새 이미지/데모로 교체 예정.
@@ -630,69 +650,265 @@ issue #16 turn lifecycle bug 처방으로 ACP backend dep 일괄 갱신 — Phas
   6. ✅ `pnpm publish --access public` — v0.7.1 progress (0.7.0 prepublishOnly dry-run race → bump)
   7. ✅ web UI 확인 (`npmjs.com/package/@junghanacs/pi-shell-acp`), `npm dist-tags ls` = `latest: 0.7.1`. `npm view` CLI 는 propagation lag — 다음 세션 재확인.
 
-### 남은 publish 후 검증 (← 다음 세션 진입점)
+### Publish 후 검증 — closed (2026-05-19 late EOD)
 
-> 사용자 plan (2026-05-19 EOD): `10~30분 기다렸다가 npm view → pi install 검증 → NEXT.md 정리`. 이 섹션은 그 정리 anchor.
+원본 6-step anchor 는 `0.7.1` 직후 작성. `0.7.2` mode regression patch 라운드
+에서 같은 검증을 한 번에 통과시켰다. step-별 결과:
 
-1. **npm registry propagation 확인**:
-   ```bash
-   npm view @junghanacs/pi-shell-acp@0.7.1 version
-   npm view @junghanacs/pi-shell-acp dist-tags
-   curl -sI https://registry.npmjs.org/@junghanacs/pi-shell-acp
-   ```
-   `dist-tags: latest: 0.7.1` 이미 확인됨; `npm view <pkg>@<ver>` 가 정상 응답할 때 propagation 완료.
+1. **npm registry propagation** ✅ — `npm view @junghanacs/pi-shell-acp@0.7.2 version`
+   = `0.7.2`, `npm dist-tags ls` = `latest: 0.7.2`, `versions` = `["0.7.1", "0.7.2"]`.
+2. **실제 `pi install` 검증** ✅ — hejdev6g 에서 baseline reproduce (`pi remove` →
+   `pi install npm:@junghanacs/pi-shell-acp@0.7.1` → `.sh` 모두 `-rw-rw-r--` 깎임
+   재현) → 0.7.2 tarball install (`npm install --prefix ~/.pi/agent/npm <tgz>`)
+   → 모든 `.sh` `-rwxr-xr-x` 복구 → cleanup. 실 publish 후 GLG 가 `pi install
+   npm:@junghanacs/pi-shell-acp@0.7.2` 정공 path 로 한 번 더 GREEN.
+3. **설치 후 loader 검증** ✅ — `~/.pi/agent/npm/node_modules/@junghanacs/pi-shell-acp/run.sh
+   --help` 정상 출력 (EACCES X), `pi -e ... --list-models pi-shell-acp` = 6 models
+   (`claude-opus-4-7`, `claude-sonnet-4-6`, `gemini-3.1-pro-preview`, `gpt-5.4`,
+   `gpt-5.4-mini`, `gpt-5.5`), `run.sh install .` no EACCES.
+4. **Google Chat publish 알림** ✅ — GLG 가 v0.7.2 verified 알림 송신.
+5. **pi.dev gallery indexing** — passive wait. `pi-package` keyword + manifest +
+   `pi.image` 모두 충족. `latest: 0.7.2` 기준으로 indexing 도착 대기 (몇 시간 ~
+   하루). https://pi.dev/packages?q=pi-shell-acp 노출 확인은 timer based.
+6. **`docs/setup-clean-host.md` retake** ✅ — 0.7.2 라운드에서 publish-prep section
+   을 historical 3-step 가이드로 정합 (1)(2) ✅ landed, 0.7.0 → 0.7.1 → 0.7.2
+   시퀀스 사실 박음, 0.7.1 deprecate 안내, (3) gallery 만 optional polish 로
+   남음. Stage 2 별도 git→npm path retake 없이 framing 변경으로 닫힘.
 
-2. **실제 `pi install` 검증** — clean host 또는 fresh tmp project:
-   ```bash
-   # 다른 clean host 또는 cleanhost teardown/reinstall
-   pi install npm:@junghanacs/pi-shell-acp@0.7.1
-   # 또는 fresh project (project scope):
-   mkdir -p /tmp/pi-shell-acp-publish-smoke && cd /tmp/pi-shell-acp-publish-smoke
-   pi install -l npm:@junghanacs/pi-shell-acp@0.7.1
-   ```
+### pi.dev gallery 등장 — closed (2026-05-19 late EOD)
 
-3. **설치 후 loader 검증**:
-   ```bash
-   pi --list-models pi-shell-acp   # claude-sonnet-4-6 anchor 포함되어야
-   "$(npm root -g)/@junghanacs/pi-shell-acp/run.sh" install .   # global path
-   ```
-
-4. **Google Chat publish 알림** (회사 채널) — v0.7.0 알림은 이미 갔으니 이번에는 "npm first publish v0.7.1" 짧게.
-
-5. **pi.dev gallery indexing 확인**:
-   - https://pi.dev/packages?q=pi-shell-acp
-   - 안 뜨면 몇 시간 대기. `pi-package` keyword 기반 자동 indexing 이 SSOT (packages.md L132).
-
-6. **결과 반영**: `docs/setup-clean-host.md` 의 Stage 2 를 git → npm path 로 retake 하거나, CHANGELOG follow-up note, 또는 0.7.1 release notes 갱신.
+https://pi.dev/packages?q=pi-shell-acp 카드 등장 확인 (cadence ≈ 1h). `pi-package`
+keyword + `pi.image` 정합 SSOT 통과. 이걸로 §Phase 2 (pi.dev 패키징 준비) 의
+진입 조건 모두 충족 → §Phase 3 (OpenClaw 정식 등록) active sprint 진입.
 
 ### Publish 후 추가 후속 (별도 라운드)
 
-- **agenda stamp 정정 + 새 commits stamp**: 어제 force push 로 `~/org/diary.org` 의 4개 stamp commit URL 이 invalid. 오늘 라운드 8 commits (`097bf98` ~ `db45782`) 의 stamp 도 일부 missing. publish 후 한 번에 정리 라운드.
-- **backup branch 삭제 시점**: publish 후 며칠 안정 확인 → `git branch -D backup/pre-sanitize-f4eeed1` (force-push 의 안전망 회수).
-- **agent-config 소비자 ref 갱신**: agent-config 가 현재 `git:` 로 pi-shell-acp 추적. publish 후 release tag 또는 npm path 로 정합 ref 복귀 결정 (또는 main 추적 유지).
-- **새 데모 GIF / pi.video MP4** (선택): 현재 `pi.image` GIF (baseline+entwurf) 가 gallery preview 로 충분. MP4 video 추가하면 호버 autoplay UX 가능 — packages.md L146 ("If both are set, video takes precedence").
-- **GLGMAN 대표 이미지** (선택): pi.dev 카드용. 입력 자료 + 보강 요구는 위 §프로젝트 이미지 항목 참고.
-- **README 다이어트** (post-publish 문서 라운드): pi.dev gallery card 에 표시되는 정보 vs README 본문의 중복 제거. publish 후 어떻게 표시되는지 보고 결정.
+- **agenda stamp 정정 + 새 commits stamp** ✅ closed (2026-05-19 late EOD, GLG
+  손). force-push 로 invalid 화 됐던 stamp 들 + 0.7.2 라운드 commit `cd092b7` /
+  tag/release stamp 까지 한 번에 정리.
+- **backup branch 삭제 시점**: 0.7.2 안정 며칠 (~1주) 관찰 후 `git branch -D
+  backup/pre-sanitize-f4eeed1`. force-push 안전망 회수.
+- **agent-config 소비자 ref 갱신**: agent-config 가 현재 `git:` 로 pi-shell-acp
+  추적. 옵션 — (a) `npm:@junghanacs/pi-shell-acp@^0.7.2` 로 옮기기 (range), (b)
+  release tag pin (`git:...@v0.7.2`), (c) main 추적 유지. (a) 가 가장 깔끔하지만
+  Phase 1 sprint 동안 main 추적의 빠른 follow 가 더 유리할 수도 — GLG 결정.
+- **새 데모 GIF / pi.video MP4** (선택): 현재 `pi.image` GIF (baseline+entwurf)
+  가 gallery preview 로 충분. MP4 video 추가하면 호버 autoplay UX 가능 —
+  packages.md L146 ("If both are set, video takes precedence").
+- **GLGMAN 대표 이미지** (선택): pi.dev 카드용. 입력 자료 + 보강 요구는 위
+  §프로젝트 이미지 항목 참고.
+- **README 다이어트** (post-publish 문서 라운드): pi.dev gallery card 가 indexing
+  되어 표시 시작한 뒤, 본문과 중복 제거. 카드에 노출되는 메타 vs README 본문
+  의미 차이 보고 결정.
 
-### 닫힌 사실 (2026-05-19 EOD)
+### 닫힌 사실 (2026-05-19 late EOD)
 
-- **agent-config 소비자 리뷰 반영**: 긍정. `npm name` 결정 완료 (`@junghanacs/pi-shell-acp`).
-- **scope rename + sanitize 라운드**: force-push history rewrite 로 깨끗하게 박힘 (`backup/pre-sanitize-f4eeed1` local).
-- **publish-prep 4 라운드 검토**: 7박스 invariant + README/tarball 정합 4 라운드 + entwurf default flip (R6/R7) + dry-run race fix (R8). GPT힣 + sibling GPT-5.4 cross-review.
+- **agent-config 소비자 리뷰 반영**: 긍정. `npm name` 결정 완료
+  (`@junghanacs/pi-shell-acp`).
+- **scope rename + sanitize 라운드**: force-push history rewrite 로 깨끗하게
+  박힘 (`backup/pre-sanitize-f4eeed1` local).
+- **publish-prep 4 라운드 검토**: 7박스 invariant + README/tarball 정합 4 라운드
+  + entwurf default flip (R6/R7) + dry-run race fix (R8). GPT힣 + sibling
+  GPT-5.4 cross-review.
+- **0.7.1 → 0.7.2 mode regression patch** (commit `cd092b7`, 2026-05-19 late EOD):
+  `pnpm pack` 의 `.sh` mode normalization (registry artifact `0644`) 을 install
+  side 에서 `scripts/postinstall-chmod.cjs` 로 `0755` 복구. `check_pack` 에 `.sh`
+  mode regression gate 추가 (git 측 mode drop 도 잡힘). hejdev6g 결정적 검증
+  (baseline `0.7.1` `-rw-rw-r--` 재현 → `0.7.2` `-rwxr-xr-x` 복구). 진단:
+  `npm pack` 은 0755 보존, `pnpm pack` 만 깎음 — 0.7.0 force-push 라운드의
+  publish flow npm→pnpm 전환이 trigger.
+- **0.7.1 npm deprecate**: `npm deprecate '@junghanacs/pi-shell-acp@0.7.1'` 메시지
+  등록 ("0.7.1 ships .sh files without the executable bit (pnpm pack mode
+  normalization). Upgrade to 0.7.2."). `npm view @junghanacs/pi-shell-acp@0.7.1
+  deprecated` 로 reflect 확인. 0.7.1 install 시도하는 사용자에게 npm 가 자동
+  warning + upgrade prompt.
+- **README maintainer link**: npm badge + `junghanacs.com` 한 줄 (제목 아래),
+  `package.json` `author` 객체화 (`url: https://junghanacs.com/`) → npmjs
+  package 페이지의 maintainer link 자동 활성.
+- **`.gitignore` `*.tgz` 추가**: `pnpm pack` / `npm pack` 검증 artifact 영구
+  ignore. `check-pack-install` 의 actual pack smoke 마다 root 에 생기는 .tgz
+  가 더 이상 `git status` 를 더럽히지 않음.
+- **`docs/setup-clean-host.md` publish-prep section historical 정합**: 3-step
+  walk-through 의 (1) scope migration / (2) npm publish ✅ landed 로 표시, 0.7.0
+  → 0.7.1 → 0.7.2 시퀀스 사실 박음, 0.7.1 deprecate 안내, (3) gallery 만 optional
+  polish 로 남음.
+- **pi.dev gallery 카드 등장 확인** (2026-05-19 late EOD, cadence ≈ 1h indexing).
+  https://pi.dev/packages?q=pi-shell-acp 노출. `pi-package` keyword + `pi.image`
+  정합 SSOT 통과. §Phase 2 (pi.dev 패키징 준비) 완전 closed → §Phase 3
+  (OpenClaw 정식 등록) active sprint 진입.
 
 ---
 
-## Phase 3 — OpenClaw 정식 등록 (Phase 1 + 2 안정 후)
+## Phase 3 — OpenClaw 정식 등록 (active sprint, 진입 2026-05-19 late EOD)
 
-| # | 작업 | 트리거 |
-|---|------|--------|
-| 3.1 | pi-shell-acp pi.dev 등록 push | Phase 1 완료 |
-| 3.2 | pi.dev 노출 후 버그 수정 사이클 | 사용자 피드백 |
-| 3.3 | `@openclaw/plugin-sdk/*` sanctioned spawn helper 확인 + 필요시 SDK enhancement PR | OpenClaw 측 협업 |
-| 3.4 | `@junghanacs/openclaw-pi-shell-acp` npm publish 준비 — Phase 1 의 pack verification gate 동일 적용 | Phase 2 의 Oracle baseline 안정 |
-| 3.5 | ClawHub 정식 등록 → `trustedSourceLinkedOfficialInstall` 경로 통과 | 3.4 완료 |
+> **Status** — Phase 1 (0.6.0 cut) + Phase 2 (pi-shell-acp 0.7.2 npm publish +
+> pi.dev gallery 등장) 모두 안정. Phase 3 진입 조건 충족. **현재 priority =
+> 3.2 bbot 버그 수정 → 3.3 SDK helper 검토 → 3.4 plugin npm publish 준비**.
+> 3.5 ClawHub / 3.6 self-contained / 3.7 docs 는 그 뒤.
+
+| # | 작업 | 상태 |
+|---|------|------|
+| 3.1 | pi-shell-acp pi.dev 등록 push | ✅ closed (2026-05-19, gallery 카드 등장) |
+| 3.2 | pi.dev 노출 후 버그 수정 사이클 | 🔥 **active** — bbot 첫 발견 (아래 §bbot incident) |
+| 3.3 | `@openclaw/plugin-sdk/*` sanctioned spawn helper 확인 + 필요시 SDK enhancement PR | pending — 3.2 안정 후 |
+| 3.4 | `@junghanacs/openclaw-pi-shell-acp` npm publish 준비 — pi-shell-acp 0.7.x publish gate 동일 적용 (`check-pack` + `check-pack-install` + `.sh` mode regression gate 재사용, `scripts/postinstall-chmod.cjs` 패턴 plugin tarball 에도 필요한지 검토) | pending — 3.3 결과 반영 후 |
+| 3.5 | ClawHub 정식 등록 → `trustedSourceLinkedOfficialInstall` 경로 통과 | 3.4 완료 후 |
 | 3.6 | `openclaw plugins install @junghanacs/openclaw-pi-shell-acp` 한 줄로 끝나는 사용자 UX 검증 — **self-contained install 모델**. plugin package 가 `acp-bridge.ts` 를 직접 import 하여 bridge runtime 을 품음. child `pi` binary 의존 제거 (Phase 1.4 ts refactor 의 long-term goal). 4-layer install 사라지고 plugin 한 줄로 끝 | 3.5 완료 + Phase 1.4 self-contained 작업 |
-| 3.7 | CHANGELOG 0.6.x entry + VERIFY 갱신 + invariant 보강 ("consumer 평면과 backend 평면 분리" + "Phase 1 혼합 install → Phase 3 self-contained 전환 framing") | 3.6 완료 |
+| 3.7 | CHANGELOG 0.6.x entry + VERIFY 갱신 + invariant 보강 ("consumer 평면과 backend 평면 분리" + "Phase 1 혼합 install → Phase 3 self-contained 전환 framing") | 3.6 완료 후 |
+
+### bbot incident — 첫 외부 사용자 (텔레그램) 버그 (3.2)
+
+> **진단 확정 (2026-05-19 late EOD, 오라클 openclaw 담당자 sibling + pi-shell-acp
+> 코드 추적 cross-confirm)**: `plugins/openclaw/src/index.ts:95-101` 의 `FactoryCtx`
+> 가 **OpenClaw plugin contract 와 어긋난 자체 정의**. 진짜 원인은 plugin config
+> propagation 갭. 추적은 [issue #18](https://github.com/junghan0611/pi-shell-acp/issues/18)
+> 으로 정식화됨.
+
+#### 증거 (gateway log, sessionKey `019e37df-25ea-764c-926b-4d702eb0a4ca`)
+
+```
+21:36:47  active-memory start (gpt-5.4-mini lane, 23s)
+21:37:10  active-memory done → pi-shell-acp turn msgs=1
+          sessionId=c4fd7606-... workspaceDir=/home/node/.openclaw/workspace-bbot
+21:38:10  child finalize kind=close code=143 signal=null
+          hasFinal=0 partialTextLen=0 abnormal=1 timeoutFired=1
+          stderrTail:
+            [pi-shell-acp:model-switch] path=bootstrap outcome=applied
+              fromModel=default toModel=claude-opus-4-7
+            [pi-shell-acp:bootstrap] path=new backend=claude
+            [pi-shell-acp:shutdown] closeRemote=false invalidatePersisted=false
+              childPid=5456 closedRemote=skip childExit=exited
+```
+
+핵심 시그널 (issue #18 정렬):
+- 21:37:10 → 21:38:10 = **정확히 60.000s** → default `timeoutMs=60000` 명중
+- `timeoutFired=1` — **plugin 측 timeout 발사** (외부 SIGTERM 아님)
+- `closeRemote=false` → ACP session 보존 정상 path. **두 번째 turn 같은 acp
+  sessionId resume 정상 응답** — 이건 정상 동작, 의심 대상 아님.
+
+#### Root cause — 정확한 위치
+
+OpenClaw 의 plugin 측 `createStreamFn` context spec (SSOT,
+`~/repos/3rd/openclaw/src/plugins/types.ts:873-880`):
+
+```ts
+export type ProviderCreateStreamFnContext = {
+  config?: OpenClawConfig;        // 전체 OpenClaw config (nested 접근 필요)
+  agentDir?: string;
+  workspaceDir?: string;
+  provider: string;
+  modelId: string;
+  model: ProviderRuntimeModel;
+};
+```
+
+→ **`pluginConfig` 필드 자체가 없다**. `config` 는 plugin-scoped 가 아니라
+**OpenClawConfig 전체**. plugin-scoped config 는 nested path
+`config.plugins.entries["<PLUGIN_ID>"].config.<key>` 로 접근해야 함
+(OpenClaw 내부 SSOT — `src/flows/search-setup.test.ts:18` 의
+`plugins.entries.xai.config.webSearch.apiKey` 패턴, issue #18 본문도 동일).
+
+우리 plugin 의 자체 정의 `FactoryCtx`
+(`plugins/openclaw/src/index.ts:95-101`):
+
+```ts
+interface FactoryCtx {
+  workspaceDir?: string;
+  agentDir?: string;
+  pluginConfig?: PluginConfig;   // ← spec 에 없는 필드. 항상 undefined
+  config?: PluginConfig;          // ← 실제론 OpenClawConfig 전체인데 평면 접근 시도
+  settings?: PluginConfig;        // ← spec 에 없는 필드
+}
+```
+
+L591-595 의 fallback chain (자기 자신이 "feel for the conventional location and
+fall back to defaults if it is shaped differently than expected" 으로 자백):
+
+```ts
+const pluginConfig: PluginConfig =
+    (factoryCtx && (factoryCtx.pluginConfig || factoryCtx.config || factoryCtx.settings)) || {};
+```
+
+→ 세 path 다 miss. `pluginConfig = {}` → `spawnTimeoutSeconds = undefined` →
+ternary false branch → **default `60 * 1000 = 60000` ms**. openclaw 측이
+`plugins.entries.pi-shell-acp.config.spawnTimeoutSeconds=600` 으로 박아둬도
+plugin 이 nested path 를 안 따라가서 silent default.
+
+첫 turn 60s 안에 누적되는 비용 (issue #18 Diagnosis):
+1. `model-switch` (default → claude-opus-4-7) — bootstrap path 만 가능
+2. `bootstrap path=new` (새 claude ACP child spawn)
+3. workspace-bbot 파일 read (SOUL.md / USER.md / memory/*)
+4. opus-4-7 첫 호출 (cold start, Anthropic KV cache miss)
+
+ARM Oracle cold lane 에서 1+2+3+4 누적이 60s 한 번 넘기는 패턴 재현. 두 번째
+turn 부터는 model 이미 switch 끝났고 KV cache warm → 안정.
+
+#### 결론 — 부정확한 1차 분석 항목들
+
+이전 1차 분석에서 다음 의심선들은 **closed**:
+
+- ~~"code=143 = 외부 SIGTERM"~~ → **plugin 측 self-timeout** (`timeoutFired=1`)
+- ~~"의심선 1: bbot wrapper timeout 짧음"~~ → 부분만 맞음. 정확히는
+  plugin config propagation 갭. timeout 자체는 600s 가 설정값.
+- ~~"의심선 4: `closeRemote=false` 외부 SIGTERM fallback?"~~ →
+  **정상 path 확정**. ACP session 보존 의도된 설계, 두 번째 turn resume 가능.
+
+부수 가설 (보류, 현 RC fix 후 별도 검증):
+- 의심선 2 (opus reasoning thinking phase): 현재 `Think: off` 정합 확인 필요.
+- 의심선 3 (claude-agent-acp stream stall): RC fix 후에도 재현되면 별도 추적.
+
+#### plugin 패키징 영향
+
+- 3.4 (`@junghanacs/openclaw-pi-shell-acp` npm publish 준비) 진입 전 RC fix 안정
+  필수. 갭이 plugin runtime 의 default 동작에 박혀 있어 publish 시 모든 사용자
+  동일 회귀.
+- `scripts/postinstall-chmod.cjs` 같은 pi-shell-acp 측 패턴이 plugin tarball 에도
+  필요한지 — `plugins/openclaw/` 안에 `.sh` 가 있나, MCP startup script 가 있나
+  점검 (3.4 check-pack 게이트 재사용 시 같이 박을 것).
+
+### Phase 3 진입 sequencing
+
+1. **3.2 bbot 버그 fix** ← 지금
+   - **A. `plugins/openclaw/src/index.ts:95-109` `FactoryCtx` 정합** —
+     OpenClaw `ProviderCreateStreamFnContext` SSOT 와 align. `config?:
+     OpenClawConfig` 으로 타입 정정 (또는 외부 SDK 타입 import).
+   - **B. L594-595 fallback chain 제거** — nested path 정공:
+     `factoryCtx?.config?.plugins?.entries?.["pi-shell-acp"]?.config` 으로 좁힘.
+     **정상 미정의** 는 `{}` fallback (spec `default: 60` 의도 보존), **설정이
+     존재하는데 shape 가 틀린 경우만 throw** (Hard Rule "Crash, Don't Warn"). silent
+     default 60s 가 아니라 잘못된 shape 는 첫 turn 에서 즉시 드러나야 함.
+   - **B+. "configured but invalid" runtime guard** (gpt-5.5 리뷰 권유) —
+     `spawnTimeoutSeconds` 가 존재하는데 positive finite number 아니면 throw,
+     `piBinaryPath` 가 존재하는데 non-empty string 아니면 throw,
+     `plugins.entries[PROVIDER_ID].config` 또는 그 안의 candidate 가 배열이면
+     throw (`typeof === "object"` 만으로는 배열 통과). silent default 로 떨어지는
+     모든 path 차단.
+   - **C. default 60s 의 값 재검토** — bootstrap path 첫 turn 비용 누적이
+     정상 케이스로 60s 안팎. README L156 `spawnTimeoutSeconds | 60 | wired`
+     기본값도 더 큰 값 (예: 300s) 으로 올려야 할지 검토. plugin entries config
+     로 override 도 같이 검증. **별도 라운드** — RC propagation fix 와 분리.
+   - **D. issue #18 본문 정정** — "Hypothesis to verify" path 를
+     `pi-shell-acp/src/.../bootstrap` 에서 `plugins/openclaw/src/index.ts:594-603`
+     으로 정정.
+   - **E. Stage 1 검증 자리에서 bbot 첫 turn cold 재현 시도** — fix landed
+     후 oracle 에서 plugin git pull 받고 첫 turn 시도. **확인 assertion (gpt-5.5
+     리뷰 권유)**:
+     - 우리 plugin DIAG: `ctxKeys=agentDir,config,modelId,provider,workspaceDir`,
+       `pluginCfgKeys=spawnTimeoutSeconds`, `spawnTimeoutSec=600`
+     - **plugin 의 기존 `[pi-shell-acp DIAG] child spawned ... timeoutMs=Y` line
+       에서 `Y=600000` 까지 확인** (RC fix 가 진짜 닫혔다는 결정적 증거)
+     - turn 결과: `timeoutFired=0`, `code!=143`, final/visible reply 정상
+     - 첫 turn 이 60s 안에 끝나도 `timeoutMs=600000` 만 확인되면 propagation
+       fix 는 증명됨.
+2. **3.3 SDK sanctioned spawn helper 확인** — 3.2 안정 후
+   - `@openclaw/plugin-sdk/*` 의 spawn helper entrypoint 점검
+   - 없으면 enhancement PR 후보 작성
+3. **3.4 plugin npm publish 준비** — 3.3 결과 반영
+   - `plugins/openclaw/package.json` files / scripts / pi metadata 정합
+   - pi-shell-acp 0.7.x 의 publish gate 패턴 재사용 (`check-pack`, `check-pack-install`,
+     `.sh` mode regression gate, postinstall chmod 필요성 검토)
+   - peer range / version bump 정책 결정
+4. **3.5 ClawHub 등록 → 3.6 self-contained UX → 3.7 docs** — 순차
 
 ---
 
