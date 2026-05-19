@@ -16,12 +16,17 @@ set -euo pipefail
 
 # ---------- config ----------
 SESSION=${SESSION:-entwurf-demo}
-# Default output dir = this script's directory, so demo.cast / demo.gif /
-# *-debug.log land next to the script. Ignored by .gitignore (demo/*.gif,
-# demo/*.log, plus the global *.cast rule).
-OUTDIR=${OUTDIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}
-CAST="$OUTDIR/demo.cast"
-GIF="$OUTDIR/demo.gif"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+# Recording artifacts land in the publish surface (docs/assets/) so the cast
+# + gif are versioned alongside the README/gallery references. The *.cast
+# file remains gitignored (global `*.cast` rule); only the .gif is tracked
+# via the `files` allowlist in package.json. Debug logs stay next to the
+# script (gitignored via `demo/*.log`).
+OUTDIR=${OUTDIR:-$SCRIPT_DIR}                           # debug log dir (local)
+PUBLISH_DIR=${PUBLISH_DIR:-$REPO_ROOT/docs/assets}      # cast + gif (publish surface)
+CAST="$PUBLISH_DIR/pi-shell-acp-entwurf.cast"
+GIF="$PUBLISH_DIR/pi-shell-acp-entwurf.gif"
 PEER_LOG="$OUTDIR/peer-debug.log"
 SENDER_LOG="$OUTDIR/sender-debug.log"
 
@@ -49,7 +54,7 @@ EMACS_SOCKET=${PI_EMACS_AGENT_SOCKET:-server}
 #   tail -f ~/tmp/entwurf-demo/peer-debug.log
 
 # ---------- prep ----------
-mkdir -p "$OUTDIR"
+mkdir -p "$OUTDIR" "$PUBLISH_DIR"
 
 cleanup() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true

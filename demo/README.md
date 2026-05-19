@@ -1,35 +1,64 @@
-# entwurf-demo
+# pi-shell-acp recorded demos
 
-One-shot recorded GIF of the pi-shell-acp entwurf flow:
+Two recorded GIF scripts live here. Both use `asciinema` for capture and
+`agg` for cast → GIF conversion. Both share the same gitignore policy
+(`*.cast` global, `demo/*.gif`, `demo/*.log` — only the `.sh` and this
+README are tracked).
 
-1. **Spawn** a sonnet sibling (memory write).
-2. **Resume** that same sibling (memory recall — identity preservation).
-3. **Cross-session greeting** via `entwurf_send` (sent box ↔ received box).
+## `demo-baseline.sh` — single-pane baseline + entwurf surface
 
-Scene 2 is the #9 regression guard: the resumed sibling must recall
-`tempered indigo` from the first turn. If it does not, inspect the resume
-bootstrap path before changing the prompts.
+Publish-facing demo, referenced from the top-level `README.md` and
+`package.json#pi.image`. Two scenes driven into one pi pane:
 
-Two pi sessions run side-by-side in a single tmux window. A background
-driver types the scene prompts into the sender pane with `tmux send-keys`.
-asciinema records the whole tmux window; `agg` turns the cast into a GIF.
+1. **Baseline self-awareness** — the `Q-B0` + `Q-B0-CARRIER` interview,
+   English answer enforced. The pane exposes how the running model
+   names its harness, distinguishes native tools from MCP / custom
+   tools, names the carrier surface for each cited piece of
+   information, and admits unknowns instead of fabricating.
+2. **Entwurf surface** — the same pane spawns a sibling via the
+   `entwurf` tool (`mode=sync`, cross-model — driver `claude-sonnet-4-6`,
+   sibling `gpt-5.4`), prints the Task ID, and quotes the sibling's
+   one-line reply verbatim.
 
-## Run
+Run from the repo root (or `demo/`):
 
 ```bash
-# from the repo root
-bash demo/demo.sh
-
-# or from inside demo/
-bash demo.sh
+bash demo/demo-baseline.sh
 ```
 
-Output (lands next to the script — all gitignored):
+Output lands directly in the publish surface — re-running the script
+overwrites the previous take so the gallery preview always matches the
+current branch:
 
-- `demo/demo.cast` — raw asciinema recording (`*.cast` global rule)
-- `demo/demo.gif` — when `agg` is on PATH (`demo/*.gif`)
-- `demo/peer-debug.log` — `PI_SHELL_ACP_DEBUG=1` stderr from the top pane (peer)
-- `demo/sender-debug.log` — same from the bottom pane (sender) — both via `demo/*.log`
+- `docs/assets/pi-shell-acp-demo.cast` — raw asciinema recording (gitignored)
+- `docs/assets/pi-shell-acp-demo.gif` — tracked, referenced by `package.json#pi.image` and the top-level `README.md`
+- `demo/baseline-debug.log` — `PI_SHELL_ACP_DEBUG=1` stderr (gitignored, stays next to the script)
+
+## `demo.sh` — two-pane entwurf flow (regression guard)
+
+Three-scene entwurf flow used for regression evidence, not for the
+public README. Two pi sessions run side-by-side in one tmux window;
+a background driver types the scene prompts into the sender pane.
+
+1. **Spawn** a sonnet sibling (memory write — "tempered indigo").
+2. **Resume** that same sibling (memory recall — identity preservation,
+   the #9 regression guard).
+3. **Cross-session greeting** via `entwurf_send` (sent box ↔ received box).
+
+Run:
+
+```bash
+bash demo/demo.sh
+```
+
+Output mirrors the baseline demo's layout — recording artifacts land in
+`docs/assets/` so the publish surface and the demo script share one
+naming convention:
+
+- `docs/assets/pi-shell-acp-entwurf.cast` — raw asciinema recording (gitignored via global `*.cast`)
+- `docs/assets/pi-shell-acp-entwurf.gif` — tracked, referenced by the top-level `README.md` Entwurf section
+- `demo/peer-debug.log` — `PI_SHELL_ACP_DEBUG=1` stderr from the top pane (gitignored, stays next to the script)
+- `demo/sender-debug.log` — same from the bottom pane
 
 Watch debug live (separate terminal, before `bash demo.sh`):
 
@@ -46,6 +75,8 @@ grep -E '(entwurf|model-switch)' demo/sender-debug.log
 
 ## Tunables (env vars)
 
+### `demo.sh` (entwurf two-pane)
+
 | Var | Default | Meaning |
 |---|---|---|
 | `PEER_MODEL` | `pi-shell-acp/gpt-5.4` (≡ `piat`) | top pane backend (receives greeting) |
@@ -55,7 +86,25 @@ grep -E '(entwurf|model-switch)' demo/sender-debug.log
 | `FINAL_PAUSE` | `5` | extra wait after scene 3 (peer reply lag) |
 | `GIF_SPEED` | `2.8` | agg playback multiplier (cast time → GIF time) |
 | `SESSION` | `entwurf-demo` | tmux session name |
-| `OUTDIR` | `demo/` (script's own dir) | output directory |
+| `OUTDIR` | `demo/` | debug log directory (cast + gif live in `docs/assets/`) |
+
+### `demo-baseline.sh` (single-pane baseline + entwurf)
+
+| Var | Default | Meaning |
+|---|---|---|
+| `DRIVER_MODEL` | `pi-shell-acp/claude-sonnet-4-6` (≡ `pias`) | the driven pane — answers Q-B0 and spawns the sibling |
+| `SIBLING_MODEL` | `pi-shell-acp/gpt-5.4` (≡ `piat`) | cross-backend sibling spawned in scene 2 |
+| `SIBLING_CWD` | repo root | cwd passed to the entwurf sibling (drives `<project-context>` injection) |
+| `SCENE1_DELAY` | `60` | seconds for the long English baseline answer |
+| `SCENE2_DELAY` | `30` | seconds for the sync entwurf round-trip |
+| `WARMUP` | `3` | seconds to wait for the pi banner |
+| `FINAL_PAUSE` | `4` | extra wait after scene 2 |
+| `GIF_SPEED` | `2.0` | agg playback multiplier (slower than `demo.sh` — the answer rewards reading) |
+| `GIF_COMPRESS` | `1` | run gifsicle after agg (`0` to skip) |
+| `GIF_LOSSY` | `200` | gifsicle `--lossy` strength (drop to `80` if a future scenario shows artifacts) |
+| `GIF_COLORS` | `64` | gifsicle `--colors` palette size |
+| `SESSION` | `pi-shell-acp-baseline-demo` | tmux session name |
+| `OUTDIR` | `demo/` | debug log directory (cast + gif live in `docs/assets/`) |
 
 ### Model ↔ alias map
 
@@ -91,6 +140,7 @@ SCENE_DELAY=30 FINAL_PAUSE=10 bash demo.sh
 - `pi-shell-acp` provider configured + auth ready for the selected sender/peer models
 - `asciinema` installed
 - `agg` installed (optional — only for GIF conversion)
+- `gifsicle` installed (optional — `demo-baseline.sh` post-compress step; skip with `GIF_COMPRESS=0`. On NixOS: `nix-shell -p gifsicle` covers both scripts)
 - `tmux` installed
 
 If you watch the demo live: open another terminal and run
@@ -118,14 +168,20 @@ argument.
 Tracked (committed):
 
 - `demo/demo.sh`
+- `demo/demo-baseline.sh`
 - `demo/README.md`
+- `docs/assets/pi-shell-acp-demo.gif` — published gallery preview (referenced by `package.json#pi.image`)
+- `docs/assets/pi-shell-acp-entwurf.gif` — README Entwurf section illustration
 
-Ignored (regenerable recording artifacts):
+Ignored (regenerable recording artifacts — both demos):
 
-- `demo/*.cast` (global `*.cast` rule)
-- `demo/*.gif`
+- `*.cast` (global rule — applies under `docs/assets/` too)
 - `demo/*.log`
 
-Once a recording is satisfactory, upload `demo.gif` as a GitHub release
-asset and reference it from the top-level `README.md` via the release URL —
-do not check the binary into the tree.
+Both demos write their recording artifacts directly into `docs/assets/`
+using the names above. Re-running a demo overwrites the previous take so
+the published preview always matches `main`. The `.cast` source stays
+local (global `*.cast` ignore); only the `.gif` rides the publish surface.
+The `gifsicle` step inside `demo-baseline.sh` makes the take reproducible
+without a manual compression pass — see the Tunables table for tuning the
+lossy/colors flags.
