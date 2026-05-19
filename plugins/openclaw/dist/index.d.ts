@@ -79,12 +79,17 @@ interface StreamOptions {
     sessionId?: string;
     workspaceDir?: string;
 }
+interface OpenClawConfigShape {
+    plugins?: {
+        entries?: Record<string, unknown>;
+    };
+}
 interface FactoryCtx {
     workspaceDir?: string;
     agentDir?: string;
-    pluginConfig?: PluginConfig;
-    config?: PluginConfig;
-    settings?: PluginConfig;
+    config?: OpenClawConfigShape;
+    provider?: string;
+    modelId?: string;
 }
 interface PluginConfig {
     mcpInjection?: "self" | "openclaw-bridge" | "both";

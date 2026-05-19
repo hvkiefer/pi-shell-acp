@@ -92,12 +92,25 @@ interface StreamOptions {
 	workspaceDir?: string;
 }
 
+// FactoryCtx — narrow alignment with OpenClaw ProviderCreateStreamFnContext
+// (SSOT: ~/repos/3rd/openclaw/src/plugins/types.ts:873-880).
+// Plugin-scoped config lives at `config.plugins.entries[PROVIDER_ID].config`
+// (SSOT: ~/repos/3rd/openclaw/src/flows/search-setup.test.ts:18). The earlier
+// `pluginConfig` / `settings` fallback was a wrong-shape guess that always
+// missed → silent default 60s timeout → issue #18 bootstrap-on-cold-lane SIGTERM.
+interface OpenClawConfigShape {
+	plugins?: {
+		entries?: Record<string, unknown>;
+	};
+}
+
 interface FactoryCtx {
 	workspaceDir?: string;
 	agentDir?: string;
-	pluginConfig?: PluginConfig;
-	config?: PluginConfig;
-	settings?: PluginConfig;
+	config?: OpenClawConfigShape;
+	provider?: string;
+	modelId?: string;
+	// model: ProviderRuntimeModel — narrow type omitted, this stub does not read it
 }
 
 interface PluginConfig {
@@ -106,6 +119,67 @@ interface PluginConfig {
 	piBinaryPath?: string;
 	entwurfTargetsPath?: string;
 	spawnTimeoutSeconds?: number;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resolvePluginConfig(factoryCtx: FactoryCtx | undefined): PluginConfig {
+	// OpenClaw plugin contract: plugin-scoped config lives at the nested path
+	// config.plugins.entries[PROVIDER_ID].config. Normal absence is `{}`; only
+	// wrong-shape entries throw (Hard Rule: crash, don't warn — silent default
+	// 60s was the issue #18 root cause). Arrays do not pass — `typeof [] ===
+	// "object"` would otherwise sneak through.
+	if (!factoryCtx) return {};
+	const cfg = factoryCtx.config;
+	if (cfg === undefined || cfg === null) return {};
+	if (!isPlainObject(cfg)) {
+		throw new Error(
+			`[pi-shell-acp plugin] expected factoryCtx.config to be a plain object, got ${Array.isArray(cfg) ? "array" : typeof cfg}`,
+		);
+	}
+	const entries = (cfg as OpenClawConfigShape).plugins?.entries;
+	if (entries === undefined || entries === null) return {};
+	const entry = entries[PROVIDER_ID];
+	if (entry === undefined || entry === null) return {};
+	if (!isPlainObject(entry)) {
+		throw new Error(
+			`[pi-shell-acp plugin] expected plugins.entries.${PROVIDER_ID} to be a plain object, got ${Array.isArray(entry) ? "array" : typeof entry}`,
+		);
+	}
+	const candidate = (entry as { config?: unknown }).config;
+	if (candidate === undefined || candidate === null) return {};
+	if (!isPlainObject(candidate)) {
+		throw new Error(
+			`[pi-shell-acp plugin] expected plugins.entries.${PROVIDER_ID}.config to be a plain object, got ${Array.isArray(candidate) ? "array" : typeof candidate}`,
+		);
+	}
+	return candidate as PluginConfig;
+}
+
+// Per-field validators — "configured but invalid" must crash, not silently
+// fall through to defaults (gpt-5.5 review, 2026-05-19). Each helper accepts
+// the raw value and returns the resolved value, throwing on bad shape.
+
+function resolveSpawnTimeoutSeconds(raw: unknown, defaultSeconds: number): number {
+	if (raw === undefined) return defaultSeconds;
+	if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+		throw new Error(
+			`[pi-shell-acp plugin] spawnTimeoutSeconds must be a positive finite number when set, got ${JSON.stringify(raw)}`,
+		);
+	}
+	return raw;
+}
+
+function resolvePiBinaryPath(raw: unknown, defaultBinary: string): string {
+	if (raw === undefined) return defaultBinary;
+	if (typeof raw !== "string" || raw.length === 0) {
+		throw new Error(
+			`[pi-shell-acp plugin] piBinaryPath must be a non-empty string when set, got ${JSON.stringify(raw)}`,
+		);
+	}
+	return raw;
 }
 
 interface ResolveDynamicModelCtx {
@@ -588,19 +662,16 @@ function realStreamFn(
 	const deliveryViaMessageTool = isMessageToolDeliveryPrompt(userText);
 	const signal = options && options.signal;
 
-	// Plugin config (from openclaw.plugin.json configSchema). The factoryCtx
-	// shape is OpenClaw's, so we feel for the conventional location and fall
-	// back to defaults if it is shaped differently than expected.
-	const pluginConfig: PluginConfig =
-		(factoryCtx && (factoryCtx.pluginConfig || factoryCtx.config || factoryCtx.settings)) || {};
-	const piBinary =
-		typeof pluginConfig.piBinaryPath === "string" && pluginConfig.piBinaryPath.length > 0
-			? pluginConfig.piBinaryPath
-			: "pi";
-	const spawnTimeoutMs =
-		(typeof pluginConfig.spawnTimeoutSeconds === "number" && pluginConfig.spawnTimeoutSeconds > 0
-			? pluginConfig.spawnTimeoutSeconds
-			: 60) * 1000;
+	// Plugin config (from openclaw.plugin.json configSchema). Read from the
+	// nested OpenClaw config path `plugins.entries[PROVIDER_ID].config`
+	// (issue #18 RC fix — earlier `pluginConfig || config || settings` guess
+	// always missed → silent default 60s → ARM cold-lane SIGTERM).
+	// "configured but invalid" (wrong type, empty string, non-positive number,
+	// array) throws via the resolve helpers — silent fallback was the very
+	// failure mode that hid issue #18.
+	const pluginConfig: PluginConfig = resolvePluginConfig(factoryCtx);
+	const piBinary = resolvePiBinaryPath(pluginConfig.piBinaryPath, "pi");
+	const spawnTimeoutMs = resolveSpawnTimeoutSeconds(pluginConfig.spawnTimeoutSeconds, 60) * 1000;
 
 	if (!userText) {
 		const empty = buildEmptyAssistantMessage(model);
@@ -622,6 +693,14 @@ function realStreamFn(
 			return `${(m && m.role) || "?"}:${t.slice(0, 60)}`;
 		});
 		const optsKeys = options ? Object.keys(options).join(",") : "(none)";
+		// issue #18 RC fix verification — confirm factoryCtx shape + resolved
+		// plugin-scoped spawnTimeoutSeconds match the OpenClaw SSOT. After the
+		// fix lands oracle should show ctxKeys including 'config' and
+		// pluginCfgKeys reflecting the user override (spawnTimeoutSeconds=600
+		// or similar). If both are empty, the SSOT contract we trusted (or
+		// openclaw 측 wiring) has drifted.
+		const ctxKeys = factoryCtx ? Object.keys(factoryCtx).sort().join(",") : "(none)";
+		const pluginCfgKeys = Object.keys(pluginConfig).sort().join(",") || "(none)";
 		console.log(
 			`[pi-shell-acp DIAG] turn` +
 				` msgs=${msgs.length}` +
@@ -629,6 +708,9 @@ function realStreamFn(
 				` optsKeys=${optsKeys}` +
 				` sessionId=${(options && options.sessionId) || "-"}` +
 				` workspaceDir=${(factoryCtx && factoryCtx.workspaceDir) || "-"}` +
+				` ctxKeys=${ctxKeys}` +
+				` pluginCfgKeys=${pluginCfgKeys}` +
+				` spawnTimeoutSec=${pluginConfig.spawnTimeoutSeconds ?? "(default)"}` +
 				` lastN=${JSON.stringify(lastN)}` +
 				` userTextLen=${userText.length}`,
 		);
