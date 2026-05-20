@@ -14,22 +14,32 @@
 
 ---
 
-## Top priority — root 0.7.4 cut, then OpenClaw plugin packaging entry (Phase 3.4 publish prep)
+## Top priority — OpenClaw plugin packaging entry (Phase 3.4 publish prep)
 
-> #20 bbot Active Memory empty-final regression **closed 2026-05-20**. Two fixes landed:
-> - `e7eefeb fix(openclaw): recover empty assistant finals` — empty-final invariant
-> - `8b25c1e fix(openclaw): use role-preserving prompt context` — JSON-as-data + sanitizer (follow-up leak class: model echoing fabricated `User: …` / `</environment_details>`)
->
-> Oracle bbot GREEN: `recoveryKind=as-is`, output 3937 tokens, partial→final 28-char diff = sanitizer stripping `</environment_details>` exactly. Both leak classes (empty body + contaminated body) sealed. Detail in CHANGELOG Unreleased + `scripts/check-plugin-empty-final-recovery.ts` (34 assertions) + `scripts/check-plugin-prompt-format.ts` (22 assertions).
+Root prerequisite is closed: `@junghanacs/pi-shell-acp@0.7.4` is released and published. It is the post-#20 stable baseline for the plugin `0.1.x` prerelease.
 
-**Phase 3.3 skipped — false premise.** SDK helper 존재 여부 확인 결과:
-- `@openclaw/plugin-sdk/process-runtime` 있음 (`exec.ts` + `prepareOomScoreAdjustedSpawn`, Windows cmd shim + Linux OOM-score)
-- 그러나 SDK 자체가 `private: true`, `version: 0.0.0-private` — npm publish 안 됨
-- First-party extensions (`extensions/anthropic`, `byteplus` 등) 가 쓰는 방식은 `workspace:*` — monorepo 내부 sibling 만 import 가능
-- 우리는 별도 repo / npm publish 대상 — import 경로 없음
-- 가치 (Windows compat + OOM-score) 둘 다 우리 deployment target (Oracle Linux + Mac/Linux) 차단선 아니고, Phase 1.4 ts refactor 가 spawn surface 자체를 없앰 → 무관
+**Current next turn for the new Claude session:**
 
-**먼저 root 0.7.4 cut.** `#20` post-stable baseline 을 태그로 고정한 뒤 3.4 publish entry checklist 로 진입.
+> Read `plugins/openclaw/AGENTS.md`, `plugins/openclaw/package.json`, `plugins/openclaw/README.md`, `plugins/openclaw/openclaw.plugin.json`, and OpenClaw docs `docs/plugins/building-plugins.md`, `docs/plugins/sdk-provider-plugins.md`, `docs/clawhub/publishing.md`, `docs/plugins/manage-plugins.md`. Prepare `@junghanacs/openclaw-pi-shell-acp` for first prerelease distribution on **both** surfaces: npm bare/cutover path and ClawHub official path. Reset package version to `0.1.0`, set `private: false`, align docs/metadata to root `@junghanacs/pi-shell-acp@>=0.7.4` and OpenClaw validated baseline `2026.5.18` while preserving compatibility floor `>=2026.5.12 <2026.6.0`. Do dry-run pack/publish audits only; do not publish.
+
+**Fresh ClawHub findings (2026-05-20):**
+- Two install paths exist. `openclaw plugins install clawhub:<package>` is the official ClawHub/trust path; bare `openclaw plugins install <package>` is npm/cutover or ClawHub-first depending on doc page. **Doc conflict to resolve:** `docs/plugins/manage-plugins.md` says bare tries ClawHub first then npm fallback, while `docs/plugins/building-plugins.md` / `docs/cli/plugins.md` still describe npm-by-default launch cutover. Npm publish alone is not the final OpenClaw-native distribution.
+- ClawHub publish is owner-scoped. Package scope must match selected owner. For `@junghanacs/openclaw-pi-shell-acp`, ClawHub owner `@junghanacs` must exist / be publishable before finalizing the package name. `curl -I https://clawhub.ai/junghanacs` currently returns 404; CLI auth/owner check still required.
+- `clawhub` CLI is not installed globally on this host. `npx -y clawhub@0.17.0 ...` works for help/dry-run. `clawhub whoami` requires login.
+- Current plugin dry-run shape before edits: `npx -y clawhub@0.17.0 package publish plugins/openclaw --dry-run --json` succeeds locally and reports source `github:junghan0611/pi-shell-acp@v0.7.4:plugins/openclaw`, name `@junghanacs/openclaw-pi-shell-acp`, version `0.6.0`, 9 files, 44333 bytes. This proves local packaging shape only; it does **not** prove owner permission/review/security outcome.
+- OpenClaw `@openclaw/plugin-package-contract` code requires only `openclaw.compat.pluginApi` and `openclaw.build.openclawVersion`. It normalizes `compat.minGatewayVersion` from `install.minHostVersion` when absent. `build.pluginSdkVersion` is optional metadata, and `@openclaw/plugin-sdk` is not published on npm; decide whether to add it as explicit canonical metadata (`2026.5.18`) or omit because this external stub cannot depend on SDK.
+
+**3.4 decision lock (GPT ↔ Claude 합의, 2026-05-20):**
+- D1 owner pre-flight: 새 Claude 가 `clawhub whoami`부터 확인. owner 미존재/권한 없음이면 stop & report; GLG 가 owner 등록.
+- D2 publish toggles: 이번 라운드는 dry-run only. `release.publishToClawHub=false`, `release.publishToNpm=false` 유지. 실제 publish 는 별도 라운드.
+- D3 `build.pluginSdkVersion`: 생략. 외부 stub 은 SDK npm dependency 가 없고 `@openclaw/plugin-sdk` 도 npm 미공개라 honest 반영. README 에 의도적 생략 사유 한 줄 추가.
+- D4 `compat.minGatewayVersion`: 명시 추가. 값은 `2026.5.12` 후보 — compatibility floor 를 reader 가 fallback 추적 없이 읽게 한다.
+- D5 provider manifest extras: 새 Claude 가 `sdk-provider-plugins.md` 읽고 `modelSupport` / `providerRequest` / auth metadata 필요성을 판단한 뒤 patch proposal → GLG 결정.
+- D6 publish surface order: 최종 publish 는 npm + ClawHub 양쪽 dry-run pass 후 같은 라운드에서 진행. 어느 bare install path 가 우세하든 UX 일관성 확보.
+- D7 NEXT commit: 이 NEXT 정렬은 별도 self-contained commit 후보 (`docs(next): phase 3.4 entry — clawhub pre-flight + dual dry-run`). 실제 metadata 변경과 섞지 않는다.
+- D8 upstream doc conflict: 우리 publish 와 분리. 양쪽 surface 를 모두 만족시키므로 block 아님. 별도 sprint 로 OpenClaw docs issue/PR 후보.
+
+**Phase 3.3 skipped — false premise.** SDK helper check already showed `@openclaw/plugin-sdk/process-runtime` is private/workspace-only, so external npm plugin cannot depend on it. Raw `spawn` remains acceptable for the prerelease stub; Phase 1.4 removes the child-`pi` spawn surface anyway.
 
 ---
 
@@ -51,16 +61,26 @@ publish 진입 전 결정/작업:
 
 1. **Plugin version reset** — `plugins/openclaw/package.json` `0.6.0 → 0.1.0`, `private: true → false`. 결정 근거는 § "Plugin ↔ 본체 버전 정합" 표 참고.
 2. **Prerelease tag 정책** — 잠정 `(a)` 0.1.0 일반 publish + README "prerelease/alpha" 명시. ClawHub 정식 등록 (3.5) 까지가 진짜 trust gate.
-3. **Publish gate 재사용**:
-   - ✅ `check-pack` (dry-run, files 목록)
-   - ✅ `check-pack-install` (fresh-temp install smoke)
-   - ✅ `prepublishOnly` nested pack smoke (0.7.1 fix 패턴)
-   - ❌ `.sh` mode regression gate — plugin tarball 에 `.sh` 없음
-   - ❌ `scripts/postinstall-chmod.cjs` — 동일 이유
-4. **README publish-ready 정합**:
-   - 자기-자백 ("End-to-end smoke stub — NOT the real pi-shell-acp transport. Phase 1.4 ts refactor swaps these for SDK types proper.") 유지 — honest
-   - alpha/prerelease badge + 호환 매트릭스 명시
-5. **OpenClaw host 측 deploy 의존 명시** — host (OpenClaw container) 측 entwurf-control / pi-tools-bridge wire 정책 + 본체 `@junghanacs/pi-shell-acp@>=0.7.4` 사전 install + OpenClaw container validated baseline `2026.5.18` / compatibility floor `2026.5.12+` 명시.
+3. **ClawHub pre-flight**:
+   - `npx -y clawhub@0.17.0 whoami` / `clawhub login` 로 계정 확인.
+   - ClawHub owner `@junghanacs` 존재/등록 가능 여부 확인. 불가하면 stop & report; GLG 가 owner 등록 또는 package scope/name 재결정.
+   - 이번 라운드는 dry-run only. `release.publishToClawHub=false`, `release.publishToNpm=false` 유지. OpenClaw repo 내부 build script 는 `publishToNpm === true` 만 publishable plugin package 로 취급하지만, 외부 package 에서 ClawHub CLI 가 이 값을 어떻게 해석하는지 dry-run으로 확인.
+4. **Metadata canonical 정렬**:
+   - 현재 required는 충족: `openclaw.compat.pluginApi`, `openclaw.build.openclawVersion`.
+   - `compat.minGatewayVersion` 은 `install.minHostVersion` fallback 으로 normalize 되지만, canonical snippet 정합을 위해 명시 추가 (`2026.5.12` 후보).
+   - `build.pluginSdkVersion` 은 생략. SDK npm 미공개 / external stub dependency 없음이 honest. README 에 의도적 생략 사유 한 줄 추가.
+   - `openclaw.plugin.json` provider plugin manifest: `providers` 있음. `contracts.tools` 는 비해당. `modelSupport` / `providerRequest` / auth metadata 는 provider plugin UX에 필요한지 새 Claude 가 doc 근거로 판단 후 patch proposal.
+5. **Plugin publish gate 구성**:
+   - plugin `package.json` 에 `prepublishOnly` 후보 추가 검토: `pnpm run build && pnpm run check` + plugin-only pack audit.
+   - root `check-pack` 는 root package 검증용이라 plugin tarball 검증을 대신하지 않는다.
+   - plugin tarball 에 `.sh` 없음 → root 의 `.sh` mode regression / `postinstall-chmod.cjs` 패턴은 불필요.
+   - npm dry-run 필수: `cd plugins/openclaw && npm pack --dry-run --json && npm publish --dry-run --access public`.
+   - ClawHub dry-run 필수: `npx -y clawhub@0.17.0 package publish plugins/openclaw --dry-run --json` (필요 시 `--owner junghanacs`, `--source-repo junghan0611/pi-shell-acp`, `--source-ref v0.7.4`, `--source-path plugins/openclaw`).
+6. **README publish-ready 정합**:
+   - Status 를 prerelease/alpha 로 유지하되 npm package install path 를 추가.
+   - 자기-자백 유지: child `pi` spawned stub, not real embedded pi-shell-acp transport; Phase 1.4 ts refactor swaps this shape.
+   - 호환 매트릭스 명시: plugin `0.1.x` ↔ root `@junghanacs/pi-shell-acp@>=0.7.4` ↔ OpenClaw validated `2026.5.18`, floor `>=2026.5.12 <2026.6.0`.
+7. **OpenClaw host 측 deploy 의존 명시** — host/container 에 root `@junghanacs/pi-shell-acp@>=0.7.4`, `pi`, `codex-acp`, `gemini` 가 있어야 함. Plugin `0.1.x` 는 아직 bridge runtime 을 품지 않고 child `pi` 를 호출한다.
 
 ### Plugin ↔ 본체 버전 정합 (SSOT, 결정 박힘 2026-05-19 PM)
 
