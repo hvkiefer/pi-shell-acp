@@ -4,6 +4,10 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.7.4 — 2026-05-20
+
+Patch release for the post-#20 OpenClaw stabilization line. The root npm artifact ships the new deterministic recovery / prompt-format gates plus the refreshed public docs and gallery metadata; the OpenClaw plugin remains a separate unpublished sibling package, but this tag is the stable baseline that the upcoming plugin `0.1.x` prerelease should depend on.
+
 ### Fixed
 
 - **OpenClaw plugin no longer primes the model to emit chat-completion artifacts (issue #20 follow-up incident).** Oracle bbot verification on `claude-opus-4-7` after the empty-final fix landed observed a new visible-body leak class: the model emitted its actual reply, then a fabricated `User: …` next-turn line, then a Cline-style `</environment_details>` close tag. None of those tokens exist in our code, OpenClaw, claude-agent-acp, or the ACP source — they came from the model's own training. Root cause was the earlier `buildConversationPrompt` form: it serialized OpenClaw's `context.messages` into a literal `User: …` / `Assistant: …` transcript prefix, which primed the model to continue the chat-completion pattern. Real OpenClaw provider plugins (anthropic/openai/google transport streams) never do this — they preserve role information as a native message-array payload via `transformTransportMessages`. The new serializer carries the same role information as JSON-as-data (`[Prior conversation context]\n[ {"role":"user","content":"…"}, … ]`) with a scoped non-continuation instruction (the instruction targets the context echo, NOT a blanket "no JSON in reply" — so legitimate "respond in JSON" user requests still work). The new `stripChatCompletionTail` sanitizer is applied final-only (post-recovery, pre-`done`) with narrow patterns: `</environment_details>` is the **allowlisted** closing tag (generic `</tag>` would chop legitimate XML); the `User:` / `Human:` / `Assistant:` strip requires a **blank-line boundary** (`\n{2,}`) and caps the trailing text at 160 chars (so a quoted single-line `Last entry: User: anonymous` is preserved). The sanitizer also enforces the issue #20 empty-visible-body invariant — if stripping would leave an empty body, the helper substitutes the placeholder instead, so OpenClaw never receives an empty assistant body. This is a stub-only shim — Phase 1.4 ts refactor swaps to real ACP stdio framing and `buildConversationPrompt` disappears entirely.
@@ -19,6 +23,7 @@ All notable changes to this project will be documented here. Format follows [Kee
 ### Changed
 
 - pi package gallery / README hero surface now uses `docs/assets/pi-shell-acp-hero.jpg` instead of the runtime demo loop. `package.json#pi.image` points the pi.dev gallery card at the GLGMAN hero shot, and the README places the same hero image above the npm badge so the package detail page is more likely to pick the intended header image first.
+- OpenClaw prerelease plugin metadata and Docker-lab docs now record `2026.5.18` as the validated production baseline while preserving the `>=2026.5.12 <2026.6.0` compatibility floor.
 
 ## 0.7.3 — 2026-05-19
 
@@ -31,7 +36,7 @@ Patch release for the OpenClaw / Telegram operational validation path. The root 
 ### Repository / plugin prerelease trail
 
 - `plugins/openclaw` source now resolves plugin-scoped config from OpenClaw's nested `config.plugins.entries["pi-shell-acp"].config` path and validates configured `spawnTimeoutSeconds` / `piBinaryPath` fail-loud. Oracle Stage 1 confirmed the #18 bootstrap-timeout RC fix (`timeoutMs=60000→600000`) and the bbot β path cold turn. This is recorded for monorepo continuity only; the plugin is still installed from source / future sibling package, not from the root npm package.
-- Envelope identity sanitation (#19) is explicitly deferred to a separate sprint (`0.7.4` or Phase 3.4). 0.7.3 does not attempt to change the sender-envelope contract.
+- Envelope identity sanitation (#19) is explicitly deferred to a later separate sprint. 0.7.3 does not attempt to change the sender-envelope contract.
 
 ## 0.7.2 — 2026-05-19
 

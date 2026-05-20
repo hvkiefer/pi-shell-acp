@@ -3,7 +3,7 @@
 Minimal reproducible lab for the prerelease OpenClaw plugin path:
 
 ```text
-OpenClaw 2026.5.12 gateway → plugins/openclaw → child pi → ACP backend → Telegram/direct delivery
+OpenClaw 2026.5.18 gateway → plugins/openclaw → child pi → ACP backend → Telegram/direct delivery
 ```
 
 This was extracted from the local Oracle-repro cache used to debug the 2026-05-15 Telegram delivery issue. The checked-in files are sanitized: no tokens, sessions, sqlite databases, or generated OpenClaw state.
@@ -69,7 +69,7 @@ docker exec -it openclaw-pishell-lab sh -lc 'ls -la /home/node/repos/gh/pi-shell
 Expected status shape after a successful Telegram/direct smoke:
 
 ```text
-🦞 OpenClaw 2026.5.12
+🦞 OpenClaw 2026.5.18
 🧠 Model: pi-shell-acp/claude-opus-4-7
 ⚙️ Execution: direct · Runtime: OpenClaw Pi Default
 ```

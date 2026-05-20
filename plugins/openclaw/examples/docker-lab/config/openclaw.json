@@ -1,7 +1,7 @@
 {
 	"meta": {
 		"name": "pi-shell-acp OpenClaw Docker Lab",
-		"description": "Minimal repro config for OpenClaw 2026.5.12 + pi-shell-acp plugin + Telegram direct delivery. Replace placeholder Telegram values before use."
+		"description": "Minimal repro config for OpenClaw 2026.5.18 + pi-shell-acp plugin + Telegram direct delivery. Replace placeholder Telegram values before use."
 	},
 	"gateway": {
 		"host": "0.0.0.0",

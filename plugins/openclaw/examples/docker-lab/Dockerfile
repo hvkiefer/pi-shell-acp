@@ -1,7 +1,7 @@
 # Repro lab for the pi-shell-acp OpenClaw plugin prerelease.
-# Mirrors the Oracle/local Docker path used to validate OpenClaw 2026.5.12
+# Mirrors the Oracle/local Docker path used to validate OpenClaw 2026.5.18
 # + Telegram delivery + child pi execution.
-FROM ghcr.io/openclaw/openclaw:2026.5.12
+FROM ghcr.io/openclaw/openclaw:2026.5.18
 
 USER root
 

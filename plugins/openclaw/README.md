@@ -170,8 +170,8 @@ when the stub is rewritten as a real ACP plugin.
 - Tool dispatch ergonomics are still evolving — the child `pi`
   binary owns its own tool surface; OpenClaw-side tool routing
   for ACP backends is being tuned.
-- Tested under Sonnet against the OpenClaw `2026.5.12` baseline.
-  Other models work but are less exercised.
+- Tested under Sonnet against the OpenClaw `2026.5.18` production baseline.
+  The compatibility floor remains `>=2026.5.12 <2026.6.0`; other models work but are less exercised.
 - Each turn emits a `[pi-shell-acp DIAG] ...` line to the gateway's
   stdout for diagnostic purposes. This is intentional during
   prerelease and goes away with the Phase 1.4 rewrite.
