@@ -51,6 +51,7 @@ Usage:
   ./run.sh check-model-lock           # deterministic unit test for pi-extensions/model-lock.ts (4-quadrant + edge cases, no API)
   ./run.sh check-shell-quote          # POSIX-safety gate for shellQuote (remote SSH arg quoting in entwurf paths) — source parity + behavior matrix, no SSH
   ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
+  ./run.sh check-plugin-prompt-format          # deterministic shape gate for buildConversationPrompt + stripChatCompletionTail (issue #20 follow-up leak)
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
@@ -1130,6 +1131,21 @@ check_plugin_empty_final_recovery() {
   # network, no API cost). See scripts/check-plugin-empty-final-recovery.ts
   # header for the full case matrix.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-plugin-empty-final-recovery.ts)
+}
+
+check_plugin_prompt_format() {
+  # Deterministic shape gate for the OpenClaw plugin's
+  # `buildConversationPrompt` serializer + `stripChatCompletionTail`
+  # output sanitizer (plugins/openclaw/src/index.ts). Issue #20 follow-up
+  # incident — after the empty-final fix landed, oracle bbot verification
+  # observed the model echoing a fabricated `User: ...` next-turn line
+  # plus a Cline-style `</environment_details>` close tag into the visible
+  # body, primed by the earlier `User:` / `Assistant:` transcript form.
+  # The serializer now produces a JSON-array context with an explicit
+  # non-continuation instruction, and the sanitizer strips the two
+  # narrow tail shapes observed in the wild as defense-in-depth.
+  # See scripts/check-plugin-prompt-format.ts header for the full matrix.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-plugin-prompt-format.ts)
 }
 
 check_mcp() {
@@ -3544,6 +3560,9 @@ case "$cmd" in
     ;;
   check-plugin-empty-final-recovery)
     check_plugin_empty_final_recovery
+    ;;
+  check-plugin-prompt-format)
+    check_plugin_prompt_format
     ;;
   check-backends)
     check_backends

@@ -169,6 +169,9 @@ declare class EventStream {
     [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent>;
     result(): Promise<AssistantMessage>;
 }
+export declare function buildConversationPrompt(context: Context | null | undefined): string;
+export declare function stripChatCompletionTail(text: string): string;
+export declare function sanitizeFinalAssistantMessage(message: AssistantMessage, model: StubModelRow): AssistantMessage;
 export type RecoveryKind = "as-is" | "partial-override" | "partial-recovery" | "placeholder" | "none";
 export interface RecoveryArgs {
     finalMessage: AssistantMessage | null;

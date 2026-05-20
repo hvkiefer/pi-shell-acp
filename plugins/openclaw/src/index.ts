@@ -492,36 +492,96 @@ function normalizeAssistantMessage(raw: unknown, model: StubModelRow): Assistant
 
 // Serialize OpenClaw's full conversation history into a single prompt for
 // pi -p. pi non-interactive only accepts a single user turn, so we encode the
-// prior turns as a transcript prefix. This keeps OpenClaw as the source of
-// truth for conversation state — pi doesn't need its own session.
+// prior turns as a JSON-array of role-preserving entries. This keeps OpenClaw
+// as the source of truth for conversation state — pi doesn't need its own
+// session — while approximating the role-array contract every real OpenClaw
+// provider plugin (anthropic/openai/google transport streams) carries via
+// `transformTransportMessages`.
 //
-// Real plugin (Step 2) will use long-lived ACP stdio framing instead.
-function buildConversationPrompt(context: Context | null | undefined): string {
+// Why JSON, not `User:` / `Assistant:` transcript:
+//   The earlier transcript form primed Claude to continue the chat-completion
+//   pattern — emitting fabricated `User: ...` next turns and Cline-style
+//   `</environment_details>` close tags from training. JSON-as-data is rarely
+//   echoed as output and carries the same role information without signaling
+//   "continue this format in your reply". This is a stub-only shim; Phase 1.4
+//   ts refactor swaps to real ACP stdio framing where context.messages flows
+//   straight through as a role-preserving payload and this helper disappears.
+export function buildConversationPrompt(context: Context | null | undefined): string {
 	const messages = context && Array.isArray(context.messages) ? context.messages : [];
 	if (messages.length === 0) return "";
 	const lastIdx = messages.length - 1;
 	const lastMsg = messages[lastIdx];
 	const lastUserText = lastMsg && lastMsg.role === "user" ? extractTextFromMessage(lastMsg) : "";
 
-	const priorTurns: string[] = [];
+	const priorTurns: Array<{ role: "user" | "assistant"; content: string }> = [];
 	for (let i = 0; i < lastIdx; i++) {
 		const m = messages[i];
 		if (!m) continue;
 		const text = extractTextFromMessage(m);
 		if (!text) continue;
-		if (m.role === "user") priorTurns.push(`User: ${text}`);
-		else if (m.role === "assistant") priorTurns.push(`Assistant: ${text}`);
+		if (m.role === "user" || m.role === "assistant") {
+			priorTurns.push({ role: m.role, content: text });
+		}
 	}
 
 	if (priorTurns.length === 0) return lastUserText;
 
 	return [
-		"[Earlier in this conversation]",
-		priorTurns.join("\n\n"),
+		"The following JSON array is read-only conversation context.",
+		"Read it for grounding, then respond conversationally to the [Current message] that follows.",
+		"Do not echo or continue the context JSON or any structural markers from this prompt,",
+		"and do not fabricate additional User/Assistant turns.",
 		"",
-		"[Current user message — respond to this, using the conversation context above]",
+		"[Prior conversation context]",
+		JSON.stringify(priorTurns, null, 2),
+		"",
+		"[Current message]",
 		lastUserText,
 	].join("\n");
+}
+
+// Output-side defense for chat-completion-style hallucinations the model may
+// still emit despite the role-preserving prompt above. Narrow patterns only —
+// allowlist + boundary cap so we don't chop legitimate text:
+//
+//   1. Trailing `</environment_details>` (case-insensitive). Allowlisted to
+//      the exact tag observed in the wild — generic `</tag>` would strip
+//      legitimate XML examples or code blocks the user asked about.
+//   2. Trailing `User:` / `Human:` / `Assistant:` line — requires a
+//      **blank-line boundary** (`\n{2,}`) before the prefix and caps the
+//      following text at 160 chars so a quoted single-line "Last entry:
+//      User: anonymous" is not chopped. Captures the chat-completion
+//      next-turn shape (model emits real reply → blank line → fake turn).
+//
+// Applied final-only (post-recovery, pre-`done` push). Streamed partials are
+// left untouched so OpenClaw's mid-turn display does not flicker.
+export function stripChatCompletionTail(text: string): string {
+	if (typeof text !== "string" || !text) return text;
+	let next = text;
+	next = next.replace(/<\/environment_details>\s*$/i, "");
+	next = next.replace(/\n{2,}(?:User|Human|Assistant)\s*:[^\n]{0,160}\s*$/i, "");
+	return next.trimEnd();
+}
+
+// Apply `stripChatCompletionTail` across the visible-text blocks of a final
+// assistant message. If the sanitized result has no visible text left — the
+// model emitted only the leak shape and nothing else — fall back to the
+// placeholder used elsewhere in the recovery path. This preserves the
+// **empty-visible-body invariant** established by issue #20: OpenClaw must
+// never receive an empty assistant body from this plugin, because the host
+// will surface raw prompt fragments via its render fallback.
+export function sanitizeFinalAssistantMessage(message: AssistantMessage, model: StubModelRow): AssistantMessage {
+	const cleaned = message.content.map((block): ContentBlock => {
+		if (block.type === "text" && typeof (block as TextContent).text === "string") {
+			return { type: "text", text: stripChatCompletionTail((block as TextContent).text) };
+		}
+		return block;
+	});
+	const sanitized: AssistantMessage = { ...message, content: cleaned };
+	if (extractTextFromMessage(sanitized).trim().length > 0) {
+		return sanitized;
+	}
+	return buildEmptyFinalPlaceholder(model, message);
 }
 
 function buildEmptyAssistantMessage(model: StubModelRow | null | undefined): AssistantMessage {
@@ -905,7 +965,7 @@ function realStreamFn(
 			(typeof code === "number" && code !== 0) ||
 			sigSignal != null;
 		const recovery = resolveRecoveredFinalMessage({ finalMessage, lastPartial, abnormal, model });
-		finalMessage = recovery.finalMessage;
+		finalMessage = recovery.finalMessage ? sanitizeFinalAssistantMessage(recovery.finalMessage, model) : null;
 		const partialText = lastPartial ? extractTextFromMessage(lastPartial) : "";
 		const visibleFinalText = finalMessage ? extractTextFromMessage(finalMessage) : "";
 		console.log(
