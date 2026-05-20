@@ -636,6 +636,95 @@ function isAfterSyntheticMessageToolResult(context: Context | null | undefined):
 	return false;
 }
 
+// ───────────────────────── final-message recovery ─────────────────────────
+
+// Issue #20 — empty-final regression after #17. Two recovery branches existed
+// inline in `finalizeChild`:
+//
+//   - `partialOverridesFinal` — only fired on **abnormal** exit when the
+//     accumulated partial held more text than the (now-suspect) final.
+//   - `recoveredFromPartial` — only fired when finalMessage was **null**.
+//
+// Both branches missed the case observed in #20: a normal-exit `message_end`
+// with `role:"assistant"` and `content:[]` (after the visible-body stripper
+// removed everything the model emitted). finalMessage was non-null, exit was
+// normal, but visible text was zero. The empty done propagated into OpenClaw,
+// whose render fallback then surfaced the raw `<command-name>` prompt
+// fragments to the user.
+//
+// This pure helper unifies the recovery decision and adds two missing covers:
+//   1. `finalIsEmpty` extends both partial-recovery branches symmetrically.
+//   2. A last-resort placeholder synthesizes a minimal text block on a clean
+//      exit with no recovery available — so OpenClaw never receives an empty
+//      assistant body it could fall back on.
+//
+// Abnormal exits with no recovery option still return `recoveryKind: "none"`
+// so the caller surfaces the existing diagnostic error event (stderr tail
+// preserved). The placeholder is reserved for genuinely silent assistant
+// turns on clean child exit.
+
+export type RecoveryKind = "as-is" | "partial-override" | "partial-recovery" | "placeholder" | "none";
+
+export interface RecoveryArgs {
+	finalMessage: AssistantMessage | null;
+	lastPartial: AssistantMessage | null;
+	abnormal: boolean;
+	model: StubModelRow;
+}
+
+export interface RecoveryResult {
+	finalMessage: AssistantMessage | null;
+	recoveryKind: RecoveryKind;
+}
+
+export const EMPTY_FINAL_PLACEHOLDER_TEXT = "(no visible assistant text this turn)";
+
+function promoteFromPartial(partial: AssistantMessage, model: StubModelRow): AssistantMessage {
+	return normalizeAssistantMessage(
+		{
+			...partial,
+			stopReason: partial.stopReason || "end_turn",
+			timestamp: partial.timestamp || Date.now(),
+		},
+		model,
+	);
+}
+
+function buildEmptyFinalPlaceholder(model: StubModelRow, finalMessage: AssistantMessage | null): AssistantMessage {
+	const msg = buildEmptyAssistantMessage(model);
+	msg.content = [{ type: "text", text: EMPTY_FINAL_PLACEHOLDER_TEXT }];
+	msg.stopReason = (finalMessage && finalMessage.stopReason) || "end_turn";
+	msg.timestamp = Date.now();
+	return msg;
+}
+
+export function resolveRecoveredFinalMessage(args: RecoveryArgs): RecoveryResult {
+	const { finalMessage, lastPartial, abnormal, model } = args;
+	// Compare by trimmed length, not raw. A whitespace-only partial (e.g. "   ")
+	// has non-zero raw length but renders empty in any chat surface, so promoting
+	// it would re-introduce the same issue-#20 empty-visible-body class through
+	// a different door — content present, visible text still zero.
+	const partialText = lastPartial ? extractTextFromMessage(lastPartial) : "";
+	const finalText = finalMessage ? extractTextFromMessage(finalMessage) : "";
+	const partialVisibleLen = partialText.trim().length;
+	const finalVisibleLen = finalText.trim().length;
+	const finalIsEmpty = !!finalMessage && finalVisibleLen === 0;
+
+	if ((abnormal || finalIsEmpty) && lastPartial && partialVisibleLen > finalVisibleLen) {
+		return { finalMessage: promoteFromPartial(lastPartial, model), recoveryKind: "partial-override" };
+	}
+	if ((!finalMessage || finalIsEmpty) && lastPartial && partialVisibleLen > 0) {
+		return { finalMessage: promoteFromPartial(lastPartial, model), recoveryKind: "partial-recovery" };
+	}
+	if (finalMessage && finalVisibleLen > 0) {
+		return { finalMessage, recoveryKind: "as-is" };
+	}
+	if (!abnormal) {
+		return { finalMessage: buildEmptyFinalPlaceholder(model, finalMessage), recoveryKind: "placeholder" };
+	}
+	return { finalMessage: null, recoveryKind: "none" };
+}
+
 // ───────────────────────── stream function ─────────────────────────
 
 function realStreamFn(
@@ -815,47 +904,22 @@ function realStreamFn(
 			kind.startsWith("poll:") ||
 			(typeof code === "number" && code !== 0) ||
 			sigSignal != null;
+		const recovery = resolveRecoveredFinalMessage({ finalMessage, lastPartial, abnormal, model });
+		finalMessage = recovery.finalMessage;
 		const partialText = lastPartial ? extractTextFromMessage(lastPartial) : "";
-		const finalText = finalMessage ? extractTextFromMessage(finalMessage) : "";
-		const partialOverridesFinal = abnormal && partialText.length > finalText.length;
-		if (partialOverridesFinal && lastPartial) {
-			finalMessage = normalizeAssistantMessage(
-				{
-					...lastPartial,
-					stopReason: lastPartial.stopReason || "end_turn",
-					timestamp: lastPartial.timestamp || Date.now(),
-				},
-				model,
-			);
-		}
-		// Trace artifact recovery: if child died without a message_end but a
-		// partial snapshot has useful text, promote it to the final message so
-		// OpenClaw still surfaces visible assistant text. Issue #17 success
-		// criterion — "avoid losing visible recovery when trace artifacts
-		// contain useful assistant text".
-		const recoveredFromPartial = !finalMessage && lastPartial && extractTextFromMessage(lastPartial).trim().length > 0;
-		if (recoveredFromPartial && lastPartial) {
-			finalMessage = normalizeAssistantMessage(
-				{
-					...lastPartial,
-					stopReason: lastPartial.stopReason || "end_turn",
-					timestamp: lastPartial.timestamp || Date.now(),
-				},
-				model,
-			);
-		}
 		const visibleFinalText = finalMessage ? extractTextFromMessage(finalMessage) : "";
 		console.log(
 			`[pi-shell-acp DIAG] child finalize kind=${kind}` +
 				` code=${String(code)}` +
 				` signal=${String(sigSignal)}` +
 				` hasFinal=${finalMessage ? "1" : "0"}` +
+				` recoveryKind=${recovery.recoveryKind}` +
 				` finalRole=${lastFinalRole ?? "(none)"}` +
 				` finalTextLen=${visibleFinalText.length}` +
 				` finalTextHead=${JSON.stringify(visibleFinalText.slice(0, 80))}` +
 				` partialTextLen=${partialText.length}` +
-				` partialOverridesFinal=${partialOverridesFinal ? "1" : "0"}` +
-				` recoveredFromPartial=${recoveredFromPartial ? "1" : "0"}` +
+				` partialOverridesFinal=${recovery.recoveryKind === "partial-override" ? "1" : "0"}` +
+				` recoveredFromPartial=${recovery.recoveryKind === "partial-recovery" ? "1" : "0"}` +
 				` abnormal=${abnormal ? "1" : "0"}` +
 				` timeoutFired=${timeoutFired ? "1" : "0"}` +
 				` stderrTail=${JSON.stringify(stderrBuf.slice(-500))}`,
@@ -869,10 +933,17 @@ function realStreamFn(
 				stream.end(toolMessage);
 				return;
 			}
+			// Placeholder / late-final paths arrive without a prior streamed partial,
+			// so synthesize the canonical start→done pair OpenClaw expects.
+			if (!started) {
+				stream.push({ type: "start", partial: finalMessage });
+			}
 			stream.push({ type: "done", message: finalMessage });
 			stream.end(finalMessage);
 			return;
 		}
+		// recovery.recoveryKind === "none" — abnormal exit with no body and no
+		// partial recovery available. Preserve the diagnostic error path.
 		const fallback = buildEmptyAssistantMessage(model);
 		fallback.stopReason = "error";
 		fallback.errorMessage =
@@ -968,10 +1039,24 @@ function realStreamFn(
 				// pi --mode json emits message_update wrapping a pi-ai
 				// AssistantMessageEvent. Re-emit the inner event onto our stream.
 				if (event.type === "message_update" && event.assistantMessageEvent) {
-					const inner = event.assistantMessageEvent as { partial?: unknown; [key: string]: unknown };
-					if (inner && typeof inner === "object" && inner.partial) {
-						inner.partial = normalizeAssistantMessage(inner.partial, model);
-						lastPartial = inner.partial as AssistantMessage;
+					const inner = event.assistantMessageEvent as {
+						partial?: unknown;
+						message?: unknown;
+						[key: string]: unknown;
+					};
+					if (inner && typeof inner === "object") {
+						if (inner.partial) {
+							inner.partial = normalizeAssistantMessage(inner.partial, model);
+							lastPartial = inner.partial as AssistantMessage;
+						}
+						// Sibling-path symmetry (issue #20): inner `done` events carry
+						// `message` rather than `partial`. Without this, OpenClaw could
+						// render an un-stripped snapshot of tool/thinking blocks when
+						// pi-ai emits a done inside the message_update wrapper. partial
+						// is normalized above; this closes the matching path.
+						if (inner.message) {
+							inner.message = normalizeAssistantMessage(inner.message, model);
+						}
 					}
 					// For Telegram/message-tool-only delivery, do not leak the child pi's
 					// plain text deltas as visible assistant text. Buffer until finalMessage,

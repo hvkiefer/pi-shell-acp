@@ -169,6 +169,19 @@ declare class EventStream {
     [Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent>;
     result(): Promise<AssistantMessage>;
 }
+export type RecoveryKind = "as-is" | "partial-override" | "partial-recovery" | "placeholder" | "none";
+export interface RecoveryArgs {
+    finalMessage: AssistantMessage | null;
+    lastPartial: AssistantMessage | null;
+    abnormal: boolean;
+    model: StubModelRow;
+}
+export interface RecoveryResult {
+    finalMessage: AssistantMessage | null;
+    recoveryKind: RecoveryKind;
+}
+export declare const EMPTY_FINAL_PLACEHOLDER_TEXT = "(no visible assistant text this turn)";
+export declare function resolveRecoveredFinalMessage(args: RecoveryArgs): RecoveryResult;
 declare const entry: PluginEntry;
 export default entry;
 //# sourceMappingURL=index.d.ts.map

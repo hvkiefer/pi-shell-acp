@@ -50,6 +50,7 @@ Usage:
   ./run.sh check-mcp                  # local deterministic check of normalizeMcpServers() — no Claude/ACP subprocess
   ./run.sh check-model-lock           # deterministic unit test for pi-extensions/model-lock.ts (4-quadrant + edge cases, no API)
   ./run.sh check-shell-quote          # POSIX-safety gate for shellQuote (remote SSH arg quoting in entwurf paths) — source parity + behavior matrix, no SSH
+  ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
@@ -1116,6 +1117,19 @@ check_shell_quote() {
   # payload classes that caused the 2026-05-18 remote entwurf incident
   # (backtick / $(...) / $VAR / korean tokens). No process spawn, no SSH.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-shell-quote.ts)
+}
+
+check_plugin_empty_final_recovery() {
+  # Deterministic recovery-decision gate for the OpenClaw plugin's
+  # `resolveRecoveredFinalMessage` helper (plugins/openclaw/src/index.ts).
+  # Issue #20 — post-#17 regression where a clean exit with
+  # message_end{role:"assistant", content:[]} bypassed both recovery
+  # branches and let OpenClaw surface raw prompt fragments to the user.
+  # The fix unifies the recovery decision; this gate exercises every
+  # branch on synthetic AssistantMessage inputs (no pi process, no
+  # network, no API cost). See scripts/check-plugin-empty-final-recovery.ts
+  # header for the full case matrix.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-plugin-empty-final-recovery.ts)
 }
 
 check_mcp() {
@@ -3527,6 +3541,9 @@ case "$cmd" in
     ;;
   check-shell-quote)
     check_shell_quote
+    ;;
+  check-plugin-empty-final-recovery)
+    check_plugin_empty_final_recovery
     ;;
   check-backends)
     check_backends

@@ -4,6 +4,14 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+### Fixed
+
+- **OpenClaw plugin no longer leaks empty assistant turns to OpenClaw's raw-prompt render fallback (issue #20).** Post-`#17` regression on the ACP path: Active Memory `context_pre_compute` returned `status=ok` with a non-empty summary, but the assistant turn surfaced no visible body — the user saw raw `<command-name>` / `<command-message>` prompt fragments from OpenClaw's fallback render. Root cause was a pair of asymmetric recovery branches inside `finalizeChild`: `partialOverridesFinal` fired only on abnormal exit and `recoveredFromPartial` fired only when finalMessage was null, so a clean `message_end{role:"assistant", content:[]}` slipped past both. The fix unifies the recovery decision into the new `resolveRecoveredFinalMessage` helper in `plugins/openclaw/src/index.ts`, adds `finalIsEmpty` cover so both partial-recovery branches treat an empty-content final the same as a missing final, and synthesizes a minimal placeholder text block on a clean exit with no partial available so OpenClaw never receives an empty assistant body. Recovery length comparisons use trimmed text so a whitespace-only partial (`"   "`) cannot be promoted into a visible-empty final — the same surface class the main fix closes. The sibling `inner.message` carrier inside `message_update` events is now normalized symmetrically with `inner.partial`. Abnormal exits with no recovery option still surface the existing diagnostic error event (stderr tail preserved).
+
+### Added
+
+- **`./run.sh check-plugin-empty-final-recovery` deterministic recovery-decision gate.** New `scripts/check-plugin-empty-final-recovery.ts` exercises every branch of `resolveRecoveredFinalMessage` on synthetic `AssistantMessage` inputs — 19 cases covering null / empty / valid / whitespace-only final crossed with null / valid / whitespace-only partial crossed with clean / abnormal exit, plus an invariant pass that asserts no recovered final ever carries empty (including whitespace-only) content. No pi process, no network, no API cost; runs in the root `pnpm check` chain alongside the other deterministic gates.
+
 ### Changed
 
 - pi package gallery / README hero surface now uses `docs/assets/pi-shell-acp-hero.jpg` instead of the runtime demo loop. `package.json#pi.image` points the pi.dev gallery card at the GLGMAN hero shot, and the README places the same hero image above the npm badge so the package detail page is more likely to pick the intended header image first.
