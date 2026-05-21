@@ -6,7 +6,7 @@ locally authenticated credentials.
 
 ![openclaw-pi-shell-acp — OpenClaw gateway for the pi-shell-acp bridge](docs/assets/openclaw-pi-shell-acp-hero.jpg)
 
-> **Status: prerelease 0.1.x.** Published package path for early
+> **Status: prerelease 0.0.x.** Published package path for early
 > adopters. The plugin is usable, but the current implementation is
 > still a child-`pi` stub; the self-contained ACP transport lands in a
 > later phase. ClawHub releases may remain hidden from normal install
