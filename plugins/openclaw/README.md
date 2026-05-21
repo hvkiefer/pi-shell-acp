@@ -94,9 +94,62 @@ and `pi` (via pi-shell-acp running inside it) is what touches the
 overlay. If you skip both options, the child `pi` will still
 function, but each container restart starts from a blank overlay.
 
+### Child skill PATH and emacs socket
+
+The child `pi` process inherits whatever environment OpenClaw
+exposes to it. Two host-side env elements affect whether the
+documented skill surface is usable from inside the container:
+
+1. **`PATH`** — host pi-skills ship co-located CLI binaries at
+   `<pi-overlay>/claude-plugin/skills/<name>/<name>` (e.g.
+   `gitcli`, `denotecli`, `lifetract`, `gog`). Skill docs use
+   bare-command invocation (e.g. `gitcli day ...` from
+   `day-query`'s `SKILL.md`), which requires these directories to
+   be on the child's `PATH`. The container's default `PATH` does
+   not include them.
+
+2. **`PI_EMACS_AGENT_SOCKET`** — the `emacs` skill connects via
+   `emacsclient -s "$PI_EMACS_AGENT_SOCKET"`. In a Docker
+   container the emacs socket bind-mount typically lands at
+   `/run/emacs/server`; the short-name form (`server`) does **not**
+   resolve, because emacs's short-name resolver looks at
+   `$XDG_RUNTIME_DIR/emacs/` instead. Set the full socket path,
+   not the short name.
+
+Recommended compose `environment:` for ACP-route bots that use
+these skills (adjust `<home>` to the OpenClaw user's home inside
+the container — `/home/node` for stock OpenClaw images,
+`/home/junghan` for the maintainer's deployment):
+
+```yaml
+environment:
+  - PATH=<home>/.pi/agent/claude-plugin/skills/bibcli:<home>/.pi/agent/claude-plugin/skills/denotecli:<home>/.pi/agent/claude-plugin/skills/dictcli:<home>/.pi/agent/claude-plugin/skills/gitcli:<home>/.pi/agent/claude-plugin/skills/gogcli:<home>/.pi/agent/claude-plugin/skills/lifetract:<home>/.pi/agent/claude-plugin/skills/semantic-memory:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  - PI_EMACS_AGENT_SOCKET=/run/emacs/server
+```
+
+On NixOS hosts that bind-mount the Nix store into the container,
+also prepend the live emacs path (e.g.
+`/nix/store/<hash>-emacs-nox-30.2/bin`) — the hash rotates on
+each `nixos-rebuild`, so this entry needs synchronized refresh
+with the `volumes:` mount.
+
+Worked example:
+[`junghan0611/nixos-config@3477206`](https://github.com/junghan0611/nixos-config/commit/3477206)
+(Oracle bbot deployment).
+
+> **Followup.** The plugin itself should prepare this env on the
+> ACP code path (skill PATH augmentation + emacs socket
+> detection) so operators don't carry this contract by hand.
+> Tracked at
+> [#21](https://github.com/junghan0611/pi-shell-acp/issues/21).
+> Until that ships, the operator-side compose env above is the
+> documented workaround.
+
 Native (non-Docker) installs do not need any of this — the
-official CLIs are already authenticated and `~/.pi` is already
-populated on the host where OpenClaw runs.
+official CLIs are already authenticated, `~/.pi` is already
+populated, the host's `PATH` already includes the skill bin
+dirs, and the emacs socket is on its conventional path on the
+host where OpenClaw runs.
 
 ## Install (manual, prerelease)
 
