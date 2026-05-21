@@ -151,6 +151,19 @@ populated, the host's `PATH` already includes the skill bin
 dirs, and the emacs socket is on its conventional path on the
 host where OpenClaw runs.
 
+## A note on the two npm scopes in this monorepo
+
+This plugin (`@junghan0611/openclaw-pi-shell-acp`) and the root
+bridge (`@junghanacs/pi-shell-acp`) intentionally live under
+**different npm scopes**. Both are published by the same npm
+account (`junghanacs`); the `@junghan0611` scope is a free public
+npm org under that account. The split exists because the plugin
+also needs to register on **ClawHub**, where the publisher handle
+`@junghanacs` is currently bound to an unresolved RFC and the
+publisher handle must match the package scope; the root bridge
+has no equivalent constraint (pi has its own provider ecosystem).
+Routine maintenance follows one account, two scopes.
+
 ## Install (manual, prerelease)
 
 This plugin is currently distributed only as source from this

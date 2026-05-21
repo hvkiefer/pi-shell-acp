@@ -13,8 +13,12 @@ This file applies to work under `plugins/openclaw/` in the
 ## Canonical Owner
 
 - **Authoritative repo**: https://github.com/junghan0611/pi-shell-acp
-- **Plugin npm name**: `@junghanacs/openclaw-pi-shell-acp` (publish path
-  reserved; prerelease phase does NOT publish to npm).
+- **Plugin npm name**: `@junghan0611/openclaw-pi-shell-acp` (note the
+  intentional scope divergence from the root package
+  `@junghanacs/pi-shell-acp` — see § Scope Divergence Rationale below).
+- **ClawHub publisher**: `junghan0611` (GitHub login; matches the npm
+  scope so `clawhub package publish --owner junghan0611` and
+  `npm publish --access public` resolve to the same identity).
 - **Position**: host adapter — surfaces `pi-shell-acp` as a first-class
   OpenClaw provider. The bridge logic, identity envelope protocol, ACP
   carriers, model curation, and entwurf orchestration live in the root
@@ -24,6 +28,29 @@ This file applies to work under `plugins/openclaw/` in the
   model-lock contract / `~/.pi/agent/entwurf-targets.json` registry format
   all evolve in `pi-shell-acp`. This extension follows the upstream
   release pin and re-exports the wire-compatible shape.
+
+## Scope Divergence Rationale
+
+Two npm scopes intentionally split in this monorepo:
+
+- **Root** `@junghanacs/pi-shell-acp` — pi extension, no ClawHub
+  registration (pi has its own provider ecosystem).
+- **Plugin** `@junghan0611/openclaw-pi-shell-acp` — npm + ClawHub. The
+  scope name matches the **ClawHub publisher handle** (`junghan0611`),
+  because ClawHub enforces "package scope must match selected owner"
+  and the `@junghanacs` handle on ClawHub remained blocked on RFC
+  outcome ([openclaw/clawhub#2320](https://github.com/openclaw/clawhub/issues/2320)
+  / [#2333](https://github.com/openclaw/clawhub/issues/2333) — see
+  [pi-shell-acp#23](https://github.com/junghan0611/pi-shell-acp/issues/23)
+  for the full trail).
+
+The split is owned by **one npm account**
+(`junghanacs@gmail.com`, npm user `junghanacs`) holding **two scopes**
+as orgs: `@junghanacs` (personal) and `@junghan0611` (org, free public
+plan, admin = `junghanacs`). Authentication does not change; only the
+publish destination differs. This avoids migrating the established
+root scope while letting the plugin land on ClawHub without waiting
+weeks-months for the RFC.
 
 ## Purpose
 
