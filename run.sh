@@ -2510,7 +2510,7 @@ check_sdk_surface() {
   # Background: in 0.4.5 we discovered that `(session.connection as any)
   # .unstable_resumeSession({...})` had been a dead call ever since SDK
   # 0.20.0 promoted resumeSession/closeSession out of the `unstable_*`
-  # namespace; sdk@0.21.0 keeps those stable names. Capability check passed, method call threw TypeError,
+  # namespace; sdk@0.22.1 still keeps those stable names. Capability check passed, method call threw TypeError,
   # bootstrap fallback caught it, every session silently took the load
   # path instead of resume — Hard Rule #2 ("resume > load > new") quietly
   # violated for months. The `as any` cast hid the rename from tsc.

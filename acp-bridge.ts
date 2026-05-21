@@ -19,6 +19,7 @@ import { Readable, Writable } from "node:stream";
 import {
 	type AnyMessage,
 	ClientSideConnection,
+	type ContentBlock,
 	type InitializeResponse,
 	type McpServer,
 	PROTOCOL_VERSION,
@@ -30,6 +31,12 @@ import {
 
 import { ENTWURF_PROJECT_CONTEXT_OPEN_TAG } from "./protocol.js";
 
+// Internal representation of a prompt block as carried from pi's message
+// content through extractPromptBlocks into sendPrompt. Looser than the wire
+// schema (sdk@0.22.1 v0.13.2 ImageContent requires data+mimeType; pi may
+// surface url-only images). sendPrompt narrows to the sdk ContentBlock
+// shape at the wire boundary; everything inside this repo keeps this looser
+// internal form so caller code does not have to know about schema drift.
 type PromptContentBlock =
 	| { type: "text"; text: string }
 	| { type: "image"; data?: string; mimeType?: string; uri?: string };
@@ -3407,9 +3414,33 @@ export async function sendPrompt(session: AcpBridgeSession, prompt: PromptConten
 		return { ...block, text: ensurePromptSeparator(text) };
 	});
 	const effectivePrompt = effectivePending && effectivePending.length > 0 ? [...effectivePending, ...prompt] : prompt;
+
+	// Narrow our internal PromptContentBlock union to sdk@0.22.1 ContentBlock
+	// at the wire boundary. ACP ImageContent requires data + mimeType
+	// (spec-compliant base64 transport); url-only image blocks from pi cannot
+	// round-trip the protocol, so they degrade to a text fallback rather than
+	// silently dropping the operator-visible "an image was here" signal.
+	const wirePrompt: ContentBlock[] = effectivePrompt.flatMap((block): ContentBlock[] => {
+		if (block.type === "text") {
+			return [{ type: "text", text: block.text }];
+		}
+		if (typeof block.data === "string" && typeof block.mimeType === "string") {
+			return [
+				{
+					type: "image",
+					data: block.data,
+					mimeType: block.mimeType,
+					...(block.uri ? { uri: block.uri } : {}),
+				},
+			];
+		}
+		const ref = block.uri ?? "<unsupported image>";
+		return [{ type: "text", text: `[image: ${ref}]` }];
+	});
+
 	return await session.connection.prompt({
 		sessionId: session.acpSessionId,
-		prompt: effectivePrompt,
+		prompt: wirePrompt,
 	});
 }
 
