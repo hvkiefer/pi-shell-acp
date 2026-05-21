@@ -3079,7 +3079,7 @@ verify_resume() {
     --model "$model"
 }
 
-CLAUDE_ACP_REQUIRED_VERSION="0.33.1"
+CLAUDE_ACP_REQUIRED_VERSION="0.36.1"
 CODEX_ACP_REQUIRED_VERSION="0.14.0"
 
 check_global_claude_acp() {

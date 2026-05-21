@@ -66,7 +66,7 @@
 	},
 	"packageManager": "pnpm@10.33.0",
 	"dependencies": {
-		"@agentclientprotocol/claude-agent-acp": "0.33.1",
+		"@agentclientprotocol/claude-agent-acp": "0.36.1",
 		"@agentclientprotocol/sdk": "0.22.1",
 		"@modelcontextprotocol/sdk": "^1.12.1",
 		"@zed-industries/codex-acp": "0.14.0",
