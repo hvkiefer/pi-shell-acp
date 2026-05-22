@@ -26,6 +26,7 @@ Trigger: [#24 dep audit](https://github.com/junghan0611/pi-shell-acp/issues/24).
 
 **Post-0.7.5 follow-up (이 라운드에 포함 안 됨):**
 - [#21](https://github.com/junghan0611/pi-shell-acp/issues/21) plugin-side env preparation 코드 fix — PATH augmentation + emacs socket detection on ACP child spawn. docs portion (`c57121f`) 은 이 라운드에 landed; 코드 fix 는 별도 라운드 (0.7.6 candidate). nixos-config consumer workaround ([3477206](https://github.com/junghan0611/nixos-config/commit/3477206)) 가 동작 중이므로 0.7.5 release blocker 아님. dep audit release 빠르게 닫는 우선.
+- **claude-agent-acp `0.36.1 → 0.37.0` bump 검토 (0.7.6 candidate)** — 새 버전이 `@anthropic-ai/claude-agent-sdk@0.3.146` 을 끌어오는데, 그 자리가 `@anthropic-ai/sdk >=0.93.0` 을 peer 로 요구한다 (현재 환경 0.91.1 → unmet peer warning). pi-shell-acp 코드 자체는 `@anthropic-ai/sdk` direct import zero 라 즉시 영향 zero (peer warning ≠ install fail). 다만 bump 라운드 진입 시 (a) anthropic-ai/sdk 0.91 → 0.93+ breaking change 검토 (b) `package.json` + `run.sh` + `README` 세 자리 동시 갱신 (`check-dep-versions` 6 assertion) (c) `smoke-claude` + `verify-resume` GREEN 확인 — 0.7.5 dep-audit 라운드와 같은 패턴. 0.7.5 와 같은 patch 사이즈로 닫을 수 있는지 또는 surface 변경이 있어 minor 가 필요한지가 첫 자문 자리.
 
 **작업 순서 ([#24](https://github.com/junghan0611/pi-shell-acp/issues/24) §8):** Step 1 (codex-acp zero-risk + MCP SDK floats) → Step 2 (sdk 0.22) → Step 3 (pi 0.75) → Step 4 (claude-agent-acp 0.36). 각 step 후 `pnpm check` + 가능하면 small reproducer.
 
@@ -201,6 +202,8 @@ publish 진입 전 결정/작업:
 - **`ctx.messages` SSOT 모델 공식화** — plugin spec 으로 명시 가치. 다른 backend (Codex/Gemini) 도 같은 모양 plug-in 가능.
 
 - **OpenClaw compose default 검토** (Docker auth boundary) — 공개 install 가이드의 기본 권장이 in-container login 인지 host passthrough 인지. Claude Code auth refresh 가 read-only mount 에서 동작하는지 검증. 우리 측 의견: `plugins/openclaw/README.md` 의 Docker boundary 표 참고.
+
+- **OpenClaw native clean-host recipe follow-up (clean-host practice, 2026-05-21)** — `docs/setup-clean-host.md` Stage 4c 에 0.0.1 practice trail 기록. 발견: (a) `openclaw plugins install npm:@junghan0611/openclaw-pi-shell-acp@0.0.1` 는 ClawHub trust propagation 전 built-in dangerous-code scanner(child_process)에 막혀 maintainer-owned smoke 에 `--dangerously-force-unsafe-install` 필요, (b) `@junghanacs/pi-shell-acp@0.7.5` npm/node_modules 경로를 pi extension source 로 쓰면 Node `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` 발생 — source checkout outside node_modules 로 우회, (c) duplicate pi-shell-acp package entries cause flag/tool conflicts, (d) `openclaw models set pi-shell-acp/gpt-5.4` + `openclaw agent --local ...` turn path GREEN but `openclaw models list --provider pi-shell-acp` returned `No models found`. 다음: root package JS emit or pi loader/package recipe fix + plugin model-list integration 확인.
 
 - **Long-lived session 시 entwurf scope** (Phase 1.4 또는 이후) — plugin path 가 현재 `--no-session` 으로 entwurf 표면을 자연 차단. 미래 long-lived ACP session 으로 가면 두 갈래 결정: (I) entwurf 를 plugin 의 child pi 안에서 그대로 활성화 (isolated topology, root AGENTS.md #9 정합) vs (II) entwurf 호출을 OpenClaw peer API 로 forward (host-coupled, #9 위반). 현재 정책 = I. (II) 는 OpenClaw SDK enhancement 필요, 지금 결정 안 함.
 
