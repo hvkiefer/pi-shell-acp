@@ -175,6 +175,36 @@ publish 진입 전 결정/작업:
 
 ---
 
+## OpenClaw 5.22 native claude-cli audit follow-up (#25, 별도 sprint)
+
+> [Issue #25](https://github.com/junghan0611/pi-shell-acp/issues/25) — 2026-05-26 OpenClaw 5.22 `claude-cli` provider 가 Pro/Max 결제 + 1M ctx + workspace skill 모두 GREEN. `~/repos/3rd/openclaw@v2026.5.22` 코드 레벨 audit 으로 routing 정책 + lesson 도출 ([comment](https://github.com/junghan0611/pi-shell-acp/issues/25#issuecomment-4540212569)).
+
+**Routing 결정 — Option D** ([README 반영](https://github.com/junghan0611/pi-shell-acp/blob/main/plugins/openclaw/README.md#recommended-routing-2026-05-26)):
+
+| Lane | 운영 권고 | 근거 |
+|---|---|---|
+| Claude | OpenClaw native `claude-cli` | deep CLI integration (live-session 990줄), Pro/Max 결제, 1M ctx, workspace skill aware |
+| Codex | OpenClaw native `openai-codex` | OAuth device-code + native API SDK |
+| Gemini | **pi-shell-acp ACP lane (primary)** | OpenClaw `google-gemini-cli` 59줄 thin (live-session 없음, one-shot spawn) — pi-shell-acp 의 carrier + overlay + MCP + skills 가 더 두꺼움 |
+
+A 옵션 stance ("pi backend 자치권") 는 유지. 추천 surface 만 좁힘. 코드 path 변경 없음.
+
+**남은 작업:**
+
+- [ ] **Lesson 5개 우선순위 결정 + issue 분리** — OpenClaw audit 에서 도출:
+  1. **Transcript pre-flight** — backend native jsonl 위치 verifier (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `GEMINI_CLI_HOME`)
+  2. **Invalidation reason taxonomy** — `auth-profile / auth-epoch / system-prompt / mcp / transcript-missing` 5종 분리 + log line 명시
+  3. **Fingerprint-keyed reuse** — `ensureBridgeSession` reuse 결정에 skills snapshot + extra system prompt hash 축 추가
+  4. **Single-turn lock per session** — 같은 sessionId 동시 prompt 진입 throw 자리 명시
+  5. **Session cache hygiene** — `acp-bridge.ts` 세션 캐시에 idle timeout + LRU + max-N cap
+  - 우선 후보: 1, 2, 5 (production hygiene). 3, 4 는 invariant 명시 후 코드 점검 결과 보고 결정.
+
+- [ ] **pi-shell-acp 본체 focus 재정렬** — "general ACP multiplexer" → "pi-extension 역할 + entwurf 비대칭 Mitsein". README/문서 surface 정리는 0.7.5 후속 (post-publish docs round).
+
+**관련 운영 컨텍스트**: OpenClaw 5.22 main (`@junghan_openclaw_bot`: `claude-cli/claude-opus-4-7`) + mini (`@glg_mini_bot`: `claude-cli/claude-sonnet-4-6`) 양쪽 native claude-cli, bbot/gemini 그대로 `pi-shell-acp/*`. nixos-config 운영 자리 ([8a2f8ef](https://github.com/junghan0611/nixos-config/commit/8a2f8ef)).
+
+---
+
 ## 확정 사실 모음
 
 - **Plugin npm 이름**: `@junghan0611/openclaw-pi-shell-acp` (2026-05-21 pivot from `@junghanacs/...` — see [#23](https://github.com/junghan0611/pi-shell-acp/issues/23) and § "Plugin ↔ 본체 scope / 버전 정합" table for rationale)

@@ -12,6 +12,46 @@ locally authenticated credentials.
 > later phase. ClawHub releases may remain hidden from normal install
 > surfaces until review completes.
 
+## Recommended routing (2026-05-26)
+
+This plugin's primary value is **Gemini**. For Claude and Codex,
+OpenClaw's own native lanes are the better default; route those
+through OpenClaw directly and reach for this plugin only when you
+specifically need pi-shell-acp's surface for them.
+
+| Backend | Recommended provider | Why |
+|---|---|---|
+| **Claude** | OpenClaw native `claude-cli` | Production-grade `claude-stdio` live session (persistent child, fingerprinted reuse, transcript-existence pre-flight, 5-way invalidation reasons, KeyedAsyncQueue serialization). 1M context on Sonnet 4.6 / Opus 4.7. Anthropic identifies the path as Claude Code itself, so Pro/Max subscription billing applies instead of third-party "extra usage". Workspace skill aware. See [issue #25](https://github.com/junghan0611/pi-shell-acp/issues/25) for the code-level audit. |
+| **Codex** | OpenClaw native `openai-codex` | OAuth device-code + native API SDK (`extensions/openai/openai-codex-provider.ts`). Uses your existing ChatGPT login directly. |
+| **Gemini** | **This plugin (`pi-shell-acp/gemini-*`)** | OpenClaw's `google-gemini-cli` lane is intentionally thin — no persistent live session, one-shot spawn per turn, no system-prompt file injection. pi-shell-acp gives Gemini a fuller story: `GEMINI_SYSTEM_MD` identity carrier, `GEMINI_CLI_HOME` overlay (memory containment, deny-all admin policy, settings closure), explicit MCP injection through `piShellAcpProvider.mcpServers`, and skill passthrough. |
+
+### Why this plugin still exists for Claude / Codex
+
+Two reasons to deliberately route Claude or Codex through this
+plugin instead of OpenClaw's native lanes:
+
+1. **Identity envelope and overlay.** You want pi-shell-acp's
+   carrier (`_meta.systemPrompt` for Claude, `developer_instructions`
+   for Codex) plus the corresponding overlay isolation
+   (`CLAUDE_CONFIG_DIR`, `CODEX_HOME` + `CODEX_SQLITE_HOME`) rather
+   than the host backend's default ambient state.
+2. **`pi-tools-bridge` MCP surface.** You need `entwurf` /
+   `entwurf_resume` / `entwurf_send` / `entwurf_peers` /
+   `entwurf_self` as MCP tools from inside an OpenClaw turn — the
+   asymmetric Mitsein surface, not just a chat carrier.
+
+Neither is a typical chat use case. If your need is "talk to
+Claude / Codex through OpenClaw", the native lanes are the
+correct answer.
+
+### Where pi-shell-acp's investment is heading
+
+pi-shell-acp narrows from "general ACP multiplexer" toward its
+**pi-extension** role — entwurf orchestration (sibling spawn,
+resume, cross-session messaging, asymmetric Mitsein patterns).
+The Claude / Codex routes stay supported; they just stop being
+the recommended default surface for chat-shaped OpenClaw use.
+
 ## What it does
 
 Adds a single new provider, `pi-shell-acp`, to your OpenClaw setup.
