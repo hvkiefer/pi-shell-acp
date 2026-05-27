@@ -501,14 +501,14 @@ server.tool(
 
 server.tool(
 	"entwurf_resume",
-	"Resume a saved entwurf session by taskId, with a follow-up prompt (sync mode only). " +
+	"Resume a saved entwurf session by taskId, with a follow-up prompt. " +
 		"The taskId comes from a prior entwurf call's output (look for 'Task ID: <id>' in the " +
 		"summary). The bridge looks up the saved session JSONL under ~/.pi/agent/sessions and " +
 		"spawns `pi --session <file>` with the new prompt; pi appends to the same file. " +
 		"Important: this works on the saved session file. The original entwurf process may have " +
 		"exited and is NOT required to be alive — entwurf_resume does NOT consult control sockets " +
-		"or entwurf_peers. The two surfaces are separate by design (active sessions vs saved " +
-		"entwurf sessions). " +
+		"or entwurf_peers when running sync. The two surfaces are separate by design (active " +
+		"sessions vs saved entwurf sessions). " +
 		"Routing on resume comes entirely from the saved session JSONL (provider + model " +
 		"as recorded). The Entwurf Target Registry that gates spawn is NOT consulted here. " +
 		"Identity Preservation Rule: this tool intentionally does NOT accept a `model` " +
@@ -519,9 +519,16 @@ server.tool(
 		"cold resume uses the saved session header cwd as authority. An explicit cwd " +
 		"override is a debug/migration escape hatch and may forfeit backend continuity " +
 		"(see pi-shell-acp#9). Model may not. " +
-		"Async resume is intentionally not exposed on this MCP surface; " +
-		'the pi-native entwurf_resume exposes mode="async" for long-running resumes ' +
-		"with followUp delivery into the parent session (see Phase 0.5 in AGENTS.md).",
+		"`mode` follows the asymmetric-mitsein discriminator: when omitted, this MCP child " +
+		"resolves the effective mode automatically from the caller's PI_SESSION_ID / " +
+		"PI_AGENT_ID env — a replyable pi-session caller (pi-shell-acp Claude, sibling pi " +
+		"sessions) gets async by default; an external MCP host (Claude Code standalone, " +
+		"Codex CLI, Gemini CLI) gets sync, because there is no replyable pi address to " +
+		"deliver a completion followUp to. Explicit `mode='async'` from an external host " +
+		"is rejected with the same pattern as entwurf_send's `wants_reply=true` rejection. " +
+		"Async resumes delegate back into the parent pi session via the entwurf-control " +
+		"`spawn_async_resume` RPC, so completion lands as a followUp message in the same " +
+		"session — preserves the `this bridge is not a second harness` invariant.",
 	{
 		taskId: z.string().min(1).describe("Task ID from a prior entwurf result (e.g. '3f9a8c1b')"),
 		prompt: z.string().min(1).describe("Follow-up prompt to send into the resumed session"),
@@ -535,9 +542,67 @@ server.tool(
 					"use with care until the remote rollout phase.",
 			),
 		cwd: z.string().min(1).optional().describe("Working directory override for the resume spawn"),
+		mode: z
+			.enum(["sync", "async"])
+			.optional()
+			.describe(
+				"auto resolution by caller — async for replyable pi-session callers " +
+					"(PI_SESSION_ID/PI_AGENT_ID present), sync for external MCP hosts. " +
+					"Override with explicit 'sync' or 'async'. Explicit 'async' requires " +
+					"a replyable caller; external hosts get reject.",
+			),
 	},
-	async ({ taskId, prompt, host, cwd }) => {
+	async ({ taskId, prompt, host, cwd, mode }) => {
 		try {
+			// Phase B Step 3 — asymmetric-mitsein discriminator. Same `buildSendSenderEnvelope`
+			// gate that entwurf_send uses for wants_reply (line 344 in this file): the
+			// replyable status is the criterion, not a static default. A static
+			// `default: "async"` would silently reject every external MCP host turn
+			// despite the description claiming "default async", which is the UX
+			// inversion we are fixing.
+			const sender = buildSendSenderEnvelope();
+			const effectiveMode = mode ?? (sender.replyable === true ? "async" : "sync");
+			if (effectiveMode === "async" && sender.replyable !== true) {
+				return textErr(
+					"entwurf_resume async requires a replyable pi-session caller " +
+						"(PI_SESSION_ID + PI_AGENT_ID present). External MCP hosts cannot " +
+						"receive followUp delivery and must use mode='sync' (or omit mode and " +
+						"the auto-resolution picks sync).",
+				);
+			}
+
+			if (effectiveMode === "async") {
+				// Delegate to the parent pi session's entwurf-control RPC so the
+				// async launcher runs inside the pi extension layer and delivers
+				// completion via that session's `pi.sendMessage({deliverAs:
+				// "followUp"})`. We do NOT clone the launcher body here — the
+				// bridge stays thin (Hard Rule #8).
+				const sock = await resolveControlSocket(sender.sessionId);
+				const resp = await rpcCall(sock, {
+					type: "spawn_async_resume",
+					taskId,
+					prompt,
+					host,
+				});
+				if (!resp.success) {
+					return textErr(`entwurf_resume async error: ${resp.error ?? "unknown"}`);
+				}
+				const data = (resp.data as { text?: string; taskId?: string; pid?: number; sessionFile?: string }) ?? {};
+				const ackText =
+					data.text ??
+					[
+						"🔄 Resume spawned (async, via MCP → control RPC)",
+						`Resume ID: ${data.taskId ?? "(unknown)"}`,
+						`Original: ${taskId}`,
+						`Session: ${data.sessionFile ?? "(unknown)"}`,
+						`PID: ${data.pid ?? "(unknown)"}`,
+						"",
+						"Completion will arrive as a followUp message in the parent pi session.",
+					].join("\n");
+				return textOk(ackText);
+			}
+
+			// Sync branch — unchanged. Direct call to the existing sync core.
 			const result = await runEntwurfResumeSync(taskId, prompt, { host, cwd });
 			const text = formatSyncSummary(result);
 			return result.exitCode === 0 ? textOk(text) : textErr(text);
