@@ -789,12 +789,21 @@ export default function (pi: ExtensionAPI) {
 	// recorded value (or the in-process spawn-time record). host/cwd may shift
 	// between spawn and resume; identity may not.
 	//
-	// Phase 0.5: `mode` parameter, default "sync". Before Phase 0.5 this surface
-	// was implicitly async (detached spawn + followUp); the MCP bridge surface
-	// was already sync via runEntwurfResumeSync. Default-sync unifies the two
-	// surfaces on what the docs always claimed ("short sync turn"); async stays
-	// available as explicit opt-in for long-running resumes. See AGENTS.md
-	// § Entwurf Orchestration § Phase 0.5.
+	// Default-async restoration (0.7.x, Phase A of the async-resume regression
+	// repair). Before Phase 0.5 this surface was implicitly async (detached
+	// spawn + followUp); Phase 0.5 (agent-config e5aa5a1, 2026-04-24) flipped
+	// the native default to sync to mirror the MCP bridge surface, which had
+	// no `mode` parameter. The 0.7.0 spawn flip (`ad4413e`, 2026-05-19)
+	// returned `entwurf` to async-default for the same reason — review /
+	// research / build dominate, blocking the parent turn reads as "stuck".
+	// Resume was left on sync default at that point, which produced the most
+	// awkward state: short spawn (often <5s) defaulted async while long
+	// resume (often >30s) blocked the parent turn — exactly backward. This
+	// restoration flips resume back to async default, matching pre-Phase-0.5
+	// behavior and the 0.7.0 spawn axis. Sync stays available as opt-in for
+	// short status-check resumes. The MCP bridge surface (Phase B) is the
+	// remaining half — see NEXT.md "Top regression" for the replyable-gate
+	// + launcher-extraction design.
 
 	// Same TS2589 schema-vs-type-source rationale as EntwurfParams above.
 	type EntwurfResumeParams = {
@@ -810,8 +819,8 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Resume a completed entwurf session. Runs the entwurf's saved session with an additional prompt.\n\n" +
 			"Modes:\n" +
-			"- sync (default): wait for completion, return result inline. Matches MCP bridge surface.\n" +
-			"- async: spawn detached, deliver completion as followUp message to this session. For long-running resumes.\n\n" +
+			"- async (default since 0.7.x): spawn detached, deliver completion as followUp message to this session. The parent turn is not blocked. Long-running resume (review / research / build) is the dominant case — async matches that expectation and restores the pre-Phase-0.5 native pattern.\n" +
+			"- sync: wait for completion, return result inline. Blocks the parent turn — opt in only for short status-check resumes (<5s).\n\n" +
 			"Identity Preservation Rule: model is locked to the saved session — this tool does NOT accept a model override. " +
 			"host may change (a session can be resumed from a different machine). " +
 			"cwd does NOT change at will — cold resume uses the saved session header cwd as authority. " +
@@ -825,8 +834,8 @@ export default function (pi: ExtensionAPI) {
 			mode: Type.Optional(
 				Type.Union([Type.Literal("sync"), Type.Literal("async")], {
 					description:
-						"sync (default): wait for completion, return result inline. async: spawn detached, deliver completion as followUp.",
-					default: "sync",
+						"async (default since 0.7.x): spawn detached, deliver completion as followUp; the parent turn is not blocked. sync: wait for completion and block the parent turn — opt in only for short status-check resumes (<5s).",
+					default: "async",
 				}),
 			),
 		}),
@@ -838,10 +847,17 @@ export default function (pi: ExtensionAPI) {
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			_ctx: ExtensionContext,
 		): Promise<AgentToolResult<unknown>> {
-			const mode = params.mode ?? "sync";
+			// Default `async` since 0.7.x — long-running resume (review / research /
+			// build) dominates this surface, and blocking the parent turn reads as
+			// "stuck" to the operator. Sync stays available as opt-in for short
+			// status-check resumes (<5s). The MCP bridge surface still exposes
+			// sync-only; Phase B (NEXT.md "Top regression") will add a
+			// replyable-gated async path there via control-RPC delegation back to
+			// this same async branch.
+			const mode = params.mode ?? "async";
 
-			// Phase 0.5 sync branch — entwurf to core, return inline (mirrors the
-			// MCP bridge surface which already used runEntwurfResumeSync directly).
+			// Sync branch — entwurf to core, return inline (mirrors the MCP bridge
+			// surface which uses runEntwurfResumeSync directly).
 			if (mode === "sync") {
 				const info = activeEntwurfs.get(params.taskId);
 				const syncHost = params.host ?? info?.host;

@@ -2,273 +2,162 @@
 
 > 다음에 할 일만 남긴다. 로그가 아니다.
 > 결정 trace 와 evidence 는 commit history / CHANGELOG / VERIFY / BASELINE / README / AGENTS / 코드로 보낸다.
-> 라이브 정보 (현재 release / 인보이스 형상 / API 표면) 는 README.md, CHANGELOG.md, AGENTS.md, `package.json`, `pi/entwurf-targets.json`, `pi/settings.reference.json` 에서 꺼낸다 — NEXT 에 복제하지 않는다.
+
+## Current stance — 2026-05-27
+
+**Top regression — restore async resume workflow.** `entwurf_resume`의 운영 퇴행을 두 단계로 복원한다. 예전 강점은 "spawn은 sync로 담당자/맥락을 붙잡고, 이후 긴 작업은 resume async로 던져 부모 턴을 풀어두는" 패턴이었다. Phase 0.5(`agent-config e5aa5a1`, 2026-04-24)에서 pi-native resume 기본값이 async→sync로 바뀌었고, 0.7.0(`ad4413e`, 2026-05-19)에서 spawn만 async로 되돌아오면서 가장 어색한 상태(짧은 spawn은 async, 긴 resume은 sync)가 만들어졌다. 비대칭 공존은 "MCP surface 전체 async 금지"가 아니라 "caller가 replyable pi-session인지 구분"이라는 패턴이고, 그 discriminator는 이미 `mcp/pi-tools-bridge/src/index.ts:266-281` (`buildSendSenderEnvelope`)에 살아 있다. 같은 분류기로 MCP async도 게이팅 가능하다.
+
+### Phase A — native default async 복원 (이 커밋)
+- `pi-extensions/entwurf.ts` — `entwurf_resume` schema default + runtime fallback을 `"sync"` → `"async"`로 복원. async branch 코드는 그대로 살아 있었고 default만 뒤집힌 상태였다.
+- `VERIFY.md §0A` — 검증 turn은 짧은 inline 응답이 필요하므로 `entwurf_resume(mode="sync", taskId=...)`를 명시하도록 갱신.
+- CHANGELOG `## Unreleased`에 기록. 0.7.0 spawn flip이 마무리하지 못한 절반을 이번에 닫는다.
+
+### Phase B — MCP `entwurf_resume(mode="async")` (별도 설계 라운드)
+pi-shell-acp Claude가 보는 MCP surface는 아직 sync-only다. external MCP host(Claude Code 단독 등)는 replyable이 아니므로 sync-only가 유지되어야 하지만, PI_SESSION_ID/PI_AGENT_ID가 주입된 replyable pi-session caller에는 async를 열어야 핵심 UX가 회복된다. 단순히 MCP handler에 `mode` 파라미터를 추가하는 것으로는 부족하다 — 완료 알림 전달 경로 설계가 필요하다.
+
+작업 단위:
+1. `pi-extensions/entwurf.ts:929-1137`의 async resume 본체(detached spawn + `proc.on('close')` + `pi.sendMessage({deliverAs: "followUp"})`)를 entwurf-control이 호출 가능한 공유 launcher로 추출. completion delivery callback은 ExtensionAPI에 묶여야 하므로 launcher는 그 콜백을 주입받는 형태로 설계.
+2. `pi-extensions/entwurf-control.ts`에 신규 RPC `type: "spawn_async_resume"` 추가. 현재 RPC 집합(`send`, `get_message`, `get_info`, `clear`, `abort`)을 한 자리 확장.
+3. `mcp/pi-tools-bridge/src/index.ts:503-547` — `entwurf_resume`에 `mode` 파라미터 추가. handler가 `buildSendSenderEnvelope()`로 replyable 여부 판정 → replyable + `mode="async"`이면 부모 pi 세션의 entwurf-control 소켓에 `spawn_async_resume` 위임 → external/non-replyable + `mode="async"`이면 `entwurf_send`의 `wants_reply` 거부와 동일 패턴으로 throw.
+4. 회귀 smoke: "sync spawn → async resume → parent turn free → followUp completion" 시나리오. native 경로용 1개 + MCP replyable 경로용 1개 + external non-replyable 거부 케이스 1개.
+
+Phase A는 native pi 안 분신 협업을 즉시 복원하고, Phase B가 pi-shell-acp Claude(현재 가장 자주 쓰이는 surface)까지 회복한다. 둘 다 끝나야 "되던 것" 전체 복원.
+
+**OpenClaw 쪽은 당분간 진행하지 않는다.** `3a65072 docs(openclaw): recommend native lanes for Claude/Codex, narrow plugin to Gemini` 로 정리한 대로, OpenClaw 5.22 native `claude-cli` 가 Pro/Max 결제 + 1M ctx + workspace skill + live-session 재사용까지 충분히 동작함을 확인했다. Claude/Codex lane 은 OpenClaw native 를 쓰면 되고, 우리 OpenClaw plugin 은 더 밀 필요가 없다.
+
+`pi-shell-acp` 본체는 계속 **pi extension / ACP bridge / entwurf surface** 로 유지한다. OpenClaw plugin 은 “Gemini lane 이 필요할 때 쓸 수 있는 보조 어댑터” 정도로 parked.
+
+---
+
+## Top priority — Asymmetric Mitsein with Claude Code
+
+당분간 초점은 **비대칭 공존(Asymmetric Mitsein)** 이다. `pi-shell-acp` 를 OpenClaw plugin 쪽으로 더 밀기보다, **pi session ↔ Claude Code / external MCP host ↔ pi-tools-bridge ↔ entwurf** 가 서로 다른 하네스 정체성을 유지하면서 함께 일하는 시나리오를 검증한다.
+
+핵심 질문:
+- Claude Code 쪽에서 `pi-tools-bridge` MCP surface 를 통해 pi session / entwurf 와 자연스럽게 협업하는가?
+- 외부 MCP host 는 replyable 하지 않다는 비대칭을 agent 가 정확히 이해하는가?
+- `entwurf_send` 는 fire-and-forget, `entwurf` / `entwurf_resume` 는 outcome ownership 이라는 역할 분담이 실제 워크플로에서 헷갈리지 않는가?
+- Claude Code 가 설계/리뷰하고 pi-shell-acp 세션이 실행하거나, 반대로 pi 가 Claude Code 쪽 맥락을 불러 협업하는 시나리오가 문서/로그/UX 상 정직한가?
+
+테스트 시나리오 후보:
+1. **Claude Code → live pi session send**
+   - `entwurf_peers` 로 sessionId 확인
+   - `entwurf_send(mode=follow_up)` 로 pi session 에 작업 전달
+   - receiver 는 sender envelope / external non-replyable 상태를 오해하지 않는지 확인
+2. **Claude Code → pi-native entwurf**
+   - external MCP host 에서 가능한 sync path 와 pi-native async path 의 차이를 명확히 기록
+   - 긴 작업은 pi session 안에서 async entwurf 로 넘기는 패턴 확인
+3. **pi session ↔ Claude Code 역할 분리**
+   - Claude Code: 설계/리뷰/코드 읽기
+   - pi-shell-acp: 실행/검증/entwurf orchestration
+   - 서로 forward 하지 않고 GLG가 역할을 정하는 패턴 유지
+4. **세션 연속성 + 비대칭 공존**
+   - 아래 `session continuity hygiene` footgun 과 결합 테스트
+   - 옵션 drift 로 backend session 이 새로 열릴 때 Claude Code 연계 시나리오가 어떻게 깨지는지 확인
+
+성공 기준:
+- 각 시나리오에서 “누가 outcome 을 소유하는가”가 명확하다.
+- replyable / non-replyable, send-is-throw, sync-only MCP surface 가 agent 발화에 정확히 반영된다.
+- 필요한 경우 README / AGENTS / VERIFY 중 한 곳에 운영 패턴으로 정리한다.
+
+---
+
+## Active hygiene — session continuity
+
+오늘 발견: 같은 pi 세션을 resume할 때 실행 옵션이 달라지면 bridge config signature 가 달라져 ACP backend session 이 `incompatible_config` 로 invalidate 된다.
+
+대표 footgun:
+
+```bash
+pi --entwurf-control --emacs-agent-socket server   # 평소 alias
+pi                                                  # 테스트로 plain 실행
+```
+
+현재 결론:
+- 사용자가 일관되게 alias 로 실행하면 문제 없음.
+- 직접 원인 후보는 `--emacs-agent-socket server` 누락. 이 값이 `bridgeConfigSignature` 에 들어감.
+- pi JSONL 세션은 남지만, Claude ACP backend 세션 매핑이 새로 만들어져 모델이 이전 맥락을 모르는 것처럼 반응한다.
+
+다음 작업 후보:
+1. `incompatible_config` 로그에 diff 출력
+   - 예: `emacsAgentSocket: null -> "server"`
+   - 최소한 어떤 축 때문에 invalidate 됐는지 보여주기.
+2. `PI_SHELL_ACP_STRICT_BOOTSTRAP=1` 운영 문서화 또는 UX 검토
+   - silent new 대신 fail-fast 로 잡을 수 있는지 확인.
+3. `emacsAgentSocket` 을 session compatibility 축에 넣는 게 맞는지 재검토
+   - MCP child env / Emacs skill surface 정합 때문에 넣은 의도는 이해됨.
+   - 다만 resume continuity 를 끊을 만큼 강한 config 인지 판단 필요.
+
+검증 기준:
+- alias 실행 → resume/load 유지
+- plain 실행 후 alias 복귀 → 현재는 `incompatible_config`; 개선 후 원인 diff 명확
+- `./run.sh verify-resume <project>` 또는 작은 live smoke 로 확인
+
+---
+
+## Main backlog — #25 lessons from OpenClaw audit
+
+OpenClaw 5.22 native `claude-cli` audit 에서 얻은 lesson 을 **pi-shell-acp 본체 품질**로 흡수한다. OpenClaw plugin 기능 확장이 아니라 bridge hygiene 라운드다.
+
+우선순위:
+1. **Transcript pre-flight**
+   - backend native jsonl 위치 verifier
+   - Claude: `CLAUDE_CONFIG_DIR`
+   - Codex: `CODEX_HOME` / `CODEX_SQLITE_HOME`
+   - Gemini: `GEMINI_CLI_HOME`
+2. **Invalidation reason taxonomy**
+   - 지금 `incompatible_config` 가 너무 넓다.
+   - 후보: `auth-profile`, `auth-epoch`, `system-prompt`, `mcp`, `transcript-missing`, `emacs-socket`, `tool-surface`.
+3. **Session cache hygiene**
+   - `acp-bridge.ts` bridge session cache 에 idle timeout / LRU / max-N cap 검토.
+
+나중 후보:
+- Fingerprint-keyed reuse: skills snapshot + extra system prompt hash 축
+- Single-turn lock per session: 같은 sessionId 동시 prompt 진입 throw
+
+---
 
 ## Reference paths
 
-- **본체**: `~/repos/gh/pi-shell-acp/` — monorepo lite (root + `plugins/openclaw/`)
-- **OpenClaw source**: `~/repos/3rd/openclaw/` — validated baseline `2026.5.18`, peer `>=2026.5.12 <2026.6.0`
-- **Workspace baseline (검증 cwd)**: `~/repos/gh/openclaw-config/config/workspace/`
-- **ACP backend source**: `~/repos/3rd/acp/` — `claude-agent-acp/`, `codex-acp/`, `gemini-cli/`, `agent-shell/`, `acp.el`, `zed/`, `obsidian-agent-client/`
-- **Consumer**: `~/repos/gh/agent-config/`
+- 본체: `~/repos/gh/pi-shell-acp/`
+- OpenClaw source: `~/repos/3rd/openclaw/`
+- OpenClaw plugin stub: `plugins/openclaw/`
+- Consumer: `~/repos/gh/agent-config/`
+- NixOS consumer: `~/repos/gh/nixos-config/`
 
 ---
 
-## Top priority — 0.7.5 dependency-audit-driven patch release
+## Parked — do not pick unless GLG reopens
 
-Trigger: [#24 dep audit](https://github.com/junghan0611/pi-shell-acp/issues/24). 외부 upstream 흡수 — `@earendil-works/pi-ai|coding-agent|tui` `0.74.0 → 0.75.4`, `@agentclientprotocol/claude-agent-acp` `0.33.1 → 0.36.1`, `@agentclientprotocol/sdk` `0.21.0 → 0.22.1`. 우리 표면 (`piShellAcpProvider` settings / MCP injection contract / sessionId addressing / invariants) 안 바뀌면 **patch** — semver minor 갈 수준 아니므로 `0.7.4 → 0.7.5` one-shot 결정 (GLG 2026-05-21).
+### OpenClaw plugin / packaging
 
-**라운드 묶음:**
-- `7c6903c` ✅ `fix(package): revert pi.image to demo.gif` ([#22](https://github.com/junghan0611/pi-shell-acp/issues/22) image 항목; shields.io 배지 처리는 별도)
-- `c57121f` ✅ `docs(openclaw): document child skill PATH + emacs socket env contract` ([#21](https://github.com/junghan0611/pi-shell-acp/issues/21) docs portion)
-- **남은 작업** (이 라운드 안에서):
-  - [#24](https://github.com/junghan0611/pi-shell-acp/issues/24) §2~§5 의 흡수 자리들 — `event-mapper.ts` `agent_end` + `willRetry`, `engraving.ts` / `pi-context-augment.ts` vs pi 0.75 XML boundary, sdk 0.22 schema v0.13.2 + event ordering, claude-agent-acp 0.35 plan-state hook + SDK settings resolution + 0.36 session delete experimental + `additionalDirectories`
+- Phase 3.6 self-contained install
+- ClawHub trust mark elevation
+- plugin embedded runtime / child `pi` removal
+- OpenClaw delivery layer progress/final channel split
+- Oracle Docker image 3-layer install
+- agent-config server-mode `pi-shell-acp` ref 복귀
+- Gemini bot usage 표시 갭
 
-**Post-0.7.5 follow-up (이 라운드에 포함 안 됨):**
-- [#21](https://github.com/junghan0611/pi-shell-acp/issues/21) plugin-side env preparation 코드 fix — PATH augmentation + emacs socket detection on ACP child spawn. docs portion (`c57121f`) 은 이 라운드에 landed; 코드 fix 는 별도 라운드 (0.7.6 candidate). nixos-config consumer workaround ([3477206](https://github.com/junghan0611/nixos-config/commit/3477206)) 가 동작 중이므로 0.7.5 release blocker 아님. dep audit release 빠르게 닫는 우선.
-- **claude-agent-acp `0.36.1 → 0.37.0` bump 검토 (0.7.6 candidate)** — 새 버전이 `@anthropic-ai/claude-agent-sdk@0.3.146` 을 끌어오는데, 그 자리가 `@anthropic-ai/sdk >=0.93.0` 을 peer 로 요구한다 (현재 환경 0.91.1 → unmet peer warning). pi-shell-acp 코드 자체는 `@anthropic-ai/sdk` direct import zero 라 즉시 영향 zero (peer warning ≠ install fail). 다만 bump 라운드 진입 시 (a) anthropic-ai/sdk 0.91 → 0.93+ breaking change 검토 (b) `package.json` + `run.sh` + `README` 세 자리 동시 갱신 (`check-dep-versions` 6 assertion) (c) `smoke-claude` + `verify-resume` GREEN 확인 — 0.7.5 dep-audit 라운드와 같은 패턴. 0.7.5 와 같은 patch 사이즈로 닫을 수 있는지 또는 surface 변경이 있어 minor 가 필요한지가 첫 자문 자리.
+이유: OpenClaw native `claude-cli` / `openai-codex` 가 이미 충분히 좋다. 우리 plugin 을 Claude/Codex lane 에서 쓸 이유가 줄었다. Gemini lane 은 필요 시 재개.
 
-**작업 순서 ([#24](https://github.com/junghan0611/pi-shell-acp/issues/24) §8):** Step 1 (codex-acp zero-risk + MCP SDK floats) → Step 2 (sdk 0.22) → Step 3 (pi 0.75) → Step 4 (claude-agent-acp 0.36). 각 step 후 `pnpm check` + 가능하면 small reproducer.
+### Long-term / separate issues
 
-**Baseline preservation 시험** ([#24](https://github.com/junghan0611/pi-shell-acp/issues/24) 2026-05-21 baseline cmt 기준):
-
-| 자리 | baseline GREEN signal | 흡수 후 회귀 시험 |
-|---|---|---|
-| 세션 연속성 | gateway 13h+ uptime, `Compactions: 0` | 새 dep set 재시작 후 같은 수준 유지하는지 |
-| Prompt cache hit | 96% (859k cached + 35k new) | claude-agent-acp SDK settings resolution 변화가 cache key 패턴 영향 주는지 |
-| Active memory | `status=ok elapsed≈10s query=...` | pi 0.75 XML boundary 변화 후 형태 유지하는지 |
-| Role-preserving prompt | 8b25c1e 결과 — user role 변환된 memory 자연 인용 | system prompt assembly 변화 후 동작 유지 |
-| Token accounting | `Tokens: N in / M out` | event settlement awaited lifecycle 변화 후 형식 동일 |
-| `agent_end.willRetry` | (새 필드, baseline 시점 zero hit) | 새 필드가 들어와도 event-mapper noise zero |
-
-**Publish gate:**
-- `check-dep-versions` 6 assertions 통과 — package.json + run.sh + README 세 자리 동시 갱신
-- nixos-config consumer-side workaround ([3477206](https://github.com/junghan0611/nixos-config/commit/3477206)) 가 새 dep set + pi 0.75 lifecycle script hardening 과 정합 유지 확인
-- npm publish `@junghanacs/pi-shell-acp@0.7.5` — 본인 npm scope, blocker zero
-
-**0.7.5 RELEASE CLOSED ✅** — `@junghanacs/pi-shell-acp@0.7.5` published 2026-05-21 (commit `412cc50`, tag `v0.7.5`, registry latest, Google Chat thread `ZtpDz4j2UxQ`). Tier B full verification (smoke-all + verify-resume + check-bridge + sentinel 6/6 + session-messaging 4/4) all GREEN.
-
-**Phase 3.4 (plugin publish) — ✅ closed 2026-05-21 via scope pivot to `@junghan0611`** (`@junghan0611/openclaw-pi-shell-acp@0.0.1` published to npm + ClawHub source-linked). 자세한 trail 다음 박스.
+- #11 remote SSH resume cwd alignment
+- #10 broader ontology RFC
+- #8 ACP `entwurf_send` message visibility UX
+- #2 pi-first context meter
+- L5 long soak with repeated context-pressure events
+- ~~pi-tools-bridge MCP async surface~~ → 더 이상 deferred 아님. "Top regression — Phase B"로 승격.
+- Remote entwurf cleanup
 
 ---
 
-## Phase 3.4/3.5 — OpenClaw plugin publish ([#23](https://github.com/junghan0611/pi-shell-acp/issues/23): RESOLVED via scope pivot)
-
-**Status (2026-05-21, RESOLVED):** ClawHub `@junghanacs` handle release remains RFC-bound (timeline weeks-months, [openclaw/clawhub#2346](https://github.com/openclaw/clawhub/issues/2346) ClawSweeper v3 + RFC [#2320](https://github.com/openclaw/clawhub/issues/2320) / [#2333](https://github.com/openclaw/clawhub/issues/2333)), so the plugin pivots to a new owner identity instead of waiting. Decision ([#23](https://github.com/junghan0611/pi-shell-acp/issues/23)): **plugin npm scope = `@junghan0611`, ClawHub publisher = `junghan0611`** — one npm account (`junghanacs`) now holds two scopes (`@junghanacs` for root, `@junghan0611` free public org for plugin). Root `@junghanacs/pi-shell-acp` untouched (pi has no equivalent registration constraint).
-
-Landed in the Phase 3.4 publish-prep batch (`91561a6` + follow-up polish):
-- `plugins/openclaw/package.json` — `name` → `@junghan0611/openclaw-pi-shell-acp`, `version` → `0.0.1` (실험적 첫 공개 — `0.1.0` 후보였으나 publish 직전 한 단계 더 honest 한 `0.0.x` 으로 downshift), `private` removed, `publishConfig.access: public` added, `openclaw.compat.minGatewayVersion: 2026.5.12` added (D4)
-- `plugins/openclaw/LICENSE` — MIT, copy of root (was listed in files but missing on disk)
-- `plugins/openclaw/README.md` — user-facing two-scope rationale, non-pi bootstrap path, npm/ClawHub install paths, hero image
-- `plugins/openclaw/AGENTS.md` — removed; root `AGENTS.md` remains the maintainer SSOT and public tarball stays user-facing
-
-**Phase 3.4 publish result (2026-05-21):**
-
-- **npm**: `@junghan0611/openclaw-pi-shell-acp@0.0.1` published by `junghanacs` account. Registry detail propagation 진행 중 (`npm search` 즉시 출력, `npm view` 는 몇 분 지연).
-- **ClawHub**: source-linked release at commit `568a4996...`, family `code-plugin`, channel `community`, owner `junghan0611`. ClawHub 가 npm tarball 의 sha256/sha512/shasum cross-verify 완료 (`Verification: source-linked / artifact-only`).
-- **Compatibility manifest (ClawHub side)**: `pluginApi=>=2026.5.12, builtWith=2026.5.18, minGateway=2026.5.12` — D4 결정 정합 확인.
-- **Artifact**: 907.5 KB (npm pack 929 kB 와 비슷, ClawHub 자체 정규화 결과).
-
-**Post-publish 후속 (별개 라운드 가능):**
-- ClawHub 측 `trustedSourceLinkedOfficialInstall` trust mark elevation 은 review propagation 따라 자동 또는 manual upgrade. 현재 `community` channel.
-- `openclaw plugins install clawhub:@junghan0611/openclaw-pi-shell-acp` 명령은 review 통과 후 normal install surface 에 노출.
-- README install 섹션은 publish 전부터 3-path (ClawHub / npm / source) 모두 명시되어 있어서 추가 갱신 불필요.
-
-**Fresh ClawHub findings (2026-05-20):**
-- Two install paths exist. `openclaw plugins install clawhub:<package>` is the official ClawHub/trust path; bare `openclaw plugins install <package>` is npm/cutover or ClawHub-first depending on doc page. **Doc conflict to resolve:** `docs/plugins/manage-plugins.md` says bare tries ClawHub first then npm fallback, while `docs/plugins/building-plugins.md` / `docs/cli/plugins.md` still describe npm-by-default launch cutover. Npm publish alone is not the final OpenClaw-native distribution.
-- ClawHub publish is owner-scoped. Package scope must match selected owner. For `@junghanacs/openclaw-pi-shell-acp`, ClawHub owner `@junghanacs` must exist / be publishable before finalizing the package name. `curl -I https://clawhub.ai/junghanacs` currently returns 404; CLI auth/owner check still required.
-- `clawhub` CLI is now installed globally on this host (`/home/junghan/.local/share/pnpm/clawhub`, v0.17.0) — `npx -y` prefix 불필요. `clawhub whoami` requires login. (어제 fresh finding 시점엔 미설치였음.)
-- Current plugin dry-run shape before edits: `npx -y clawhub@0.17.0 package publish plugins/openclaw --dry-run --json` succeeds locally and reports source `github:junghan0611/pi-shell-acp@v0.7.4:plugins/openclaw`, name `@junghanacs/openclaw-pi-shell-acp`, version `0.6.0`, 9 files, 44333 bytes. This proves local packaging shape only; it does **not** prove owner permission/review/security outcome.
-- OpenClaw `@openclaw/plugin-package-contract` code requires only `openclaw.compat.pluginApi` and `openclaw.build.openclawVersion`. It normalizes `compat.minGatewayVersion` from `install.minHostVersion` when absent. `build.pluginSdkVersion` is optional metadata, and `@openclaw/plugin-sdk` is not published on npm; decide whether to add it as explicit canonical metadata (`2026.5.18`) or omit because this external stub cannot depend on SDK.
-
-**3.4 decision lock (GPT ↔ Claude 합의, 2026-05-20):**
-- D1 owner pre-flight: ✅ **resolved 2026-05-21 ([#23](https://github.com/junghan0611/pi-shell-acp/issues/23))** — plugin owner pivoted to `junghan0611` (npm org + ClawHub publisher); `clawhub whoami` already returns `junghan0611`, no `publisher create` needed.
-- D2 publish toggles: ⚠️ **갱신 (2026-05-21, [#23](https://github.com/junghan0611/pi-shell-acp/issues/23))** — 직접 `npm publish` + `clawhub package publish . --owner junghan0611` 호출. `release.publishTo*` flags 둘 다 `false` 유지 (CLI 직접 호출 패턴 사용).
-- D3 `build.pluginSdkVersion`: 생략. 외부 stub 은 SDK npm dependency 가 없고 `@openclaw/plugin-sdk` 도 npm 미공개라 honest 반영. README 에 의도적 생략 사유 한 줄 추가.
-- D4 `compat.minGatewayVersion`: 명시 추가. 값은 `2026.5.12` 후보 — compatibility floor 를 reader 가 fallback 추적 없이 읽게 한다.
-- D5 provider manifest extras: 새 Claude 가 `sdk-provider-plugins.md` 읽고 `modelSupport` / `providerRequest` / auth metadata 필요성을 판단한 뒤 patch proposal → GLG 결정.
-- D6 publish surface order: ✅ **restored 2026-05-21 ([#23](https://github.com/junghan0611/pi-shell-acp/issues/23))** — scope pivot to `@junghan0611` removed the RFC dependency, so npm + ClawHub publish can land in the same round again. Phase 3.4 = npm + ClawHub (`junghan0611` owner), Phase 3.5 = trustedSourceLinkedOfficialInstall verification.
-- D7 NEXT commit: 이 NEXT 정렬은 별도 self-contained commit 후보 (`docs(next): phase 3.4 entry — clawhub pre-flight + dual dry-run`). 실제 metadata 변경과 섞지 않는다.
-- D8 upstream doc conflict: 우리 publish 와 분리. 양쪽 surface 를 모두 만족시키므로 block 아님. 별도 sprint 로 OpenClaw docs issue/PR 후보.
-
-**Owner identity status (2026-05-21, RESOLVED via scope pivot):**
-
-**Plugin owner = `junghan0611`** (npm scope + ClawHub publisher). One npm account (`junghanacs@gmail.com`) holds two orgs: `@junghanacs` (personal — root) and `@junghan0611` (free public, admin = `junghanacs` — plugin). `npm org ls junghan0611 --json` → `{ "junghanacs": "owner" }`. `clawhub whoami` → `junghan0611` (GitHub login already valid). No `publisher create` step needed; the personal-owner mapping is sufficient for ClawHub publish via `--owner junghan0611`.
-
-**Root owner = `@junghanacs` unchanged** — root never required ClawHub registration. Root namespace stays on `@junghanacs/pi-shell-acp` indefinitely; only the plugin pivoted to satisfy ClawHub's "scope must match selected owner" rule.
-
-**Why pivot beat waiting:** ClawHub `@junghanacs` handle release was bound to RFC outcome (weeks-months, [openclaw/clawhub#2346](https://github.com/openclaw/clawhub/issues/2346) ClawSweeper v3 + [#2320](https://github.com/openclaw/clawhub/issues/2320) / [#2333](https://github.com/openclaw/clawhub/issues/2333) test-locked conflict at `convex/publishers.test.ts:1746`). Pivot is reversible later via `clawhub package transfer @junghan0611/openclaw-pi-shell-acp --to junghanacs` once the RFC lands and `@junghanacs` becomes claimable; this is recorded as a Cross-repo follow-up rather than a blocker on Phase 3.4.
-
-**Historical trace (2026-05-20):** GLG attempted `clawhub publisher create junghanacs ...` → ConvexError: `Handle "@junghanacs" is already used by a user or personal publisher` (legacy account, soft-deleted). Treated as RFC-bound for ~24 hours, then resolved 2026-05-21 by accepting the divergence and creating npm org `junghan0611` (web UI; `npm org create` CLI does not exist).
-
-**Phase 3.3 skipped — false premise.** SDK helper check already showed `@openclaw/plugin-sdk/process-runtime` is private/workspace-only, so external npm plugin cannot depend on it. Raw `spawn` remains acceptable for the prerelease stub; Phase 1.4 removes the child-`pi` spawn surface anyway.
-
----
-
-## Phase 3 — OpenClaw plugin formal registration (active sprint)
-
-| # | 작업 | 상태 |
-|---|------|------|
-| 3.1 | pi-shell-acp pi.dev 등록 push | ✅ closed (2026-05-19, gallery card 등장; 2026-05-20 hero 이미지 surface 정합) |
-| 3.2 | bbot active-memory empty-final fix + role-preserving prompt (#20) | ✅ closed (2026-05-20, `e7eefeb` + `8b25c1e`; oracle bbot GREEN) |
-| 3.3 | `@openclaw/plugin-sdk/*` sanctioned spawn helper 확인 | ⏭ skipped (2026-05-20, SDK `private: true` / `workspace:*` only — 우리가 reach 못함) |
-| 3.4 | `@junghan0611/openclaw-pi-shell-acp` npm publish | ✅ closed (2026-05-21, `0.0.1` published; `npm search` confirms registry entry; full propagation 진행 중) |
-| 3.5 | ClawHub 정식 등록 (publisher `junghan0611`) → `trustedSourceLinkedOfficialInstall` 경로 통과 | 🟢 source-linked (2026-05-21, ClawHub `inspect` 결과 `Verification: source-linked / artifact-only`, source commit `568a4996...`, npm tarball cross-verified). official install trust mark elevation 은 ClawHub 측 review propagation 따라 |
-| 3.6 | Self-contained install — `openclaw plugins install @junghan0611/openclaw-pi-shell-acp` 한 줄 UX. plugin package 가 `acp-bridge.ts` 를 직접 import 하여 bridge runtime 을 품음. child `pi` binary 의존 제거 | 3.5 + Phase 1.4 ts refactor 완료 후 |
-| 3.7 | CHANGELOG plugin entry + VERIFY 갱신 + invariant 보강 | 3.6 완료 후 |
-
-### 3.4 entry checklist (별도 라운드)
-
-publish 진입 전 결정/작업:
-
-1. **Plugin version reset** — ✅ landed (commit `91561a6`): `0.6.0 → 0.1.0`, `private` removed, `@junghan0611` scope. 추가 downshift (publish 직전, GPT 검토): `0.1.0 → 0.0.1` — 실험적 첫 공개의 honest 표현 (한 번 publish 되면 yank 가능해도 다른 의미라, 0.0.x 가 첫 실험에 더 맞는 surface).
-2. **Prerelease tag 정책** — `0.0.1` 일반 publish + README "prerelease 0.0.x" 명시. ClawHub 정식 등록 (3.5) 이 진짜 trust gate.
-3. **ClawHub pre-flight** — ✅ resolved via pivot ([#23](https://github.com/junghan0611/pi-shell-acp/issues/23)):
-   - `clawhub whoami` → `junghan0611` (GitHub login, 이미 valid)
-   - `clawhub package publish . --owner junghan0611` 직접 호출 — `publisher create` 별도 step 불필요 (personal owner mapping)
-4. **Metadata canonical 정렬** — ✅ landed (commit `91561a6`): `compat.minGatewayVersion: 2026.5.12` 명시 추가. `build.pluginSdkVersion` 의도적 생략 유지. `openclaw.plugin.json` publisher/owner field 는 schema 확인 전엔 손대지 않음 (GPT 검토 권고).
-5. **Plugin publish gate** — 다음 라운드:
-   - `cd plugins/openclaw && npm pack --dry-run --json` (10 files 정합 확인)
-   - `npm publish --dry-run --access public`
-   - `clawhub package publish . --dry-run --json --owner junghan0611`
-   - 셋 다 클린 → 실제 publish
-6. **README publish-ready 정합** — 부분 landed (scope divergence note 추가됨); publish 후 추가:
-   - Install 섹션에 `npm install @junghan0611/openclaw-pi-shell-acp` + `openclaw plugins install clawhub:@junghan0611/openclaw-pi-shell-acp` 경로 추가
-   - Status 를 "prerelease/alpha" → "released prerelease" 로 갱신
-   - 호환 매트릭스 갱신: plugin `0.0.x` ↔ root `@junghanacs/pi-shell-acp@>=0.7.5` ↔ OpenClaw validated `2026.5.18`, floor `>=2026.5.12 <2026.6.0`
-7. **OpenClaw host 측 deploy 의존** — 명시는 publish-time 별도 round: host/container 에 root `@junghanacs/pi-shell-acp@>=0.7.5`, `pi`, `codex-acp`, `gemini` 필요. Plugin `0.0.x` 는 child `pi` 호출 형태 (Phase 1.4 에서 embedded 로 swap).
-
-### Plugin ↔ 본체 scope / 버전 정합 (SSOT)
-
-**결정 (2026-05-19 PM)**: plugin 별도 lifecycle + 첫 publish `0.1.0` reset. **결정 (2026-05-21 [#23](https://github.com/junghan0611/pi-shell-acp/issues/23))**: plugin scope pivot — `@junghanacs` → `@junghan0611`. **결정 (2026-05-21 publish 직전, GPT 검토)**: 첫 공개 version 을 `0.1.0 → 0.0.1` 로 downshift — 실험적 첫 공개 surface 의 honest 표현.
-
-| | npm scope | first publishable version | pi-shell-acp 본체 version | 비고 |
-|---|---|---|---|---|
-| **Root** | `@junghanacs` | `0.7.5` (published) | — | npm only, ClawHub 등록 무관 |
-| **Plugin** | `@junghan0611` ← 2026-05-21 pivot | **0.0.1** ✅ published 2026-05-21 (npm + ClawHub source-linked) | **>=0.7.5** | npm + ClawHub. publisher `junghan0611` (GitHub login) |
-| Plugin 0.1.x (예정) | `@junghan0611` | 0.1.x | >=0.7.5 | 첫 실험 공개 통과 후 안정 표시 |
-| Plugin 0.2.x (예정) | `@junghan0611` | 0.2.x | >=0.8.0 (예정) | Phase 1.4 SDK 도입 후 swap 시점 |
-
-이유 (한 줄씩):
-
-- Plugin 별도 lifecycle: 이미 별도 진화 중 (plugin 0.6.0 vs 본체 0.7.5). partial sync 가 가장 혼란. 0.6.0 은 본체 trajectory 안의 작위적 숫자였고 first publish 는 `0.0.1` 이 가장 honest — `0.0.x` 가 "실험적 첫 surface" 의미를 가장 정확히 전달.
-- Plugin scope `@junghan0611`: ClawHub publisher handle (`junghan0611`) 과 npm scope 정합 필요 (ClawHub rule "scope must match owner"); `@junghanacs` ClawHub handle 이 RFC 의존 (weeks-months) 이라 pivot.
-- Root scope `@junghanacs` 유지: ClawHub 등록 무관이라 pivot 비용 zero benefit. 0.7.5 stable baseline 보존.
-
-폐기된 옵션 (참고): (i) `@junghanacs` ClawHub handle release 대기 — RFC 의존 weeks-months. (ii) `@junghan-garden` 임시 handle + 향후 transfer — identity 분열 + transfer 비용. (iii) plugin version 본체와 sync — partial sync 가 가장 안 좋은 패턴.
-
----
-
-## Envelope identity sanitation (#19, 별도 sprint)
-
-> [Issue #19](https://github.com/junghan0611/pi-shell-acp/issues/19) — 2026-05-19 oracle Stage 1 검증 turn 의 bbot schema-level 단서 분석으로 발견. 세 발견 모두 의도되지 않은 동작이므로 버그.
-
-| # | 회귀 | 영향 |
-|---|---|---|
-| 1 | `PI_AGENT_ID` env 상속 — entwurf spawn 시 child 의 새 (provider/model) 로 override 안 함 | 분신 self-report hallucination (Codex 가 자기를 Claude 라 보고) |
-| 2 | `PI_SESSION_ID` stale — MCP bridge child 가 spawn 시점 env 캐싱, 부모 갱신 catch 안 함 | `entwurf_self.sessionId` 가 부모 실제와 불일치, reply target 정합 깨짐 |
-| 3 | `socketPath` fictional — `entwurf_self` 가 control socket 활성 검증 없이 path 반환 | 비활성 세션도 socketPath 반환 → caller 가 trust 시 `entwurf_send` fail |
-
-→ 같은 surface (envelope identity) 라 묶어서 진행. **분리 sprint 로 결정** (#20 close 시점, 2026-05-20). Phase 3 packaging 안정 후 진행 — packaging block 안 함. 0.7.4 root cut 에 흡수하지 않음.
-
-**Agent quality 에 의존하면 안 되는 invariant**: bbot 의 reasoning quality 가 schema-level 단서로 self-report hallucination 을 잡았지만, 평범한 분신은 못 잡을 수 있음. 평범한 분신도 깨지는 정합 회귀.
-
----
-
-## OpenClaw 5.22 native claude-cli audit follow-up (#25, 별도 sprint)
-
-> [Issue #25](https://github.com/junghan0611/pi-shell-acp/issues/25) — 2026-05-26 OpenClaw 5.22 `claude-cli` provider 가 Pro/Max 결제 + 1M ctx + workspace skill 모두 GREEN. `~/repos/3rd/openclaw@v2026.5.22` 코드 레벨 audit 으로 routing 정책 + lesson 도출 ([comment](https://github.com/junghan0611/pi-shell-acp/issues/25#issuecomment-4540212569)).
-
-**Routing 결정 — Option D** ([README 반영](https://github.com/junghan0611/pi-shell-acp/blob/main/plugins/openclaw/README.md#recommended-routing-2026-05-26)):
-
-| Lane | 운영 권고 | 근거 |
-|---|---|---|
-| Claude | OpenClaw native `claude-cli` | deep CLI integration (live-session 990줄), Pro/Max 결제, 1M ctx, workspace skill aware |
-| Codex | OpenClaw native `openai-codex` | OAuth device-code + native API SDK |
-| Gemini | **pi-shell-acp ACP lane (primary)** | OpenClaw `google-gemini-cli` 59줄 thin (live-session 없음, one-shot spawn) — pi-shell-acp 의 carrier + overlay + MCP + skills 가 더 두꺼움 |
-
-A 옵션 stance ("pi backend 자치권") 는 유지. 추천 surface 만 좁힘. 코드 path 변경 없음.
-
-**남은 작업:**
-
-- [ ] **Lesson 5개 우선순위 결정 + issue 분리** — OpenClaw audit 에서 도출:
-  1. **Transcript pre-flight** — backend native jsonl 위치 verifier (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `GEMINI_CLI_HOME`)
-  2. **Invalidation reason taxonomy** — `auth-profile / auth-epoch / system-prompt / mcp / transcript-missing` 5종 분리 + log line 명시
-  3. **Fingerprint-keyed reuse** — `ensureBridgeSession` reuse 결정에 skills snapshot + extra system prompt hash 축 추가
-  4. **Single-turn lock per session** — 같은 sessionId 동시 prompt 진입 throw 자리 명시
-  5. **Session cache hygiene** — `acp-bridge.ts` 세션 캐시에 idle timeout + LRU + max-N cap
-  - 우선 후보: 1, 2, 5 (production hygiene). 3, 4 는 invariant 명시 후 코드 점검 결과 보고 결정.
-
-- [ ] **pi-shell-acp 본체 focus 재정렬** — "general ACP multiplexer" → "pi-extension 역할 + entwurf 비대칭 Mitsein". README/문서 surface 정리는 0.7.5 후속 (post-publish docs round).
-
-**관련 운영 컨텍스트**: OpenClaw 5.22 main (`@junghan_openclaw_bot`: `claude-cli/claude-opus-4-7`) + mini (`@glg_mini_bot`: `claude-cli/claude-sonnet-4-6`) 양쪽 native claude-cli, bbot/gemini 그대로 `pi-shell-acp/*`. nixos-config 운영 자리 ([8a2f8ef](https://github.com/junghan0611/nixos-config/commit/8a2f8ef)).
-
----
-
-## 확정 사실 모음
-
-- **Plugin npm 이름**: `@junghan0611/openclaw-pi-shell-acp` (2026-05-21 pivot from `@junghanacs/...` — see [#23](https://github.com/junghan0611/pi-shell-acp/issues/23) and § "Plugin ↔ 본체 scope / 버전 정합" table for rationale)
-- **Plugin ClawHub publisher**: `junghan0611` (GitHub login, matches npm scope)
-- **Plugin 디렉토리**: `plugins/openclaw/` — monorepo lite, `pnpm-workspace.yaml` `packages: ["plugins/*"]`. 의미: `pi-shell-acp` = pi 의 *extension*, `plugins/openclaw` = host 어댑터. `packages/` 어휘 충돌 회피.
-- **OpenClaw peer**: `>=2026.5.12 <2026.6.0`. Validated baseline `2026.5.18`; 5.7~5.11 호환 포기.
-- **pi-ai dep (plugin)**: `@earendil-works/pi-ai@0.74.0` (5.12 align).
-- **Plugin configSchema default**: `mcpInjection: "self"`, `lockConflictPolicy: "strict"`.
-- **Install trust path**: 정식 등록만. `dangerouslyForceUnsafeInstall` flag UX 사용자 권장 안 함.
-- **README guardrail (plugin 측)**: acpx alternative 톤, pi 단어 마케팅 zero, 클로드코드 구독 멘트 금지.
-- **README guardrail (root pi-shell-acp 측)**: "no core patch and no bypass" / MCP narrow surface / capability vs surface 명시.
-
----
-
-## Cross-repo follow-ups (별도 추적)
-
-- **ClawHub `@junghanacs` handle RFC outcome 추적 + future scope re-unification** — RFC [#2320](https://github.com/openclaw/clawhub/issues/2320) / [#2333](https://github.com/openclaw/clawhub/issues/2333) outcome 박힐 때 `@junghanacs` ClawHub handle 이 claimable 해지면 plugin scope 를 `@junghan0611` → `@junghanacs` 로 재정렬 가능. 경로: `clawhub package transfer @junghan0611/openclaw-pi-shell-acp --to junghanacs` + npm 측 deprecation/redirect (`npm deprecate @junghan0611/openclaw-pi-shell-acp "moved to @junghanacs/..."`). 이건 weeks-months 후의 옵션이고, 0.7.x 동안엔 진행 X — 분열을 maintain 하는 게 더 cheap. [#23](https://github.com/junghan0611/pi-shell-acp/issues/23) 참조.
-
-- **Gemini bot usage 측정 OpenClaw 표시 갭** — bbot DIAG stderr 에 `meter=acpUsageUpdate ... used=24315 size=1000000 raw: input=13 output=591 cacheRead=54834 cacheWrite=14346` 정상 도착. 그러나 OpenClaw status bar 의 `📚 Context: ?/200k` 로 표시 (`?`). 분석 영역: (a) plugin `streamSimple` 의 final `message.usage` 에 정확히 전달되는지, (b) OpenClaw status renderer 의 model picker 가 plugin provider 의 usage 매칭하는지 (provider id `pi-shell-acp` 로 lookup 시 missing 인가). "어제도 봤던 버그" — 알려진 잔존 이슈.
-
-- **OpenClaw delivery layer — final-text 정규화 + progress 채널 분리** — 정공법 합의 (2026-05-18 PM GPT힣 PM 검토): `showToolNotifications: true` 유지 (progress 가시성) + OpenClaw/bot 의 outgoing message layer 에서 `[tool:*]` notice 필터링 또는 progress channel 을 final 채널과 분리. 본체 코드 정합 (`index.ts:621` `?? false → ?? true`, 2026-05-19) 끝. 다음 라운드는 OpenClaw delivery layer 측 작업. #20 + follow-up leak 봉인 후 (`e7eefeb` + `8b25c1e`, 2026-05-20) 우리 측 visible-layer 작업은 정합 — 남은 progress noise / `[tool:*]` 노출 정책은 OpenClaw 측 별도 라운드.
-
-- **pi CLI `--new-session` 표면 검토** — `pi -p "..." --session <new-id>` lookup-only. pi 자체 시멘틱 갭. pi-ai / pi-coding-agent 레벨 issue 후보.
-
-- **`ctx.messages` SSOT 모델 공식화** — plugin spec 으로 명시 가치. 다른 backend (Codex/Gemini) 도 같은 모양 plug-in 가능.
-
-- **OpenClaw compose default 검토** (Docker auth boundary) — 공개 install 가이드의 기본 권장이 in-container login 인지 host passthrough 인지. Claude Code auth refresh 가 read-only mount 에서 동작하는지 검증. 우리 측 의견: `plugins/openclaw/README.md` 의 Docker boundary 표 참고.
-
-- **OpenClaw native clean-host recipe follow-up (clean-host practice, 2026-05-21)** — `docs/setup-clean-host.md` Stage 4c 에 0.0.1 practice trail 기록. 발견: (a) `openclaw plugins install npm:@junghan0611/openclaw-pi-shell-acp@0.0.1` 는 ClawHub trust propagation 전 built-in dangerous-code scanner(child_process)에 막혀 maintainer-owned smoke 에 `--dangerously-force-unsafe-install` 필요, (b) `@junghanacs/pi-shell-acp@0.7.5` npm/node_modules 경로를 pi extension source 로 쓰면 Node `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` 발생 — source checkout outside node_modules 로 우회, (c) duplicate pi-shell-acp package entries cause flag/tool conflicts, (d) `openclaw models set pi-shell-acp/gpt-5.4` + `openclaw agent --local ...` turn path GREEN but `openclaw models list --provider pi-shell-acp` returned `No models found`. 다음: root package JS emit or pi loader/package recipe fix + plugin model-list integration 확인.
-
-- **Long-lived session 시 entwurf scope** (Phase 1.4 또는 이후) — plugin path 가 현재 `--no-session` 으로 entwurf 표면을 자연 차단. 미래 long-lived ACP session 으로 가면 두 갈래 결정: (I) entwurf 를 plugin 의 child pi 안에서 그대로 활성화 (isolated topology, root AGENTS.md #9 정합) vs (II) entwurf 호출을 OpenClaw peer API 로 forward (host-coupled, #9 위반). 현재 정책 = I. (II) 는 OpenClaw SDK enhancement 필요, 지금 결정 안 함.
-
-- **Telegram delivery bridge 정식화** (Phase 1.4) — Phase 1.8 응급 다리로 child pi final text → synthetic OpenClaw `message` toolCall 변환을 stub 에 넣음 (`pi-shell-acp-message-*`, toolResult 후 즉시 `end_turn`). 정식 작업에서 OpenClaw `context.tools` / provider tool surface 를 pi-shell-acp transport 에 연결하는 **일반 tool bridge** 로 승격. 지금 패치는 Telegram/message-tool-only path 를 뚫기 위한 prerelease shim. 남은 UX debt: tool trace 노출, `<system-reminder>`류 prompt hygiene, `HEARTBEAT_OK` 같은 session sentinel 이 child prompt 에 섞이는 문제.
-
-- **Oracle Docker image 3-layer install** (Oracle config repo 측) — openclaw-gateway 컨테이너에 `pi`, `pi-shell-acp`, `codex-acp`, `gemini` 추가. `git` system pkg + pnpm global. 자세한 layout 은 `plugins/openclaw/README.md` § Requirements / Docker boundary / If you do not already use pi. Oracle 측 작업, 우리 측 plugin 코드 변경 없음.
-
-- **agent-config server-mode `pi-shell-acp` ref 복귀** (Phase 3 release 후) — 현재 `agent-config 5f17d70` 가 server-mode 에서 main 추적 정책. Oracle 호스트가 우리 push 를 자동 follow. **prerelease / Oracle 검증 동안 임시**. Phase 3 의 ClawHub 등록 후 release tag (`git:...pi-shell-acp@v0.x.y` 등) 로 다시 ref pinning 으로 복귀. 잊으면 server 가 영원히 main 추적 — release 후엔 안 좋은 정책.
-
-- **pi-tools-bridge MCP async surface** (0.7.x or 0.8.0 candidate) — 외부 MCP host (Claude Code / Codex / Gemini CLI) 에서 `entwurf` 가 sync-only (`mcp/pi-tools-bridge/index.ts` 의 tool description 이 honest 하게 명시). 다음 라운드: (1) MCP tool 에 `mode` 파라미터 노출, (2) `entwurf_status` MCP tool 추가, (3) ACP follow-up notification 채널로 완료 알림 surface 가능한지 조사 (Claude Code MCP host 의 notification 채널 지원 여부 의존). 호환성: 변경 시에도 sync default 유지하되 explicit `mode=async` 가능하게.
-
-- **Remote entwurf follow-up cleanup** (2026-05-18 remote shell-quote 긴급 패치 후 잔여):
-  - (a) `shellQuote` 3중 중복을 `pi-extensions/lib/shell-quote.ts` 로 통합. `check-shell-quote` 가 source parity 강제 중.
-  - (b) Async remote resume 에도 `PARENT_SESSION_ID` carrier 전달 여부 결정.
-  - (c) `#11` remote resume saved-header cwd 정렬 smoke/fix.
-  - (d) **Remote home parity 제거** — `os.homedir()` 로 로컬 home 을 absolute 화해서 SSH 너머 전달 (불가피한 임시). NixOS 균질 환경 (`/home/junghan` 모든 호스트 동일) 에선 OK, mixed-OS / 다계정 환경 확장 시 깨짐. 진짜 해결은 remote `$HOME` query 또는 absolute-only 강제.
-  - (e) **Remote 자동 smoke 게이트** — 현재 native/ACP × sync/async × spawn/resume remote 경로의 자동 회귀 게이트 없음. `./run.sh check-remote-entwurf <host>` 식 manual gate 추가 검토.
-
----
-
-## Reference docs (Phase 3 입력)
-
-- **pi.dev packages 규칙**: `~/repos/3rd/pi/pi-mono/packages/coding-agent/docs/packages.md` — manifest 키, peer dep, files allowlist, source type 3종 (npm/git/local), gallery metadata.
-- **Sample 패키지** (`~/repos/3rd/pi/`):
-  - `pi-packages/packages/pi-synthetic-provider/` — provider extension, scope 패키지. 가장 가까운 참고.
-  - `agent-stuff/` (mitsupi) — multi-resource (extensions + skills + themes + commands). 확장 참고.
-  - `pi-telegram/` — minimal extension.
-  - `pi-packages/packages/{pi-firecrawl, pi-exa-mcp, pi-claude-code-use, ...}/` — 다양한 pi extension 패턴.
-
----
-
-## Parked, Not Current
-
-- **#11** remote SSH resume cwd alignment
-- **#10** broader ontology RFC (`peer handle`, `contact_peer`, registry). cwd-authority 부분은 0.4.17 landed.
-- **#8** ACP `entwurf_send` message visibility UX — 2026-05-16 `e31823c` 로 ACP path 의 late `[entwurf sent →]` customMessage 승격 비활성화. in-stream `[tool:start]/[tool:done]` notice 로 회귀. 재진입 조건: pi 가 in-stream passive UI append/update path 를 마련하면 다시 검토.
-- **#2** pi-first context meter, post-0.5.0
-- **L5 long soak** with repeated context-pressure events and sentinel recall, likely 0.6.x or later
+## Closed baseline reminders
+
+- `@junghanacs/pi-shell-acp@0.7.5` published 2026-05-21.
+- `@junghan0611/openclaw-pi-shell-acp@0.0.1` published 2026-05-21, but now parked.
+- Recommended routing as of 2026-05-26:
+  - Claude: OpenClaw native `claude-cli`
+  - Codex: OpenClaw native `openai-codex`
+  - Gemini: `pi-shell-acp` ACP lane if richer MCP/skill surface is needed

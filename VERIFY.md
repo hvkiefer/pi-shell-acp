@@ -64,7 +64,7 @@ This document records only **verification intent (what we're looking at) and pas
 ### Default Execution Shape — entwurf orchestration
 
 - Single-turn verification: one `entwurf(provider="pi-shell-acp", model="<M>", mode="sync")` call
-- Multi-turn verification: first turn via `entwurf`, subsequent turns via `entwurf_resume` with the same `taskId`
+- Multi-turn verification: first turn via `entwurf(mode="sync")`, subsequent turns via `entwurf_resume(mode="sync", taskId=...)`. Both surfaces default to `async` since 0.7.x (spawn from 0.7.0, resume from the next release); pass `mode="sync"` explicitly for verification turns because the operator needs inline answers, not detached followUp delivery.
 - Different backend verification: same pattern with only provider/model changed (e.g., `pi-shell-acp/codex-...`)
 
 ### What NOT to Do — Bypassing the Operational Path
