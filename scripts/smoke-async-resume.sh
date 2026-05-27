@@ -2,13 +2,15 @@
 # smoke-async-resume.sh — live 3-backend × 3-case live smoke for the
 # async-resume regression repair (Phase A + Phase B).
 #
-# Inception condition (acceptance test for the regression repair):
+# Live acceptance condition for the regression repair:
 #
-#   pi-shell-acp Claude (and any other replyable pi-session caller of the
-#   MCP `entwurf_resume` tool) omits `mode` → async ack returns immediately
-#   → parent turn is free → completion arrives later as a followUp message.
+#   a replyable pi-session caller of the MCP `entwurf_resume` tool can request
+#   `mode="async"` → async ack returns immediately → parent turn is free →
+#   completion arrives later as a successful followUp message. The omitted-mode
+#   conditional default is pinned by `check-async-resume-gate`; this live smoke
+#   uses explicit async so backend prompt-following cannot hide the async branch.
 #
-# Hard Rule #7 (three-backend equality): the inception condition is verified
+# Hard Rule #7 (three-backend equality): the live async-resume path is verified
 # on Claude, Codex, and Gemini. Gemini falls into an explicit-skip record
 # when the `gemini` CLI is not on PATH (same pattern as smoke-all). A single-
 # backend GREEN does NOT constitute "release ready" for this regression.
@@ -18,15 +20,18 @@
 #   case A — MCP replyable async (the user-facing path)
 #     1. Spawn tmux pi session: `pi --entwurf-control --provider pi-shell-
 #        acp --model <M>`. wait_for_new_socket → sessionId.
-#     2. Send a prompt to the backend asking it to: (a) call entwurf(sync)
-#        with a tiny payload, (b) call entwurf_resume on the returned
-#        taskId with mode='async'. Async ack appears in the tmux pane as
-#        "Resume spawned (async)" plus a Resume ID.
+#     2. Send a procedural prompt to the backend asking it to: (a) call MCP
+#        `entwurf` (sync-only spawn) with a tiny payload, (b) call
+#        `entwurf_resume` on the returned taskId with mode='async'. Async ack
+#        appears in the tmux pane as "Resume spawned (async)" plus a Resume ID.
 #     3. Wait for the entwurf-complete followUp to land in the pane:
 #        "🏁 resume" / "completed" pattern, OR "❌ resume" on failure.
-#     4. Assert: ack visible + completion visible (or honest error).
+#     4. Assert: ack visible + successful completion visible; `❌ resume` is FAIL.
 #
-# Plus two backend-agnostic deterministic-ish cases (one tmux session only):
+# Plus three backend-agnostic/handler cases:
+#
+#   case D — direct stdio + replyable PI_SESSION_ID/PI_AGENT_ID env → async ack.
+#     This proves handler correctness independent of backend prompt-following.
 #
 #   case B — external non-replyable + explicit mode='async' → reject
 #     1. Stdio-call the MCP bridge directly with no PI_SESSION_ID /
@@ -35,8 +40,8 @@
 #     3. Assert: response text matches the canonical
 #        ENTWURF_RESUME_ASYNC_REJECT_REASON ("replyable pi-session caller").
 #
-#   case C — external non-replyable + mode='async' + cwd → still rejects
-#     (replyable guard fires before cwd guard per Step 4 invariant #16)
+#   case C — external non-replyable + mode omitted → auto-sync shape reaches
+#     the saved-session lookup (asserts `session_not_found` on synthetic taskId).
 #
 # Artifact: $SMARS_ARTIFACT (default /tmp/smoke-async-resume-<ts>.json).
 # Records pass/fail per case + each backend's resume taskId + the

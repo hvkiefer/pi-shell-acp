@@ -5,7 +5,7 @@
 
 ## Current stance — 2026-05-27
 
-**Async-resume regression repair: closed in 0.7.6 ✅**. Phase A (native default flip) + Phase B (MCP mode + conditional default + replyable gate + spawn_async_resume RPC + async launcher extraction + deterministic gate + 3-backend live smoke) all landed in commit chain `ff85fa9 → 4b89b81 → 0107ce4 → 684c97b → 69ff04b → b28d1bb → b6ef765`. Live smoke baseline `/tmp/smoke-async-resume-20260527-191248.json` records 6 PASS / 0 FAIL / 0 SKIP across Claude + Codex + Gemini. See CHANGELOG 0.7.6 for full surface description and the static / live gate split.
+**Async-resume regression repair: closed in 0.7.6 ✅**. Phase A (native default flip) + Phase B (MCP mode + conditional default + replyable gate + spawn_async_resume RPC + async launcher extraction + deterministic gate + 3-backend live smoke) all landed in commit chain `ff85fa9 → 4b89b81 → 0107ce4 → 684c97b → 69ff04b → b28d1bb → b6ef765 → 24ee129 → b98774b → d198da0`. Final live smoke baseline `/tmp/smoke-async-resume-20260527-194013.json` records 6 PASS / 0 FAIL / 0 SKIP across Claude + Codex + Gemini with strict fail-closed completion handling and procedural (non-identity-asserting) prompt. See CHANGELOG 0.7.6 for full surface description and the static / live gate split.
 
 ### Next focus — TBD
 

@@ -24,26 +24,26 @@ Async-resume regression repair. Closes the most awkward intermediate state on th
 
 - **`check-async-resume-gate` deterministic gate (Phase B Step 4).** New `scripts/check-async-resume-gate.ts` exercises the conditional-default + cwd-silent-ignore logic — 16 assertions across 6 mode-resolution cases (replyable/external × {omit, sync, async} combinations) + 7 invariants (canonical reject text shape, no-silent-downgrade regression guard, defensive `replyable: undefined` handling, cwd guard ordering). Resolution logic lives in `mcp/pi-tools-bridge/src/resume-mode.ts` so the gate can import it without triggering the MCP server's `main()` side effect. Wired into `pnpm check` between `check-plugin-prompt-format` and `check-models`. No spawn, no socket, no API cost.
 
-- **`smoke-async-resume` live gate (Phase B Step 5, three-backend axis).** New `scripts/smoke-async-resume.sh` (453 lines, pattern from `session-messaging-smoke.sh`). Six cases:
+- **`smoke-async-resume` live gate (Phase B Step 5, three-backend axis).** New `scripts/smoke-async-resume.sh` (432 lines, pattern from `session-messaging-smoke.sh`). Six cases:
 
-  - **A.async.{claude,codex,gemini}** — disposable tmux pi session per backend, prompt the backend to chain `entwurf(sync)` → `entwurf_resume(mode='async')`, assert "Resume spawned (async)" ack AND "🏁 resume … completed" followUp in the pane. Inception condition: pi-shell-acp Claude (and equivalents) omitting `mode` → async ack returns immediately → parent turn stays free → completion arrives as a followUp.
+  - **A.async.{claude,codex,gemini}** — disposable tmux pi session per backend, prompt the backend procedurally (no identity claims) to chain MCP `entwurf` sync-only spawn → `entwurf_resume(mode='async')`, assert "Resume spawned (async)" ack AND "🏁 resume … completed" followUp in the pane. This proves the replyable MCP → control-RPC → native async launcher path on all three backends. The omitted-mode conditional default itself is pinned by `check-async-resume-gate`; the live gate uses explicit `mode='async'` so model prompt-following cannot hide the async branch.
   - **D.direct_stdio_async_handler** — handler-level proof independent of any backend's prompt-following: sets PI_SESSION_ID/PI_AGENT_ID env directly, stdio-calls the MCP bridge to spawn an entwurf and then `entwurf_resume(mode='async')`. Asserts the async ack text returns. Separates "handler correctness" from "backend prompt-following capability."
   - **B.external_async_reject** — external (no PI_SESSION_ID) + explicit `mode='async'` → reject with canonical text.
   - **C.external_autosync_shape** — external + mode omitted → auto-sync path reached (asserts via `session_not_found` on a synthetic taskId).
 
-  Reference baseline run (2026-05-27, artifact `/tmp/smoke-async-resume-20260527-191248.json`): 6 PASS / 0 FAIL / 0 SKIP, three-backend equality closed. Cost ~$0.20 per full run. Required before every release that touches the entwurf surface; not in the deterministic `pnpm check` chain because it spends ACP turns.
+  Reference baseline run (2026-05-27, artifact `/tmp/smoke-async-resume-20260527-194013.json`): 6 PASS / 0 FAIL / 0 SKIP, three-backend equality closed, strict fail-closed (`❌ resume` is FAIL, only `🏁 resume … completed` is PASS). The final smoke also captured a useful boundary lesson: user-role identity assertions like "you ARE replyable" are rightly rejected by Claude as prompt-injection-shaped; the smoke prompt is therefore procedural and lets the MCP env decide replyability. Cost for the final full run was ~$0.11 (overall Phase B evidence formation ~$0.55). Required before every release that touches the entwurf surface; not in the deterministic `pnpm check` chain because it spends ACP turns.
 
 ### Verification
 
 - `pnpm check` — 13 deterministic gates pass (`check-mcp`, `check-shell-quote` 17 (3 source-parity sites + reference body + 13 behavior cases), `check-plugin-empty-final-recovery` 34, `check-plugin-prompt-format` 22, `check-async-resume-gate` 16, `check-models` 3 passes, `check-backends` 136, `check-registration` 8, `check-dep-versions` 6, `check-sdk-surface` 0 unannotated casts, `check-pack` 52-file invariant — was 48 in 0.7.5, +4 for `pi-extensions/lib/entwurf-async.ts`, `mcp/pi-tools-bridge/src/resume-mode.ts`, `scripts/check-async-resume-gate.ts`, `scripts/smoke-async-resume.sh`).
-- `./run.sh smoke-async-resume` — 6 PASS / 0 FAIL / 0 SKIP across Claude + Codex + Gemini (baseline reference run above).
+- `./run.sh smoke-async-resume` — 6 PASS / 0 FAIL / 0 SKIP across Claude + Codex + Gemini (final strict fail-closed baseline reference run above).
 - Three-backend equality (Hard Rule #7) — Claude, Codex, Gemini all GREEN with live evidence.
 
 ### Repository
 
-- Commit chain (`main`): `ff85fa9` Phase A native default flip → `4b89b81` Step 1 lib extraction → `0107ce4` Step 2 control RPC → `684c97b` Step 3 MCP mode + conditional default → `69ff04b` Step 4 deterministic gate → `b28d1bb` cwd silent-ignore fix → `b6ef765` Step 5 live smoke.
-- AGENTS.md, README, settings.reference.json — no surface changes required at this version; the existing "Three-backend equality is non-negotiable" wording (Hard Rule #7) already binds this work.
-- NEXT.md — "Top regression — restore async resume workflow" moves out of active state. Phase A and Phase B complete.
+- Commit chain (`main`): `ff85fa9` Phase A native default flip → `4b89b81` Step 1 lib extraction → `0107ce4` Step 2 control RPC → `684c97b` Step 3 MCP mode + conditional default → `69ff04b` Step 4 deterministic gate → `b28d1bb` cwd silent-ignore fix → `b6ef765` Step 5 live smoke → `24ee129` 0.7.6 release docs/version → `b98774b` pre-release surface-doc alignment + fail-closed smoke → `d198da0` procedural smoke prompt.
+- AGENTS.md, README, VERIFY.md, NEXT.md, and MCP/source comments updated to the final 0.7.6 surface: MCP `entwurf` spawn remains sync-only; MCP `entwurf_resume` is conditional-default async for replyable pi-session callers and sync/reject for external non-replyable hosts.
+- NEXT.md — async-resume repair moves out of active state. Phase A and Phase B complete; next focus returns to Asymmetric Mitsein / session-continuity hygiene.
 
 ## 0.7.5 — 2026-05-21
 

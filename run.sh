@@ -53,7 +53,7 @@ Usage:
   ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
   ./run.sh check-plugin-prompt-format          # deterministic shape gate for buildConversationPrompt + stripChatCompletionTail (issue #20 follow-up leak)
   ./run.sh check-async-resume-gate    # deterministic gate for MCP entwurf_resume mode resolution + replyable gate + cwd silent-ignore (0.7.6, 16 assertions)
-  ./run.sh smoke-async-resume [backends...] # live 3-backend × 3-case async-resume smoke (Claude+Codex+Gemini), required before release (0.7.6 inception condition)
+  ./run.sh smoke-async-resume [backends...] # live async-resume smoke (Claude+Codex+Gemini + handler/external cases), required before entwurf releases
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md) agree
@@ -1151,12 +1151,13 @@ check_plugin_prompt_format() {
 }
 
 smoke_async_resume() {
-  # Live 3-backend × 3-case smoke for the async-resume regression repair
-  # (Phase A + Phase B). Inception condition (acceptance test):
-  #
-  #   pi-shell-acp Claude / sibling pi-session callers omit `mode` → async
-  #   ack returns immediately → parent turn is free → completion arrives
-  #   later as a followUp message.
+  # Live smoke for the async-resume regression repair (Phase A + Phase B).
+  # It verifies the replyable MCP → control-RPC → native async launcher path:
+  # backend calls MCP `entwurf` (sync-only spawn) then `entwurf_resume(mode=async)`,
+  # async ack returns immediately, and successful completion later arrives as a
+  # followUp (`🏁 resume … completed`). The omitted-mode conditional default is
+  # pinned by `check_async_resume_gate`; this live smoke uses explicit async so
+  # model prompt-following cannot hide the async branch.
   #
   # Hard Rule #7 — three-backend equality. Claude, Codex, and Gemini all
   # exercise the same MCP → control-RPC → native-launcher chain. Gemini
@@ -1167,16 +1168,17 @@ smoke_async_resume() {
   #
   # Cases:
   #   A — MCP replyable async (per backend): tmux pi session with --entwurf-
-  #       control, prompt backend to call entwurf+entwurf_resume(mode=async),
-  #       assert async ack AND completion followUp in the pane.
+  #       control, prompt backend procedurally (no identity claims) to call
+  #       entwurf + entwurf_resume(mode=async), assert async ack AND successful
+  #       completion followUp in the pane (`❌ resume` is fail-closed).
   #   B — external non-replyable + explicit mode='async' → reject. Stdio
   #       call to the MCP bridge without PI_SESSION_ID/PI_AGENT_ID env.
   #   C — external + auto-sync shape reachability. Stdio call with mode
   #       omitted; auto-resolution picks sync; assertion is that the
   #       sync path is REACHED (not gated by replyable check).
   #
-  # Cost: ~$0.15–$0.30 per full Claude+Codex+Gemini run. Required before
-  # 0.7.6 release per AGENTS.md Hard Rule #7.
+  # Cost: ~$0.10–$0.30 per full Claude+Codex+Gemini run. Required before
+  # release when the entwurf surface changes per AGENTS.md Hard Rule #7.
   (cd "$REPO_DIR" && ./scripts/smoke-async-resume.sh "$@")
 }
 

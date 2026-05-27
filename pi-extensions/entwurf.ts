@@ -431,9 +431,9 @@ export default function (pi: ExtensionAPI) {
 			// Default `async` since 0.7.0 — review/research/build dominate spawn
 			// usage, and blocking the parent turn for >30s reads as "stuck" to the
 			// operator. Sync is opt-in for short status checks. Note: this is the
-			// in-pi tool surface; the external MCP host surface
-			// (mcp/pi-tools-bridge) intentionally exposes sync only — see that
-			// file's tool description for the deferred async design round.
+			// in-pi spawn tool surface; the MCP bridge `entwurf` spawn remains
+			// sync-only for now. MCP `entwurf_resume` async landed separately in
+			// 0.7.6 via the control-RPC launcher path.
 			const mode = params.mode ?? "async";
 
 			const guardSessionId = getParentSessionId(pi);
