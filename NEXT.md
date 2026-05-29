@@ -3,30 +3,117 @@
 > 다음에 할 일만 남긴다. 로그가 아니다.
 > 결정 trace 와 evidence 는 commit history / CHANGELOG / VERIFY / BASELINE / README / AGENTS / 코드로 보낸다.
 
-## Current stance — 2026-05-27
+## Top priority — 0.8.0 release campaign (dependency alignment + full test gate)
 
-**Async-resume regression repair: closed in 0.7.6 ✅**. Phase A (native default flip) + Phase B (MCP mode + conditional default + replyable gate + spawn_async_resume RPC + async launcher extraction + deterministic gate + 3-backend live smoke) all landed in commit chain `ff85fa9 → 4b89b81 → 0107ce4 → 684c97b → 69ff04b → b28d1bb → b6ef765 → 24ee129 → b98774b → d198da0`. Final live smoke baseline `/tmp/smoke-async-resume-20260527-194013.json` records 6 PASS / 0 FAIL / 0 SKIP across Claude + Codex + Gemini with strict fail-closed completion handling and procedural (non-identity-asserting) prompt. See CHANGELOG 0.7.6 for full surface description and the static / live gate split.
+**Baseline:** 0.7.6 released (async-resume regression closed; see CHANGELOG 0.7.6 + commit chain `ff85fa9 → … → d198da0`). pi host is now `0.77.0`. GPT-5.5 reviewed pi 0.77.0 release notes **and** this NEXT plan twice (see reference below); all four follow-up reinforcements folded into the steps. Target: **bump every dependency to latest, consolidate a single all-pass release gate, then cut 0.8.0.**
 
-### Next focus — pi 0.76.0 maintenance / context hygiene
+Sequenced — each step verified before the next. **GLG makes the final commit.** Execution model: GPT-5.5 (sync) for design review, GPT-5.4 for test cycles, GLG + Claude for final verification. Test invocation is ALWAYS through `run.sh` subcommands — never call a script in `scripts/` directly.
 
-pi host is already updated to `0.76.0` on the working machine. Follow-up items:
+### Step 1 — Dependency bump (latest, confirmed 2026-05-29)
 
-1. **devDependency alignment — do next**
-   - `package.json` devDeps still pin `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` at `0.75.4` while runtime pi is `0.76.0`.
-   - Update them to `0.76.0`, run `pnpm install`, then at least `pnpm typecheck`, `./run.sh check-registration`, `./run.sh check-dep-versions`.
-   - If cheap, continue into the usual focused smoke for the touched surface.
+| Package | Current pin | Latest | Where |
+|---|---|---|---|
+| `@earendil-works/pi-{ai,coding-agent,tui}` | `0.75.4` | **`0.77.0`** | `package.json` devDeps |
+| `@agentclientprotocol/claude-agent-acp` | `0.36.1` | **`0.38.0`** | `package.json` deps |
+| `@zed-industries/codex-acp` | `0.14.0` | **`0.15.0`** | `package.json` deps |
+| `@agentclientprotocol/sdk` | `0.22.1` | `0.22.1` | already latest — no change |
 
-2. **`--session-id` — consider later, not urgent**
-   - New pi CLI flag can create/resume an exact project-local session id.
-   - Current entwurf code intentionally uses `--session <absolute sessionFile>` because `_entwurf-<taskId>.jsonl` naming and lookup depend on file identity.
-   - Do not rewrite the entwurf path just because the flag exists. Possible pilot surface: small `run.sh` automation/smoke where project-local fixed IDs improve determinism.
-   - This does **not** solve ACP backend continuity footguns caused by bridge config signature drift (`--emacs-agent-socket`, MCP/settings changes, etc.).
+Pin sites to update in lockstep (grep `0.75.4` / `0.14.0` / `0.36.1`):
+- `package.json` deps + devDeps.
+- `run.sh` `CLAUDE_ACP_REQUIRED_VERSION` / `CODEX_ACP_REQUIRED_VERSION` (separate hardcoded pins, `run.sh` ~check-pack-install region).
+- `README.md:113` install snippet (`@zed-industries/codex-acp@0.14.0`) + any pi-version prose in docs.
 
-3. **RPC `bash.excludeFromContext` — investigate for context pollution control**
-   - pi 0.76.0 lets RPC clients run bash while keeping output out of the next model prompt.
-   - This matters beyond tokens: noisy command output pollutes transcript, future recall, and semantic-memory embeddings.
-   - Audit any pi-shell-acp / helper / MCP / future session-control paths that use pi RPC bash or equivalent pre-prompt command execution.
-   - Principle to capture if adopted: operational probes (`git status`, process checks, large logs, health checks) should be observable to the caller without automatically becoming model/embedding context unless explicitly useful.
+**`check-dep-versions` is currently incomplete — extend it (GPT-5.5 reinforcement 2):** today it only asserts `claude-agent-acp`, `codex-acp`, and the README codex pin (`run.sh:2515`, "6 assertions"). It does NOT verify `@earendil-works/pi-{ai,coding-agent,tui}` at all, nor the `check-pack-install` peer-install pin. Add assertions so the three pi devDeps agree across `package.json` + `check-pack-install` peer pin — otherwise it is not really a "dependency alignment gate".
+
+- `claude-agent-acp 0.36.1 → 0.38.0` and `codex-acp 0.14.0 → 0.15.0` are minor bumps across backend SDKs — run `check-sdk-surface` + live `smoke-all` to confirm bridge cast annotations and 3-backend runtime still hold.
+
+### Step 2 — Opus 4.7 → 4.8 (REPLACE — 4.8 only)
+
+**Decision (GLG, 2026-05-29): support 4.8 only.** Live surfaces replace `claude-opus-4-7` → `claude-opus-4-8`; VERIFY/CHANGELOG history rows keep `4-7` as historical evidence (do not rewrite history).
+
+pi 0.77 added `claude-opus-4-8` metadata, but pi-shell-acp is a **curated surface** — it does NOT auto-expose. All live sites change in lockstep (grep `claude-opus-4-7`, ~20 sites):
+
+- `index.ts:198` `SUPPORTED_ANTHROPIC_MODEL_IDS` + `:284`/`:288` placeholder injection (+ comment `:231`, `:317`)
+- `pi/entwurf-targets.json` entry
+- `run.sh` model gates: `:944` model-switch smoke, `:2382` / `:2422` / `:2480` `check-models` lists
+- `scripts/check-model-lock.ts:214` `PSA_OPUS`
+- `plugins/openclaw/src/index.ts:245-267` **AND `plugins/openclaw/dist/index.js:69-91`** — plugin `main` is `dist/index.js`, so source-only edits leave the runtime stale (GPT-5.5 reinforcement 4). Either `pnpm --filter ./plugins/openclaw build` to regenerate dist, or hand-sync both; `check:plugins` should catch type drift but not a stale literal — verify dist matches source after.
+- `plugins/openclaw/README.md`, `plugins/openclaw/examples/docker-lab/*` (README + `config/openclaw.json`)
+- docs surfaces: `demo/README.md:115`, `docs/setup-clean-host.md:199/228`
+- **`check-models` must prove 4.8 is real, not a placeholder (GPT-5.5 reinforcement 5):** the `index.ts` placeholder-injection path can mask a missing 0.77 registry entry. Update `check-models` to assert `claude-opus-4-8` exists in the pi 0.77 model registry AND surfaces at 1M context — so a silent metadata gap fails the gate instead of being papered over by the injected placeholder.
+- Add Claude runtime smoke / interview evidence on 4-8 before release.
+
+### Step 3 — ONE release gate (the real ask: "다 통과해야 릴리즈, run.sh 명령 하나")
+
+**The deliverable: a single `run.sh` subcommand that, when green, is sufficient to release. No script in `scripts/` is ever called directly — everything goes through `run.sh`.**
+
+**First, name the two axes clearly (this is the "smoke vs check 뭐가 다른가" confusion).** The `check-`/`smoke-` prefix does NOT currently separate static from live:
+
+- **Static / deterministic (no API, no backend subprocess)** — fast, free, pre-commit safe: `lint`, `typecheck`, `check:plugins`, `check-mcp`, `check-shell-quote`, `check-plugin-empty-final-recovery`, `check-plugin-prompt-format`, `check-async-resume-gate`, `check-models`, `check-backends`, `check-registration`, `check-dep-versions`, `check-sdk-surface`, `check-pack`, **`check-model-lock`**, **`verify-transcript-poison`**. → this set is `pnpm check`'s job.
+- **Live / runtime (spawns a real backend, costs tokens — fine, all subscription)**: `smoke-all` (3-backend), `smoke-async-resume`, `smoke-continuity`, `smoke-cancel`, `smoke-model-switch`, `smoke-entwurf-resume`, `check-bridge`, `check-native-async`, `sentinel`, `session-messaging`, `smoke-compaction-policy`.
+- **Naming smell to fix:** `check-bridge` and `check-native-async` are `check-`-prefixed but are actually LIVE. Rename or document so the prefix is honest, OR drop the prefix as a signal and rely on the gate grouping. Decide during dedup.
+
+**Problems to fix:**
+1. `pnpm check` MISSES two deterministic gates that belong in it: **`check-model-lock`** and **`verify-transcript-poison`** (both no-API per their usage text). Fold them in — the static set must be honestly complete.
+2. There is **no single "run everything" gate.** The live smokes are scattered and never bundled → "Claude만 / sync만 통과" is structurally possible today.
+
+**Work:**
+1. Fold `check-model-lock` + `verify-transcript-poison` into `pnpm check`.
+2. **Dedup FIRST, then bundle** (so the single command isn't bloated with redundant work). Audit overlap and either collapse or document why both must exist:
+   - `smoke-entwurf-resume` vs `smoke-async-resume` vs `sentinel` — all touch entwurf continuity. What does each prove uniquely?
+   - `check-bridge` vs `check-native-async` — both exercise the bridge/MCP live.
+   - `smoke-continuity` vs `smoke-entwurf-resume` — both are resume/bootstrap gates.
+   - Goal: no redundant or orphaned script in the release set; we can *prove* every distinct invariant ran exactly once.
+3. **Add the single target — `./run.sh release-gate`** (working name): runs `pnpm check` (full static) → every surviving live smoke across **all 3 backends** → emits one consolidated PASS/FAIL/SKIP summary, fail-closed.
+   - **Gemini skip policy (GPT-5.5 reinforcement 1):** the FINAL release gate must NOT skip Gemini — 0.8.0 makes a three-backend claim, so Claude/Codex/Gemini must all actually PASS (skip = FAIL). A dev-only `--allow-skip-gemini` flag may exist for iteration, but the default release path treats a missing Gemini as failure, not a silent pass. (Current `smoke-all` silently best-effort-skips Gemini — that's the dev behavior, not the release behavior.)
+4. **Add a `-xt` / `--exclude-tools` tool-surface truthfulness smoke (GPT-5.5 reinforcement 6 + pi 0.77 review):** pi 0.77's `--exclude-tools` can hide tools, but the Claude backend hands Read/Bash/Edit/Write to Claude Code itself — so `pi --provider pi-shell-acp -xt Bash` may make pi's *declared* tool surface diverge from the backend's *actual* surface, violating our "declared tools == actual tools" invariant. At least one focused gate (deterministic if possible, else live) must verify pi-shell-acp does not lie about its tool surface under `-xt`. This joins the release gate.
+5. Wire the consolidated gate into `prepublishOnly` (or document precisely why publish runs a subset vs the full local release gate).
+
+> Principle: **a release is valid only when the full set passed.** Adding a feature adds a test; the test joins the release gate. No backend-specific or sync-only shortcut counts as "tested."
+
+### Step 4 — README / docs / OpenClaw metadata corrections
+
+OpenClaw publish status is currently self-contradictory across three files (GPT-5.5 reinforcement 3). `@junghan0611/openclaw-pi-shell-acp@0.0.1` IS live on npm (confirmed 2026-05-29) but parked. Separate the two axes — **npm: published-but-parked** vs **ClawHub: not published**:
+
+- **`README.md:130`** says "not published to npm or ClawHub yet" — wrong on the npm half. Fix to: published to npm as `0.0.1` (parked, no work since), not on ClawHub.
+- **`README.md:92`** already says "ships as its own npm package" — reconcile so :92 and :130 tell the same story.
+- **`plugins/openclaw/package.json`** has `openclaw.release.publishToNpm: false` while 0.0.1 is actually on npm. Re-examine this field's meaning: either it's stale (flip to reflect reality) or it means "do not auto-publish from CI" (then document that intent). `publishToClawHub: false` stays correct.
+- Reconcile any version strings touched in Steps 1–2 (`check-dep-versions` will enforce most).
+
+### Step 5 — Cut 0.8.0
+
+Only after Step 3's consolidated gate is green end-to-end: version bump, CHANGELOG, publish, agenda stamp.
+
+---
+
+## GPT-5.5 review of pi 0.77.0 release notes (2026-05-29) — reference
+
+Incorporated into Steps 1–3 above; kept here for trace.
+
+- **devDependency alignment — confirmed.** 0.75.4 → 0.77.0, min gate: `pnpm install` + `typecheck` + `check-registration` + `check-dep-versions` + `check-models`.
+- **`--exclude-tools` / `-xt` — the new axis to watch.** pi native can hide tools (`pi --provider pi-shell-acp -xt Bash`), but the Claude backend hands Read/Bash/Edit/Write to Claude Code itself → pi's declared tool surface and the backend's actual surface may diverge, conflicting with our "declared tools == actual tools" invariant. Not an immediate break, but needs a **focused smoke**: does `-xt Bash` make pi-shell-acp lie about its tool surface? Operationally: `-xt Read/Bash/Edit/Write` still risky on pi-shell-acp sessions; `-xt entwurf` / `-xt entwurf_send` (extension tools) disable as intended.
+- **`session_shutdown` signal fix — positive.** 0.77 guarantees `session_shutdown` cleanup on SIGTERM/SIGHUP. This repo depends on it (ACP child cleanup, control-socket cleanup, session env/status cleanup) in `index.ts` + `pi-extensions/entwurf-control.ts`. Upstream leak reduction — verify our cleanup paths still fire under it.
+- **`streamingBehavior` — no current impact.** Our extensions don't use `InputEvent.streamingBehavior` directly. Touches `entwurf_send` steer/follow_up semantics — reference for future live peer-messaging UX work.
+- **Codex headless subscription login — indirect positive.** Default entwurf target is `openai-codex/gpt-5.4`; native Codex login on headless hosts gets easier. Candidate note for `docs/setup-clean-host.md`.
+- **NEW axis to add as a Step-3 smoke candidate:** `-xt` tool-surface truthfulness check.
+
+### GPT-5.5 second review — of this NEXT plan (2026-05-29)
+
+Verdict: NEXT adoptable; four reinforcements needed. All four folded into the steps above:
+
+1. **Release gate must NOT skip Gemini at final release** — three-backend claim ⇒ all three actually PASS; `--allow-skip-gemini` is dev-only, default = skip-is-fail. → Step 3.3.
+2. **`check-dep-versions` doesn't check pi devDeps** — only claude-agent-acp/codex-acp/README codex pin today; add `@earendil-works/pi-{ai,coding-agent,tui}` + `check-pack-install` peer pin. → Step 1.
+3. **OpenClaw metadata conflict** — README:92 vs :130 vs `package.json publishToNpm:false`; split "ClawHub not published / npm published-but-parked". → Step 4.
+4. **Opus 4.8 must sync generated dist** — `plugins/openclaw/dist/index.js` still has `claude-opus-4-7`; plugin main is dist, so source-only edit drifts. Also `check-models` must verify 4.8 registry presence + 1M context, not let placeholder injection hide a metadata gap. → Step 2.
+
+---
+
+## Deferred — not part of 0.8.0 unless GLG reopens
+
+- **`--session-id`** — new pi CLI flag for exact project-local session ids. Entwurf intentionally uses `--session <absolute sessionFile>` (file-identity dependent). Do not rewrite the entwurf path just because the flag exists. Possible pilot: small `run.sh` automation/smoke where fixed IDs improve determinism. Does NOT solve ACP backend continuity footguns from bridge config signature drift.
+- **RPC `bash.excludeFromContext`** — pi 0.77 lets RPC clients run bash while keeping output out of the next model prompt. Matters beyond tokens: noisy output pollutes transcript / recall / semantic-memory embeddings. Audit pi-shell-acp / helper / MCP / session-control paths using pi RPC bash. Principle if adopted: operational probes should be observable to the caller without auto-becoming model/embedding context unless explicitly useful.
+
+---
 
 **OpenClaw 쪽은 당분간 진행하지 않는다.** `3a65072 docs(openclaw): recommend native lanes for Claude/Codex, narrow plugin to Gemini` 로 정리한 대로, OpenClaw 5.22 native `claude-cli` 가 Pro/Max 결제 + 1M ctx + workspace skill + live-session 재사용까지 충분히 동작함을 확인했다. Claude/Codex lane 은 OpenClaw native 를 쓰면 되고, 우리 OpenClaw plugin 은 더 밀 필요가 없다.
 
@@ -34,7 +121,9 @@ pi host is already updated to `0.76.0` on the working machine. Follow-up items:
 
 ---
 
-## Top priority — Asymmetric Mitsein with Claude Code
+## Standing focus — Asymmetric Mitsein with Claude Code
+
+(0.8.0 캠페인과 병행하는 상시 초점. 릴리즈 게이트 작업이 끝나면 다시 전면으로.)
 
 당분간 초점은 **비대칭 공존(Asymmetric Mitsein)** 이다. `pi-shell-acp` 를 OpenClaw plugin 쪽으로 더 밀기보다, **pi session ↔ Claude Code / external MCP host ↔ pi-tools-bridge ↔ entwurf** 가 서로 다른 하네스 정체성을 유지하면서 함께 일하는 시나리오를 검증한다.
 
@@ -160,8 +249,8 @@ OpenClaw 5.22 native `claude-cli` audit 에서 얻은 lesson 을 **pi-shell-acp 
 
 ## Closed baseline reminders
 
-- `@junghanacs/pi-shell-acp@0.7.5` published 2026-05-21.
-- `@junghan0611/openclaw-pi-shell-acp@0.0.1` published 2026-05-21, but now parked.
+- `@junghanacs/pi-shell-acp@0.7.6` published (latest before 0.8.0 campaign).
+- `@junghan0611/openclaw-pi-shell-acp@0.0.1` published 2026-05-21 (confirmed live on npm 2026-05-29), parked — no work since publish. README must reflect *published-but-parked*, not "not yet published".
 - Recommended routing as of 2026-05-26:
   - Claude: OpenClaw native `claude-cli`
   - Codex: OpenClaw native `openai-codex`
