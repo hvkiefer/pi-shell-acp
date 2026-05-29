@@ -7,7 +7,7 @@
 	},
 	"entwurfTargets": [
 		{ "provider": "pi-shell-acp", "model": "claude-sonnet-4-6", "enabled": true },
-		{ "provider": "pi-shell-acp", "model": "claude-opus-4-7", "enabled": true },
+		{ "provider": "pi-shell-acp", "model": "claude-opus-4-8", "enabled": true },
 
 		{ "provider": "openai-codex", "model": "gpt-5.4", "enabled": true },
 		{ "provider": "openai-codex", "model": "gpt-5.5", "enabled": true },

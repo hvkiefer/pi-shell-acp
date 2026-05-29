@@ -4,6 +4,36 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.8.0 — 2026-05-29
+
+Release-gate consolidation and pi 0.77 alignment. This release makes the full static + live verification path a single command, fixes the pi-provider auth boundary exposed by pi 0.77, aligns ACP dependencies, and moves the curated Claude Opus surface to Opus 4.8 only. The OpenClaw plugin remains a parked sibling track and is intentionally not migrated in this cut.
+
+### Changed
+
+- **`./run.sh release-gate` is now the release prerequisite.** The gate runs the deterministic `pnpm check` floor plus every live per-invariant gate, treats Gemini availability skips as release failures, pins `LIVE=1` for the compaction-policy probe, and prints a single PASS/FAIL/SKIP summary. `prepublishOnly` intentionally stays static+pack (`pnpm check` + `check-pack-install`); a green `release-gate` artifact is the documented manual prerequisite before publishing.
+- **Dependencies aligned to the pi 0.77 / ACP current floor.** `@earendil-works/pi-{ai,coding-agent,tui}` are pinned to `0.77.0`, `@agentclientprotocol/claude-agent-acp` to `0.38.0`, and `@zed-industries/codex-acp` to `0.15.0`. `check-dep-versions` now asserts the pi devDeps and fresh-temp pack-install peer pins in addition to the ACP server pins.
+- **Curated Claude Opus surface retired 4.7 and exposes 4.8 only.** `claude-opus-4-8` is required from the pi 0.77 registry and must report a 1M context window; the old placeholder-clone path for Opus is gone. `claude-opus-4-7` is now forbidden in the live curated model list. Historical VERIFY/CHANGELOG rows keep 4.7 as historical evidence.
+- **ACP backend `--exclude-tools` / `-xt` policy is fail-fast for built-ins.** Excluding backend-native built-ins such as read/bash/edit/write would make pi's declared tool surface diverge from the backend's actual tool surface, so the provider rejects that request before backend launch. Pi-side extension tools such as `entwurf` remain excludable.
+
+### Fixed
+
+- **Corrected the pi provider auth boundary (#26).** The provider registration now uses an explicit no-auth sentinel instead of the legacy `ANTHROPIC_API_KEY` validation shim. pi-shell-acp still does not provide, proxy, copy, or require Claude/Codex/Gemini credentials; backend auth belongs to the official backend CLI child process. Static guards now reject any root bridge `apiKey: "ALL_CAPS_ENV"` regression.
+- **Closed the sentinel async-delivery regressions.** ACP parent sentinel spawns now include the control socket they need, and both async completion delivery paths share the same stale-context best-effort guard instead of crashing the parent when a completion arrives after session replacement.
+- **Preserved scratch cwd hygiene for full release gates.** `release-gate` now runs every live gate from the supplied project directory, including gates that take no project argument (`smoke-async-resume`, `check-bridge`, `check-native-async`, `sentinel`, `session-messaging`, `smoke-compaction-policy`, and `xt-tool-surface`). A repo-cwd invocation with a scratch project no longer writes new test sessions into the repo session directory.
+- **Hardened `session-messaging` delivery assertions.** The smoke now checks the full MCP response for delivery success instead of grepping only a path-length-sensitive preview slice.
+- **Made `smoke-cancel` robust to unrelated backend process cleanup.** The gate still fails on a positive process-count delta (leak), but no longer treats a negative delta from old unrelated `codex-acp` processes exiting during the smoke as a release blocker.
+
+### Documentation
+
+- Documented the external MCP host PATH boundary: GUI/editor-launched MCP servers may not inherit the interactive shell PATH, so `PI_TOOLS_BRIDGE_ENV_FILE` or an explicit MCP `env.PATH` may be required when `entwurf` needs to spawn `pi`.
+- Updated clean-host and model-surface docs for the 0.77 / Opus 4.8 release floor.
+
+### Verification
+
+- Final release-gate evidence before cut: `/tmp/release-gate-0.8.0-final2-20260529-164313.log` — `PASS=14 FAIL=0 SKIP=0`, run from the repo cwd against scratch project `/tmp/pi-shell-acp-release-gate-20260529` with no `--allow-skip-gemini`.
+- Artifact cross-check: `/tmp/smoke-async-resume-20260529-164342.json` and `/tmp/sentinel-20260529-164759.json` contain no repo session-dir paths; sentinel recorded six scratch session files and async-resume recorded the direct-stdio async session under the scratch session dir.
+- `smoke-async-resume` passed 6/6 including `A.async.claude-sonnet-4-6`; this run did not hit the intermittent Sonnet model-argument variance path.
+
 ## 0.7.6 — 2026-05-27
 
 Async-resume regression repair. Closes the most awkward intermediate state on the entwurf surface — short spawn defaulting async (0.7.0, `ad4413e`) while long resume blocked the parent turn (Phase 0.5, `agent-config e5aa5a1`, 2026-04-24) — and restores the pre-Phase-0.5 native pattern across both the native pi tool surface and the MCP bridge surface that pi-shell-acp Claude (and any other replyable pi-session caller) actually uses. Verified live across Claude, Codex, and Gemini (Hard Rule #7), plus a backend-agnostic handler-level proof + the external rejection path.

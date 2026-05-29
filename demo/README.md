@@ -112,7 +112,7 @@ The demo launch lines correspond to your shell aliases:
 
 | Alias | Model id | Use as |
 |---|---|---|
-| `piao` | `pi-shell-acp/claude-opus-4-7` | `SENDER_MODEL` (precision scenes) |
+| `piao` | `pi-shell-acp/claude-opus-4-8` | `SENDER_MODEL` (precision scenes) |
 | `pias` | `pi-shell-acp/claude-sonnet-4-6` | `SENDER_MODEL` (default) |
 | `piat` | `pi-shell-acp/gpt-5.4` | `PEER_MODEL` (default) |
 | `piat5` | `pi-shell-acp/gpt-5.5` | either |

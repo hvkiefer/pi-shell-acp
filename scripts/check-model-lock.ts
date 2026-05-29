@@ -211,7 +211,7 @@ async function makeHarness(opts: MakeHarnessOpts = {}): Promise<Harness> {
 const NATIVE_A: ModelLike = { provider: "openai-codex", id: "gpt-5.4" };
 const NATIVE_B: ModelLike = { provider: "openai-codex", id: "gpt-5.5" };
 const PSA_SONNET: ModelLike = { provider: "pi-shell-acp", id: "claude-sonnet-4-6" };
-const PSA_OPUS: ModelLike = { provider: "pi-shell-acp", id: "claude-opus-4-7" };
+const PSA_OPUS: ModelLike = { provider: "pi-shell-acp", id: "claude-opus-4-8" };
 
 let passed = 0;
 let failed = 0;

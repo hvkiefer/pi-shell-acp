@@ -242,7 +242,7 @@ const DEFAULT_CLAUDE_DISALLOWED_TOOLS: readonly string[] = [
 //
 // Adding a model here means we commit to checking it across both Axis 1
 // (protocol smoke) and Axis 2 (agent interview). Do not extend casually.
-const SUPPORTED_ANTHROPIC_MODEL_IDS: readonly string[] = ["claude-sonnet-4-6", "claude-opus-4-7"] as const;
+const SUPPORTED_ANTHROPIC_MODEL_IDS: readonly string[] = ["claude-sonnet-4-6", "claude-opus-4-8"] as const;
 const SUPPORTED_CODEX_MODEL_IDS: readonly string[] = ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5"] as const;
 const SUPPORTED_GEMINI_MODEL_IDS: readonly string[] = ["gemini-3.1-pro-preview"] as const;
 
@@ -275,7 +275,7 @@ const GEMINI_MODEL_IDS = new Set(GEMINI_MODELS_ALL.map((m) => m.id));
 // Anthropic's registry reports 1_000_000 for Claude 4.6+ models, but our
 // public pi-shell-acp surface deliberately distinguishes Sonnet vs Opus:
 // - sonnet-4-6 stays at 200K by default
-// - opus-4-6 / opus-4-7 surface at 1M by default
+// - opus-4-6 / opus-4-8 surface at 1M by default
 // Operators can still override the Claude cap globally via
 // PI_SHELL_ACP_CLAUDE_CONTEXT when they need to pin a different value.
 const CLAUDE_CONTEXT_DEFAULT = 1_000_000;
@@ -328,15 +328,12 @@ function requireRegistryModel<T extends AnthropicRegistryModel | CodexRegistryMo
 
 function curatedAnthropicModels(): AnthropicRegistryModel[] {
 	const models = ANTHROPIC_MODELS_ALL.filter((m) => SUPPORTED_ANTHROPIC_SET.has(m.id));
-	if (!models.some((m) => m.id === "claude-opus-4-7")) {
-		const base = requireRegistryModel(ANTHROPIC_MODELS_ALL, "claude-opus-4-6");
-		models.push({
-			...base,
-			id: "claude-opus-4-7",
-			name: "Claude Opus 4.7",
-			contextWindow: 1_000_000,
-		});
-	}
+	// claude-opus-4-8 is real in the pi-ai registry (pi 0.77+, contextWindow 1M),
+	// so — unlike the earlier 4-7 era — we do NOT inject a placeholder clone. A
+	// missing entry is a genuine metadata regression and must fail the curated
+	// surface up front rather than be papered over with a fabricated row.
+	// (check-models additionally asserts presence + 1M context.)
+	requireRegistryModel(ANTHROPIC_MODELS_ALL, "claude-opus-4-8");
 	return models;
 }
 
@@ -361,8 +358,8 @@ function curatedGeminiModels(): GeminiRegistryModel[] {
 	// occasionally retire snapshots), inject a placeholder so pi-shell-acp's
 	// curated surface stays stable. Base falls back to the nearest same-family
 	// google pro model because ACP still speaks the same gemini --acp protocol;
-	// this mirrors the claude-opus-4-7 / gpt-5.5 placeholders above until the
-	// registry catches up.
+	// this mirrors the gpt-5.5 placeholder above until the registry catches up.
+	// (Opus no longer needs a placeholder — claude-opus-4-8 is real in 0.77+.)
 	if (!models.some((m) => m.id === "gemini-3.1-pro-preview")) {
 		const base =
 			GEMINI_MODELS_ALL.find((m) => m.id === "gemini-3-pro-preview") ??

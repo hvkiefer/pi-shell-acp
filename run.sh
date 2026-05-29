@@ -62,7 +62,7 @@ Usage:
   ./run.sh check-auth-boundary        # local deterministic guard (#26): no legacy-ENV apiKey literal (e.g. "ANTHROPIC_API_KEY") in root bridge code (index.ts/acp-bridge.ts)
   ./run.sh check-sdk-surface          # static gate: every (connection as any) cast in acp-bridge.ts is annotated SDK_CAST_OK or SDK_CAST_DEBT
   ./run.sh check-pack                 # publish gate (dry-run): npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
-  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.74.x peers
+  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.77.x peers
   ./run.sh check-models               # local deterministic check of MODELS contextWindow defaults (sonnet 200K, opus 1M) + override
   ./run.sh check-claude-sessions [project-dir]  # compare pi persisted sessions vs Claude SDK session visibility
   ./run.sh verify-resume [project-dir] # exact pi -> ACP -> Claude continuity check with visible acpSessionId diagnostics
@@ -727,15 +727,18 @@ EOF
   local after
   after=$(pgrep -cf "$backend_pattern" 2>/dev/null) || after=0
   local delta=$((after - before))
-  if [[ $delta -ne 0 ]]; then
-    echo "[smoke-cancel/$backend] backend process delta=$delta (before=$before after=$after)" >&2
+  if [[ $delta -gt 0 ]]; then
+    echo "[smoke-cancel/$backend] backend process leak delta=$delta (before=$before after=$after)" >&2
     pgrep -af "$backend_pattern" >&2 || true
     cat "$log_file" >&2
     rm -f "$log_file"
     exit 1
   fi
+  if [[ $delta -lt 0 ]]; then
+    echo "[smoke-cancel/$backend] backend process count dropped during smoke (delta=$delta, before=$before after=$after) — treating as external cleanup, not a leak" >&2
+  fi
 
-  echo "[smoke-cancel/$backend] ok (cancel logged, session reused, delta=0)"
+  echo "[smoke-cancel/$backend] ok (cancel logged, session reused, no positive process leak)"
   rm -f "$log_file"
 }
 
@@ -944,7 +947,7 @@ smoke_model_switch() {
   echo "[smoke-model-switch] repo:    $REPO_DIR"
 
   # Within-backend model switch (same backend, different model).
-  smoke_model_switch_single "$project_dir" claude claude-sonnet-4-6 claude claude-opus-4-7
+  smoke_model_switch_single "$project_dir" claude claude-sonnet-4-6 claude claude-opus-4-8
   smoke_model_switch_single "$project_dir" codex  gpt-5.4            codex  gpt-5.5
   # Cross-backend switch — pre-0.5.x silent-respawn hole, now locked.
   smoke_model_switch_single "$project_dir" claude claude-sonnet-4-6 codex  gpt-5.4
@@ -2386,7 +2389,7 @@ async function collectModels(envOverride) {
   // must flip this assertion, not silently drift.
   const EXPECTED_IDS = [
     'claude-sonnet-4-6',
-    'claude-opus-4-7',
+    'claude-opus-4-8',
     'gpt-5.4',
     'gpt-5.4-mini',
     'gpt-5.5',
@@ -2404,7 +2407,7 @@ async function collectModels(envOverride) {
   const FORBIDDEN = [
     'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-latest',
     'claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-opus-4-5',
-    'claude-opus-4-6',
+    'claude-opus-4-6', 'claude-opus-4-7',
     'gpt-4', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o',
     'o1', 'o3', 'o4-mini',
     'gpt-5', 'gpt-5-chat-latest',
@@ -2426,12 +2429,15 @@ async function collectModels(envOverride) {
       `default: claude-sonnet-4-6 contextWindow should be 200000, got ${sonnet.contextWindow}`,
     );
   }
-  for (const id of ['claude-opus-4-6', 'claude-opus-4-7']) {
-    const m = models.get(id);
-    if (!m) continue;
+  // claude-opus-4-8 is real in the pi 0.77+ registry — assert it is PRESENT at
+  // 1M (hard), not a soft "if present" check. A metadata gap (missing entry or
+  // wrong context) must fail the gate rather than be papered with a placeholder.
+  {
+    const opus = models.get('claude-opus-4-8');
+    assert.ok(opus, 'curated Claude model missing: claude-opus-4-8 (must be real in pi-ai registry, not placeholder-injected)');
     assert.equal(
-      m.contextWindow, 1000000,
-      `default: ${id} contextWindow should be 1000000, got ${m.contextWindow}`,
+      opus.contextWindow, 1000000,
+      `default: claude-opus-4-8 contextWindow should be 1000000, got ${opus.contextWindow}`,
     );
   }
 
@@ -2484,7 +2490,7 @@ async function collectModels(envOverride) {
 // --- Pass 2: explicit override respected ---
 {
   const models = await collectModels('1000000');
-  for (const id of ['claude-sonnet-4-6', 'claude-opus-4-7']) {
+  for (const id of ['claude-sonnet-4-6', 'claude-opus-4-8']) {
     const m = models.get(id);
     if (!m) continue;
     assert.equal(
@@ -2912,16 +2918,16 @@ check_pack_install() {
   # repo packages with; --ignore-workspace stops it from re-attaching
   # to our pnpm-workspace.yaml; --ignore-scripts blocks the husky
   # prepare hook (and any future install scripts) from running inside
-  # the consumer project. Peer deps are pinned to the 0.74.x baseline
-  # (NEXT.md confirmed facts) so the smoke matches the same shape an
-  # external pi user would have after `pi install`.
+  # the consumer project. Peer deps are pinned to the 0.77.x release
+  # baseline so the smoke matches the same shape an external pi user
+  # would have after `pi install`.
   local tmp
   tmp=$(mktemp -d -t pi-shell-acp-install-smoke.XXXXXX)
   trap 'rm -rf "$tmp" "$tgz_path"' RETURN
 
   printf '%s\n' '{ "name": "pi-shell-acp-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
 
-  echo "[check-pack-install] pnpm add into $tmp (with 0.75.x peers + typebox)"
+  echo "[check-pack-install] pnpm add into $tmp (with 0.77.x peers + typebox)"
   local install_log
   install_log=$(cd "$tmp" && pnpm add \
     "$tgz_path" \
@@ -3716,6 +3722,21 @@ release_gate() {
   local project_dir
   project_dir=$(normalize_project_dir "${positional[0]:-$PROJECT_DIR_DEFAULT}")
 
+  # Absolute path to this script — survives the `cd "$project_dir"` below. The
+  # live gates derive their pi session dir from $PWD (tmux `-c "$PWD"`,
+  # PROJECT_DIR_DEFAULT, and the bare `pi -p` invocations that don't `cd`
+  # themselves). Six of them (smoke-async-resume, check-bridge,
+  # check-native-async, sentinel, session-messaging, smoke-compaction-policy)
+  # plus xt-tool-surface take no project arg, so if release-gate runs from the
+  # repo their sessions land in the repo's own session dir — polluting the very
+  # tree we ship and breaking the "scratch full gate" evidence claim. Running
+  # EVERY live gate with PWD=project_dir makes a single
+  # `./run.sh release-gate <scratch>` invocation route all sessions to scratch
+  # regardless of the operator's cwd. `-e "$REPO_DIR/..."` (extension load) and
+  # every other path the gates touch are absolute, so the cd is safe.
+  local self="$REPO_DIR/run.sh"
+  gate() { ( cd "$project_dir" && "$@" ); }
+
   local pass=0 failc=0 skip=0
   local -a results=()
 
@@ -3754,21 +3775,23 @@ release_gate() {
     results+=("FAIL  gemini-availability"); failc=$((failc + 1))
   fi
 
-  # 3. Live per-invariant gates (each is a run.sh subcommand).
-  run_step "smoke-all (3-backend runtime)"  bash "$0" smoke-all "$project_dir"
-  run_step "smoke-async-resume"             bash "$0" smoke-async-resume
-  run_step "smoke-cancel"                   bash "$0" smoke-cancel "$project_dir"
-  run_step "smoke-model-switch"             bash "$0" smoke-model-switch "$project_dir"
-  run_step "smoke-entwurf-resume"           bash "$0" smoke-entwurf-resume "$project_dir"
-  run_step "check-bridge"                   bash "$0" check-bridge
-  run_step "check-native-async"             bash "$0" check-native-async
-  run_step "sentinel"                       bash "$0" sentinel
-  run_step "session-messaging"              bash "$0" session-messaging
-  run_step "smoke-compaction-policy (LIVE)" env LIVE=1 bash "$0" smoke-compaction-policy
-  run_step "verify-resume"                  bash "$0" verify-resume "$project_dir"
+  # 3. Live per-invariant gates (each is a run.sh subcommand). Every one runs
+  #    with PWD=project_dir (via gate()) so cwd-derived pi session dirs land in
+  #    the scratch project, never the repo — see the note above.
+  run_step "smoke-all (3-backend runtime)"  gate bash "$self" smoke-all "$project_dir"
+  run_step "smoke-async-resume"             gate bash "$self" smoke-async-resume
+  run_step "smoke-cancel"                   gate bash "$self" smoke-cancel "$project_dir"
+  run_step "smoke-model-switch"             gate bash "$self" smoke-model-switch "$project_dir"
+  run_step "smoke-entwurf-resume"           gate bash "$self" smoke-entwurf-resume "$project_dir"
+  run_step "check-bridge"                   gate bash "$self" check-bridge
+  run_step "check-native-async"             gate bash "$self" check-native-async
+  run_step "sentinel"                       gate bash "$self" sentinel
+  run_step "session-messaging"              gate bash "$self" session-messaging
+  run_step "smoke-compaction-policy (LIVE)" gate env LIVE=1 bash "$self" smoke-compaction-policy
+  run_step "verify-resume"                  gate bash "$self" verify-resume "$project_dir"
 
   # 4. -xt tool-surface truthfulness — now a real fail-fast policy gate.
-  run_step "xt-tool-surface (exclude-tools policy)" xt_tool_surface
+  run_step "xt-tool-surface (exclude-tools policy)" gate xt_tool_surface
 
   # 5. Summary.
   section "release-gate summary"

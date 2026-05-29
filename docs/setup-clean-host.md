@@ -46,8 +46,8 @@ walk-through and onto your own integration.
 |---|---|---|
 | Node | **24** (LTS line) | `engines.node` in `pi-shell-acp/package.json` is `>=22.6.0` (minimum); `@earendil-works/pi-coding-agent` engines is `>=22.19.0`; verification axis is **24** |
 | pnpm | **10.33.0** (via corepack) | matches the version pi-shell-acp's `pnpm check` chain runs under locally |
-| pi binary | **`@earendil-works/pi-coding-agent`** (npm latest at the time of this draft: 0.75.1) | npm registry; binary name `pi` |
-| pi-shell-acp install path | `git:github.com/junghan0611/pi-shell-acp` | repo URL; **independent of the future npm scope `@junghanacs/pi-shell-acp` decided 2026-05-18** — git path stays the same |
+| pi binary | **`@earendil-works/pi-coding-agent` 0.77.x or newer** | npm registry; binary name `pi`; 0.8.0 release gate uses 0.77.0 peers |
+| pi-shell-acp install path | `npm:@junghanacs/pi-shell-acp` or `git:github.com/junghan0611/pi-shell-acp` | npm is the published release path; git path stays valid for source installs |
 
 ## Stage 0 — Node 24 + pnpm via nvm
 
@@ -101,7 +101,7 @@ Expected drift points:
 ```bash
 # global install with the user's nvm shim (no system-wide root)
 npm i -g @earendil-works/pi-coding-agent
-pi --version     # expect: 0.75.x or newer
+pi --version     # expect: 0.77.x or newer
 
 # pi's data dir is created lazily on first run
 pi --help | head -5
@@ -196,7 +196,7 @@ cd ~/pi-shell-acp-smoke
 pi --list-models pi-shell-acp
 
 # expect: a list of model ids under provider pi-shell-acp —
-#   claude-opus-4-7, claude-sonnet-4-6, gpt-5.4, gpt-5.5, gemini-3-pro-preview, ...
+#   claude-opus-4-8, claude-sonnet-4-6, gpt-5.4, gpt-5.5, gemini-3.1-pro-preview, ...
 # exit code 0
 ```
 
@@ -225,7 +225,7 @@ Expected drift points:
 > ```
 > === pi --list-models pi-shell-acp ===
 > provider      model                   context  max-out  thinking  images
-> pi-shell-acp  claude-opus-4-7         1M       128K     yes       yes
+> pi-shell-acp  claude-opus-4-8         1M       128K     yes       yes
 > pi-shell-acp  claude-sonnet-4-6       200K     64K      yes       yes
 > pi-shell-acp  gemini-3.1-pro-preview  1.0M     65.5K    yes       yes
 > pi-shell-acp  gpt-5.4                 272K     128K     yes       yes

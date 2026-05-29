@@ -251,6 +251,39 @@ the scoring criteria so it stays scannable.
 
 # HISTORY
 
+## [2026-05-29 Fri] — 0.8.0 Opus 4.8 first baseline (operator interview)
+
+First operator-driven baseline run with **`pi-shell-acp / claude-opus-4-8` as the live subject** — the model the 0.8.0 Step-3 curated-surface swap promotes into the Opus slot. Run by GLG through a real pi-shell-acp session (not the synthetic gate): a Q-B0 / Q-B0-CARRIER identity interview followed by an entwurf word-chain (끝말잇기) that exercised spawn + resume-sync + resume-async against an `openai-codex / gpt-5.4` child. **All axes PASS** — the 4.8 surface routes, self-identifies, and orchestrates correctly in real use, not just under the release gate.
+
+| Axis | Baseline result |
+|---|---|
+| Q-B0 (harness / tool identity) | **PASS** — identified the pi harness + pi-shell-acp ACP bridge + `backend=claude` from the system-prompt bridge declaration; partitioned native (`Read/Bash/Edit/Write/Skill`) vs MCP (`entwurf*`) vs Skill-surface capabilities by actual schema; honest about unknowns (live peers, engraving content) rather than guessing. |
+| Q-B0-CARRIER (carrier-surface discrimination) | **PASS — sharpest to date.** Attributed each fact to its true surface: system prompt vs the pi-context-augment first-user prepend (identified by its `[pi-shell-acp: context augment truncated to 51200 bytes…]` marker) vs tool-function schema vs the system-reminder block. Did **not** confuse the bridge-identity narrative with the engraving carrier — the exact mistake the 2026-05-14 verifier had to self-correct — and needed no prompting to separate them. |
+| Memory containment | **PASS** — stated the bridge/model holds no persistent memory; pi owns persistence, so durable recall routes to botlog/llmlog (Denote) + the semantic-memory index + NEXT.md. Matches the AGENTS memory-containment contract; no fabricated "I remember" claim. |
+| Skill reachability | **PASS** — correctly answered that personal Google Calendar is reachable via the `gogcli` skill, without fabricating a call or its result (deferred to an explicit request). |
+| entwurf spawn (sync) | **PASS** — `entwurf` sync-only spawn to `gpt-5.4` (Task `a1f2e1a8`, $0.0615). 사과 → 과자. |
+| entwurf resume (sync) | **PASS** — inline `entwurf_resume`, context preserved (자전거 → 거울, $0.0074). |
+| entwurf resume (async) | **PASS** — async ack + a later `🏁 resume … completed` followUp on the same taskId (울타리 → 리본, Resume `abc7dacf`, 3 turns, $0.0762). Opus 4.8 emitted `mode:async` correctly on the first try — distinct from the intermittent Sonnet model-argument variance the smoke classifies and retries. |
+| Context continuity | **PASS** — the gpt-5.4 child held the word-chain rules across all three transport paths under one Task `a1f2e1a8`: 사과 → 과자 → 자전거 → 거울 → 울타리 → 리본. |
+
+Scope note: no engraving canary was injected in this run (engraving was the default placeholder, reported "not visible"), so this is an **identity + entwurf-transport baseline**, not an overlay-isolation/canary run — the carrier-isolation canary axis (cf. the 2026-05-14 Gemini row) was not exercised here. Operator-side session evidence is local and reproducible; the synthetic + live release floor that backs this baseline is the release-gate row below.
+
+## [2026-05-29 Fri] — 0.8.0 release-gate baseline
+
+Release-facing baseline for the 0.8.0 cut: the single `./run.sh release-gate /tmp/pi-shell-acp-release-gate-20260529` command is the full static + live verification floor. It was invoked from the repo cwd and completed with **14 PASS / 0 FAIL / 0 SKIP** with Gemini present and no `--allow-skip-gemini`.
+
+| Axis | Baseline result |
+|---|---|
+| Static floor | `pnpm check` passed: lint, typecheck, plugin checks, MCP/config/backend/model/auth-boundary/SDK gates, transcript-poison guard, and pack dry-run invariants. |
+| Runtime backends | `smoke-all` passed across Claude, Codex, and Gemini. |
+| Async resume | `smoke-async-resume` passed 6/6, including `A.async.claude-sonnet-4-6`; the run did not hit the intermittent Sonnet model-argument variance classifier. |
+| Orchestration | `sentinel` passed 6/6; `session-messaging` passed 4/4; `verify-resume` cross-cwd recall passed. |
+| Compaction policy | `LIVE=1 smoke-compaction-policy` passed the release contract; Gemini remained an observed backend property row where `/compact` acknowledgement did not imply sentinel recall. |
+| Tool-surface truthfulness | `xt-tool-surface` rejected backend built-in `-xt` requests up front and honored the extension-tool exemption. |
+| Scratch cwd hygiene | Latest artifacts contain no repo session-dir paths: `sentinel-20260529-164759.json` has six scratch session files, and `smoke-async-resume-20260529-164342.json` records the direct-stdio async session under the scratch session dir. |
+
+Evidence: `/tmp/release-gate-0.8.0-final2-20260529-164313.log`, `/tmp/smoke-async-resume-20260529-164342.json`, `/tmp/sentinel-20260529-164759.json`, `/tmp/session-messaging-smoke-20260529-165018.json`.
+
 ## [2026-05-14 Thu] — 0.5.0 context-pressure continuity baseline
 
 The release-facing baseline for the 0.5.0 declaration: pi-shell-acp

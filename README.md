@@ -191,6 +191,28 @@ Prerequisites on the host running the external MCP client:
 - `~/.pi/agent/entwurf-targets.json` (target registry) when calling `entwurf`.
 - A live pi session launched with `--entwurf-control` populates `~/.pi/entwurf-control/<sessionId>.sock`; required for `entwurf_send` and `entwurf_peers`.
 
+> **PATH boundary.** MCP servers are often launched by GUI/editor daemons and may not inherit the interactive shell's PATH. If `pi` works in your terminal but external-host `entwurf` fails with `spawn pi ENOENT`, pass a full PATH in the MCP server `env`, set `PI_TOOLS_BRIDGE_ENV_FILE` to a small shell file that exports PATH, or point the host at a wrapper that can find `pi`. `start.sh` sources only the explicit `PI_TOOLS_BRIDGE_ENV_FILE`; it never reads personal dotfiles automatically.
+
+Example env file:
+
+```bash
+# ~/.config/pi-tools-bridge/env.sh
+export PATH="$HOME/.local/share/pnpm:$HOME/.local/bin:$HOME/.nvm/versions/node/v24.15.0/bin:$PATH"
+```
+
+Then add it to the external MCP config:
+
+```json
+{
+  "env": {
+    "PI_TOOLS_BRIDGE_ENV_FILE": "/home/operator/.config/pi-tools-bridge/env.sh",
+    "PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code"
+  }
+}
+```
+
+Emergency/manual workaround when the MCP server environment is wrong but an existing entwurf session must be resumed: run `pi --session /path/to/entwurf.jsonl ...` from an interactive shell whose PATH is known-good. Treat this as a debug escape hatch, not a replacement for fixing the MCP launch environment.
+
 External-host semantics:
 
 - `entwurf` works directly and returns the sync spawn result inline.
