@@ -147,13 +147,18 @@ parent_spawn() {
     acp-claude)
       # ACP parent brings pi-tools-bridge MCP into scope (per validate_pi_tools_bridge_backend).
       # The MCP entwurf/entwurf_resume tools are what the parent will invoke.
-      timeout "$TIMEOUT" pi --mode json -p \
+      # --entwurf-control: ACP-parent async resume routes through the MCP
+      # `spawn_async_resume` RPC, which needs this session's control socket
+      # (mcp/pi-tools-bridge/src/index.ts throws "No pi control socket" without it).
+      # Native parents (cells 1/3) use the in-process callback and don't need it.
+      # The operator's real-use alias always passes --entwurf-control, so this matches prod.
+      timeout "$TIMEOUT" pi --mode json -p --entwurf-control \
         -e "$REPOS/pi-shell-acp" \
         --provider pi-shell-acp --model claude-sonnet-4-6 \
         "$prompt" >"$out_file" 2>&1
       ;;
     acp-codex)
-      timeout "$TIMEOUT" pi --mode json -p \
+      timeout "$TIMEOUT" pi --mode json -p --entwurf-control \
         -e "$REPOS/pi-shell-acp" \
         --provider pi-shell-acp --model gpt-5.4 \
         "$prompt" >"$out_file" 2>&1
@@ -682,7 +687,11 @@ write_artifact() {
 # Main
 # ----------------------------------------------------------------------------
 main() {
-  local selection="${1:-all}"
+  # Merge ALL positional args, not just $1: accept both space- and
+  # comma-separated cell lists (`sentinel 4 5 6` and `sentinel 4,5,6`).
+  # The selection loop below replaces commas with spaces and word-splits,
+  # so "$*" ("4 5 6") and a single "4,5,6" arg both resolve correctly.
+  local selection="${*:-all}"
   if [ "$selection" = "--help" ] || [ "$selection" = "-h" ]; then
     usage; exit 0
   fi

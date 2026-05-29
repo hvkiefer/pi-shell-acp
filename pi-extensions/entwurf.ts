@@ -50,6 +50,7 @@ import {
 	activeEntwurfs,
 	ENTWURF_ENTRY_TYPE,
 	isProcessAlive,
+	makeBestEffortDeliverCompletion,
 	spawnEntwurfResumeAsync,
 } from "./lib/entwurf-async.js";
 import {
@@ -850,7 +851,12 @@ export default function (pi: ExtensionAPI) {
 				{ taskId: params.taskId, prompt: params.prompt, host: params.host },
 				{
 					appendActiveEntry: (data) => pi.appendEntry(ENTWURF_ENTRY_TYPE, data),
-					deliverCompletion: (message) => pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" }),
+					// Best-effort: if the parent ctx went stale before this async completion
+					// fires (proc.on("close")), drop with a stderr diagnostic instead of
+					// crashing the parent. See makeBestEffortDeliverCompletion (sentinel cell 2 [R1]).
+					deliverCompletion: makeBestEffortDeliverCompletion((message) =>
+						pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" }),
+					),
 				},
 			);
 			return {

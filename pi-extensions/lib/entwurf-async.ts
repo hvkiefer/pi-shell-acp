@@ -158,6 +158,52 @@ export interface AsyncResumeCallbacks {
 	deliverCompletion: (message: AsyncResumeCompletionMessage) => void;
 }
 
+/**
+ * Stable substring of pi's stale-ctx error (extensions/loader.ts `invalidate`,
+ * agent-session.ts). Matched as a substring so the full guidance suffix pi
+ * appends does not break detection.
+ */
+const STALE_CTX_MARKER = "is stale after session replacement or reload";
+
+/**
+ * Wrap a raw completion sender into a best-effort `deliverCompletion`.
+ *
+ * The completion fires from `proc.on("close")` long after the async spawn
+ * returned its ack; by then the parent session ctx may be stale — the session
+ * was replaced/reloaded/disposed (pi 0.77's `5b31ffd7 Abort session work during
+ * dispose` made teardown stricter, surfacing this latent race; sentinel cell 2
+ * [R1]). The entwurf itself already completed; only this notification fails.
+ *
+ * Policy: if the parent ctx is stale, DROP the notification with a stderr
+ * diagnostic instead of crashing the parent to a non-zero exit. Do NOT
+ * re-deliver to any other live ctx — that would pollute a different session.
+ * Any other sendMessage error is a real wiring break and re-throws (crash-loud,
+ * per the entwurf-control fail-loud contract).
+ *
+ * Shared by both async-completion deliverers: the native `entwurf_resume` tool
+ * (pi-extensions/entwurf.ts) and the entwurf-control `spawn_async_resume` RPC
+ * (pi-extensions/entwurf-control.ts) — same race, one guard.
+ */
+export function makeBestEffortDeliverCompletion(
+	send: (message: AsyncResumeCompletionMessage) => void,
+): (message: AsyncResumeCompletionMessage) => void {
+	return (message) => {
+		try {
+			send(message);
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			if (reason.includes(STALE_CTX_MARKER)) {
+				process.stderr.write(
+					"[entwurf] async completion delivery dropped — parent session ctx is stale; " +
+						"the entwurf finished but its notification cannot reach the (gone) parent.\n",
+				);
+				return;
+			}
+			throw err;
+		}
+	};
+}
+
 export interface AsyncResumeAck {
 	text: string;
 	details: { taskId: string; originalTaskId: string; sessionFile: string; pid: number };

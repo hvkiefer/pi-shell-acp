@@ -103,7 +103,7 @@ import type {
 import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { ENTWURF_SENT_MESSAGE_TYPE } from "../protocol.js";
-import { ENTWURF_ENTRY_TYPE, spawnEntwurfResumeAsync } from "./lib/entwurf-async.js";
+import { ENTWURF_ENTRY_TYPE, makeBestEffortDeliverCompletion, spawnEntwurfResumeAsync } from "./lib/entwurf-async.js";
 
 const ENTWURF_FLAG = "entwurf-control";
 const ENTWURF_SESSION_FLAG = "entwurf-session";
@@ -990,7 +990,13 @@ async function handleCommand(
 				{ taskId, prompt, host: command.host },
 				{
 					appendActiveEntry: (data) => pi.appendEntry(ENTWURF_ENTRY_TYPE, data),
-					deliverCompletion: (message) => pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" }),
+					// Best-effort: the RPC-driven async resume (ACP parents) delivers its
+					// completion from proc.on("close") just like the native tool; if the
+					// parent ctx went stale by then, drop instead of crashing. Same race,
+					// same guard — see makeBestEffortDeliverCompletion.
+					deliverCompletion: makeBestEffortDeliverCompletion((message) =>
+						pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" }),
+					),
 				},
 			);
 			respond(true, "spawn_async_resume", {
