@@ -2925,9 +2925,9 @@ check_pack_install() {
   local install_log
   install_log=$(cd "$tmp" && pnpm add \
     "$tgz_path" \
-    "@earendil-works/pi-ai@0.75.4" \
-    "@earendil-works/pi-coding-agent@0.75.4" \
-    "@earendil-works/pi-tui@0.75.4" \
+    "@earendil-works/pi-ai@0.77.0" \
+    "@earendil-works/pi-coding-agent@0.77.0" \
+    "@earendil-works/pi-tui@0.77.0" \
     "typebox@latest" \
     --ignore-workspace --ignore-scripts 2>&1) || {
     fail "[check-pack-install] pnpm add failed:"
@@ -3190,8 +3190,8 @@ verify_resume() {
     --model "$model"
 }
 
-CLAUDE_ACP_REQUIRED_VERSION="0.36.1"
-CODEX_ACP_REQUIRED_VERSION="0.14.0"
+CLAUDE_ACP_REQUIRED_VERSION="0.38.0"
+CODEX_ACP_REQUIRED_VERSION="0.15.0"
 
 check_global_claude_acp() {
   local installed

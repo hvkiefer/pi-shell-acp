@@ -110,7 +110,7 @@ Codex smoke (no global install required — the codex-acp pinned in `dependencie
 To force a global `codex-acp` (PATH fallback or development override):
 
 ```bash
-pnpm add -g @zed-industries/codex-acp@0.14.0
+pnpm add -g @zed-industries/codex-acp@0.15.0
 ```
 
 Gemini is different — the `gemini` CLI binary is itself the ACP server, not a separate `*-acp` server package. It must be installed and authenticated on the operator's machine. Curated model: `pi-shell-acp/gemini-3.1-pro-preview`.
