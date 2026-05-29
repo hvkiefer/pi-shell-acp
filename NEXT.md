@@ -5,7 +5,7 @@
 
 ## Top priority — 0.8.0 release campaign (dependency alignment + full test gate)
 
-**Baseline:** 0.7.6 released (async-resume regression closed; see CHANGELOG 0.7.6 + commit chain `ff85fa9 → … → d198da0`). pi host is now `0.77.0`. GPT-5.5 reviewed three times (pi 0.77.0 release notes → NEXT 1차 → this hardened plan via sync entwurf); all reinforcements folded into the steps (see reference below). Target: **bump every dependency to latest, fix the auth-boundary bug ([#26](https://github.com/junghan0611/pi-shell-acp/issues/26), CRITICAL), consolidate a single all-pass release gate, then cut 0.8.0.**
+**Baseline:** 0.7.6 released (async-resume regression closed; see CHANGELOG 0.7.6 + commit chain `ff85fa9 → … → d198da0`). pi host is now `0.77.0`. GPT-5.5 reviewed four times (pi 0.77.0 release notes → NEXT 1차 → hardened plan → **code-level audit against local dep + pi 0.77 source** via sync entwurf); all reinforcements folded into the steps (see reference below). The code-level pass confirmed dep bump has no breaking change, the #26 sentinel registers cleanly, and Opus 4.8 is real in the pi 0.77 registry — while upgrading `-xt` from "smoke candidate" to "release-blocking fix". Target: **bump every dependency to latest, fix the auth-boundary bug ([#26](https://github.com/junghan0611/pi-shell-acp/issues/26), CRITICAL), consolidate a single all-pass release gate, then cut 0.8.0.**
 
 Sequenced — each step verified before the next. **GLG makes the final commit.** Execution model: GPT-5.5 (sync) for design review, GPT-5.4 for test cycles, GLG + Claude for final verification. Test invocation is ALWAYS through `run.sh` subcommands — never call a script in `scripts/` directly.
 
@@ -33,7 +33,10 @@ Build the single release gate *before* touching dependencies, so every later ste
 - **Gemini skip = FAIL at release (reinforcement 1), applied to EVERY skip-capable subcommand:** `smoke-all`, `check-bridge`, `smoke-async-resume` all currently exit 0 on Gemini SKIP. 0.8.0 makes a three-backend claim → release-gate must treat SKIP>0 as FAIL (via an internal `--require-gemini` mode or summary-artifact parsing). A dev-only `--allow-skip-gemini` may exist for iteration; the default release path does NOT skip.
 - **Coverage is per-invariant, not "all live across 3 backends" (reinforcement 2):** `sentinel` is a 6-cell diagonal with no Gemini cell; `session-messaging`'s ACP target is Claude-only. So state it precisely: *backend-runtime* invariants (`smoke-all` etc.) must PASS on Claude/Codex/Gemini; *orchestration* invariants (`sentinel`, `session-messaging`) PASS on their current matrix, and any Gemini-absent matrix is either documented-with-reason or gets a cell added — not silently labeled "3-backend".
 - **`smoke-compaction-policy` must run LIVE (reinforcement 4):** pin `LIVE=1 ./run.sh smoke-compaction-policy` inside the gate, else its backend-observation steps are skipped.
-- **`-xt` / `--exclude-tools` tool-surface truthfulness gate (reinforcement 6 + pi 0.77 review):** pi 0.77's `--exclude-tools` can hide tools, but the Claude backend hands Read/Bash/Edit/Write to Claude Code itself — so `pi --provider pi-shell-acp -xt Bash` may make pi's *declared* surface diverge from the backend's *actual* surface, breaking our "declared == actual" invariant. Add a focused gate; preferred policy is **throw/reject, not warn**, when the exclusion isn't truthful. Likely needs to be live (deterministic alone won't catch the Claude-Code-native handoff). Joins the release gate.
+- **`-xt` / `--exclude-tools` is a RELEASE-BLOCKING FIX, not just a smoke (code-level confirmed, GPT-5.5 4th review).** The divergence is real in code, not hypothetical:
+  - pi 0.77 removes `-xt` tools from the active set + system prompt: `cli/args.ts:117-121` (parse), `sdk.ts:282-288` (`excludedToolNames`), `agent-session.ts:2275-2358` (`isAllowedTool`), regression test `5109-exclude-tools.test.ts:42-53`.
+  - BUT pi-shell-acp's Claude backend keeps its own fixed tool list: `index.ts:630-648` (default `Read/Bash/Edit/Write`), `index.ts:950-960` (`ensureBridgeSession({tools: providerSettings.tools})`), `acp-bridge.ts:1167-1186` (`_meta.claudeCode.options.tools = params.tools`). So `pi --provider pi-shell-acp -xt Bash` drops `bash` from pi's declared/prompt surface while Claude Code still receives `Bash` → **declared ≠ actual.**
+  - **Fix (not just a gate):** translate pi's `-xt` exclusions into the Claude backend's `tools` / `disallowedTools` (`_meta.claudeCode.options`) so the exclusion actually reaches the backend, OR throw/reject when the exclusion cannot be honored truthfully. Then add the live gate that asserts `pi -xt Bash` either denies Bash at the backend or rejects up front.
 - **Auth-boundary static guards (#26, see Step 2b):** add two deterministic guards to the gate — (1) root bridge code contains no `ANTHROPIC_API_KEY` literal; (2) the bridge path does not consume `options.apiKey` as backend auth. These belong in `pnpm check` (static) and stay green permanently after the Step-2b fix.
 
 **1f. `prepublishOnly` decision (reinforcement 6/clarification):** decide explicitly whether `prepublishOnly` runs the full live gate or a static+pack subset. Live gate depends on auth/Gemini/tmux and may be too heavy for the `npm publish` lifecycle. If subset: document "publish lifecycle = static+pack; full `release-gate` is a mandatory manual pre-publish step." Either way, write it down — no implicit shortcut.
@@ -57,9 +60,17 @@ Pin sites to update in lockstep (grep `0.75.4` / `0.14.0` / `0.36.1`):
 
 `claude-agent-acp 0.36.1 → 0.38.0` and `codex-acp 0.14.0 → 0.15.0` are minor backend-SDK bumps — the Step-1 gate (`check-sdk-surface` + live `smoke-all` + 3-backend) is exactly what proves the bridge cast annotations and runtime still hold. The strengthened `check-dep-versions` (1c) now fails if any pin drifts.
 
+**Code-level: no breaking change in the SDK surfaces we use (GPT-5.5 4th review).** Every method/event pi-shell-acp calls is preserved across the bump:
+- Claude 0.38.0 (`claude-agent-acp/src/acp-agent.ts`): `loadSession`/`resume`/`close` caps (`:607-631`), `newSession`/`resumeSession`/`loadSession` (`:645-687`), `prompt` (`:726-790`), `cancel` (`:1372-1382`), `closeSession` (`:1404-1409`), `unstable_setSessionModel` (`:1422-1435`), `usage_update` shape (`:982-998`) — all match our calls in `acp-bridge.ts:2488-2505/3129-3199/2589-2603/3441-3452/2680-2683`. 0.37's `"cancelled"` stopReason is already handled (`index.ts:811-819` → `"aborted"`).
+- Codex 0.15.0 (`codex-acp/src/codex_agent.rs`): the 0.14→0.15 release commit is version-bump-only (no protocol method change); `new_session`/`load_session`/`close_session`/`prompt`/`cancel`/`set_session_model` all present (`:543-794`), `resumeSession` still unadvertised so our detection correctly routes to `loadSession`.
+
 ### Step 2b — Auth-boundary correction (#26) — CRITICAL, must ship in 0.8.0
 
-**Issue [#26](https://github.com/junghan0611/pi-shell-acp/issues/26).** The pi 0.77 bump (Step 2) surfaces a real boundary bug, so fix it here. `index.ts:1190` registers the provider with `apiKey: "ANTHROPIC_API_KEY"` — a validation shim, never real auth (`streamShellAcp` does not read `options.apiKey`; grep confirms it's the only root occurrence). Under pi 0.77 this prints a legacy-env-reference deprecation warning AND falsely presents pi-shell-acp as Anthropic-API-key dependent — even for Codex/Gemini routes, which share this single registration.
+**Issue [#26](https://github.com/junghan0611/pi-shell-acp/issues/26).** The pi 0.77 bump (Step 2) surfaces a real boundary bug, so fix it here. `index.ts:1190` registers the provider with `apiKey: "ANTHROPIC_API_KEY"` — a validation shim, never real auth. (Precise: pi DOES pass `options.apiKey` into `streamSimple` via `sdk.ts:339-355`, but our `streamShellAcp` reads only `options.cwd`/`options.sessionId` — `index.ts:822-855` — so it never consumes it as backend auth; `index.ts:1190` is the only root occurrence.) Under pi 0.77 this prints a legacy-env-reference deprecation warning AND falsely presents pi-shell-acp as Anthropic-API-key dependent — even for Codex/Gemini routes, which share this single registration.
+
+**Code-level confirmation the sentinel fix works (GPT-5.5 4th review):**
+- Deprecation warning is gated by a legacy-env regex `/^[A-Z_][A-Z0-9_]*$/` (`resolve-config-value.ts:13`, warning emitted at `model-registry.ts:239-244`). `ANTHROPIC_API_KEY` matches → warns; `pi-shell-acp-no-auth` (lowercase + hyphen) does NOT match → no warning.
+- Custom-model registration requires `baseUrl` + (`apiKey` or `oauth`) but does NO format validation — any truthy string passes (`model-registry.ts:911-925`); `hasConfiguredAuth` only checks `isConfigValueConfigured` (`model-registry.ts:713-718`), and a literal string is "configured" (`resolve-config-value.ts:135-140`). → the sentinel registers fine and `ANTHROPIC_API_KEY` unset does not block startup.
 
 - **Fix: replace with an explicit no-auth sentinel**, not `$ANTHROPIC_API_KEY` (that would silence the warning but keep the wrong auth-boundary shape):
   ```ts
@@ -91,7 +102,8 @@ pi 0.77 added `claude-opus-4-8` metadata, but pi-shell-acp is a **curated surfac
 - `plugins/openclaw/src/index.ts:245-267` **AND `plugins/openclaw/dist/index.js:69-91`** — plugin `main` is `dist/index.js`, so source-only edits leave the runtime stale (reinforcement 4). Either `pnpm --filter ./plugins/openclaw build` to regenerate dist, or hand-sync both; `check:plugins` catches type drift but NOT a stale literal — verify `dist` matches `src` after (consider adding a src/dist literal-drift check).
 - `plugins/openclaw/README.md`, `plugins/openclaw/examples/docker-lab/*` (README + `config/openclaw.json`)
 - docs surfaces: `demo/README.md:115`, `docs/setup-clean-host.md:199/228`
-- **`check-models` must prove 4.8 is real, not a placeholder (reinforcement 5):** `index.ts`'s placeholder-injection path can mask a missing 0.77 registry entry. Assert `claude-opus-4-8` exists in the pi 0.77 registry AND surfaces at 1M context — a silent metadata gap must FAIL the gate, not be papered over.
+- **4.8 is REAL in pi 0.77 — do NOT clone the placeholder, fail-fast instead (code-level confirmed, GPT-5.5 4th review).** `claude-opus-4-8` exists in `pi-mono/packages/ai/src/models.generated.ts:1866-1884` (`contextWindow: 1000000`, `maxTokens: 128000`). The `index.ts:282-292` placeholder branch only exists because `4-7` wasn't always in the registry; since `4-8` IS present, **remove/skip the placeholder for 4-8 and make a missing registry entry FAIL** rather than papering it with an injected placeholder. `check-models` asserts `claude-opus-4-8` present + 1M — a metadata gap must fail the gate.
+- **Bonus:** `claude-agent-acp 0.38.0` already ships Opus 4.8 support (`CHANGELOG.md:3-13`) — so the backend SDK side is ready once Step 2's bump lands.
 - Add Claude runtime smoke / interview evidence on 4-8 before release.
 
 ### Step 4 — README / docs / OpenClaw metadata corrections
@@ -143,6 +155,18 @@ Verdict: adoptable; **6 more fixes**. All folded into Steps 1–5 above:
 6. **`prepublishOnly` scope must be explicit** — full live gate vs static+pack subset; live gate is auth/Gemini/tmux-heavy for the publish lifecycle. → Step 1f.
 
 Dedup verdict (Step 1d): only `smoke-continuity` is a real overlap (subset of `smoke-entwurf-resume`); all other pairs are distinct invariants — keep them.
+
+### GPT-5.5 fourth review — code-level audit vs local source (2026-05-29, sync resume `a7c28e15`, 62 turns / $6.09)
+
+Read the actual implementations in `3rd/acp/{claude-agent-acp@0.38,codex-acp@0.15,agent-client-protocol}` + `3rd/pi` (pi 0.77), not just type signatures. Verdict: **NEXT adoptable; 3 fixes.** All folded above.
+
+- **Dep bump — no release blocker.** Claude 0.38.0 / Codex 0.15.0 preserve every method+event we call (file:line in Step 2). 0.15.0 release commit is version-only. → confidence the bump won't break the bridge.
+- **#26 sentinel — works at code level.** Legacy-env regex won't match the lowercase-hyphen sentinel (warning avoided); custom-model registration does no format validation (sentinel registers). → Step 2b.
+- **Opus 4.8 — real in registry** (`models.generated.ts:1866-1884`, 1M). → Step 3 hardened to fail-fast, not clone the placeholder.
+- **session_shutdown — our handlers already on the pi 0.77 dispose path** (`interactive-mode.ts:3256-3345`, `print-mode.ts:40-58`, `agent-session-runtime.ts:377-383`). No new signal handler needed.
+- **FIX 1 — `-xt` is release-blocking, not a smoke** (real `declared ≠ actual` path: `index.ts:630-648` + `acp-bridge.ts:1167-1186`). → Step 1e rewritten as a fix + gate.
+- **FIX 2 — Opus 4.8 fail-fast, no placeholder clone.** → Step 3.
+- **FIX 3 — #26 wording** ("pi passes `options.apiKey`; `streamShellAcp` doesn't consume it" — not "streamSimple doesn't pass it"). → Step 2b.
 
 ---
 
