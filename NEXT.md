@@ -5,7 +5,7 @@
 
 ## Top priority — 0.8.0 release campaign (dependency alignment + full test gate)
 
-**Baseline:** 0.7.6 released (async-resume regression closed; see CHANGELOG 0.7.6 + commit chain `ff85fa9 → … → d198da0`). pi host is now `0.77.0`. GPT-5.5 reviewed three times (pi 0.77.0 release notes → NEXT 1차 → this hardened plan via sync entwurf); all reinforcements folded into the steps (see reference below). Target: **bump every dependency to latest, consolidate a single all-pass release gate, then cut 0.8.0.**
+**Baseline:** 0.7.6 released (async-resume regression closed; see CHANGELOG 0.7.6 + commit chain `ff85fa9 → … → d198da0`). pi host is now `0.77.0`. GPT-5.5 reviewed three times (pi 0.77.0 release notes → NEXT 1차 → this hardened plan via sync entwurf); all reinforcements folded into the steps (see reference below). Target: **bump every dependency to latest, fix the auth-boundary bug ([#26](https://github.com/junghan0611/pi-shell-acp/issues/26), CRITICAL), consolidate a single all-pass release gate, then cut 0.8.0.**
 
 Sequenced — each step verified before the next. **GLG makes the final commit.** Execution model: GPT-5.5 (sync) for design review, GPT-5.4 for test cycles, GLG + Claude for final verification. Test invocation is ALWAYS through `run.sh` subcommands — never call a script in `scripts/` directly.
 
@@ -34,6 +34,7 @@ Build the single release gate *before* touching dependencies, so every later ste
 - **Coverage is per-invariant, not "all live across 3 backends" (reinforcement 2):** `sentinel` is a 6-cell diagonal with no Gemini cell; `session-messaging`'s ACP target is Claude-only. So state it precisely: *backend-runtime* invariants (`smoke-all` etc.) must PASS on Claude/Codex/Gemini; *orchestration* invariants (`sentinel`, `session-messaging`) PASS on their current matrix, and any Gemini-absent matrix is either documented-with-reason or gets a cell added — not silently labeled "3-backend".
 - **`smoke-compaction-policy` must run LIVE (reinforcement 4):** pin `LIVE=1 ./run.sh smoke-compaction-policy` inside the gate, else its backend-observation steps are skipped.
 - **`-xt` / `--exclude-tools` tool-surface truthfulness gate (reinforcement 6 + pi 0.77 review):** pi 0.77's `--exclude-tools` can hide tools, but the Claude backend hands Read/Bash/Edit/Write to Claude Code itself — so `pi --provider pi-shell-acp -xt Bash` may make pi's *declared* surface diverge from the backend's *actual* surface, breaking our "declared == actual" invariant. Add a focused gate; preferred policy is **throw/reject, not warn**, when the exclusion isn't truthful. Likely needs to be live (deterministic alone won't catch the Claude-Code-native handoff). Joins the release gate.
+- **Auth-boundary static guards (#26, see Step 2b):** add two deterministic guards to the gate — (1) root bridge code contains no `ANTHROPIC_API_KEY` literal; (2) the bridge path does not consume `options.apiKey` as backend auth. These belong in `pnpm check` (static) and stay green permanently after the Step-2b fix.
 
 **1f. `prepublishOnly` decision (reinforcement 6/clarification):** decide explicitly whether `prepublishOnly` runs the full live gate or a static+pack subset. Live gate depends on auth/Gemini/tmux and may be too heavy for the `npm publish` lifecycle. If subset: document "publish lifecycle = static+pack; full `release-gate` is a mandatory manual pre-publish step." Either way, write it down — no implicit shortcut.
 
@@ -55,6 +56,27 @@ Pin sites to update in lockstep (grep `0.75.4` / `0.14.0` / `0.36.1`):
 - After `pnpm install`, confirm **`pnpm-lock.yaml`** updated (reinforcement 5 extra).
 
 `claude-agent-acp 0.36.1 → 0.38.0` and `codex-acp 0.14.0 → 0.15.0` are minor backend-SDK bumps — the Step-1 gate (`check-sdk-surface` + live `smoke-all` + 3-backend) is exactly what proves the bridge cast annotations and runtime still hold. The strengthened `check-dep-versions` (1c) now fails if any pin drifts.
+
+### Step 2b — Auth-boundary correction (#26) — CRITICAL, must ship in 0.8.0
+
+**Issue [#26](https://github.com/junghan0611/pi-shell-acp/issues/26).** The pi 0.77 bump (Step 2) surfaces a real boundary bug, so fix it here. `index.ts:1190` registers the provider with `apiKey: "ANTHROPIC_API_KEY"` — a validation shim, never real auth (`streamShellAcp` does not read `options.apiKey`; grep confirms it's the only root occurrence). Under pi 0.77 this prints a legacy-env-reference deprecation warning AND falsely presents pi-shell-acp as Anthropic-API-key dependent — even for Codex/Gemini routes, which share this single registration.
+
+- **Fix: replace with an explicit no-auth sentinel**, not `$ANTHROPIC_API_KEY` (that would silence the warning but keep the wrong auth-boundary shape):
+  ```ts
+  const PI_SHELL_ACP_NO_AUTH_SENTINEL = "pi-shell-acp-no-auth";
+  // Not real auth. pi.registerProvider requires apiKey/oauth for custom models;
+  // streamShellAcp ignores options.apiKey. Backend auth belongs to the official
+  // Claude/Codex/Gemini CLI child process.
+  apiKey: PI_SHELL_ACP_NO_AUTH_SENTINEL,
+  ```
+- **Auth invariant (the reason this matters):** pi-shell-acp does not provide/proxy/copy/require Claude/Codex/Gemini credentials — it spawns the official backend CLI and lets that CLI use its own auth state. The pi-facing registration is only a model-catalog + `streamSimple` surface.
+- **NOT this class:** `plugins/openclaw`'s `apiKey: "pi-shell-acp-delegated"` is a non-secret host-adapter sentinel, not a legacy-env reference — leave it.
+- **Verification (folded into the Step-1 release gate):**
+  - Live: startup on pi 0.77 emits NO `registerProvider("pi-shell-acp") apiKey` deprecation warning; `ANTHROPIC_API_KEY` unset does not block provider registration / smoke startup.
+  - Static guard 1: root bridge code (`index.ts` / `acp-bridge.ts`) contains no `ANTHROPIC_API_KEY` literal.
+  - Static guard 2: `streamShellAcp` / bridge path does not consume `options.apiKey` as backend auth.
+  - Existing Claude/Codex/Gemini smokes still pass after the bump.
+- **0.8.0 CHANGELOG:** frame transparently as an **auth-boundary correction**, not merely a warning cleanup.
 
 ### Step 3 — Opus 4.7 → 4.8 (REPLACE — 4.8 only)
 
