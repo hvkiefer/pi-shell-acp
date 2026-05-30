@@ -127,7 +127,7 @@ Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex
 
 This repo also carries `plugins/*` — sibling packages that adapt the same bridge to non-pi hosts. Currently:
 
-- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, prerelease (manual install only; not published to npm or ClawHub yet).
+- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`) and listed on [ClawHub](https://clawhub.ai/plugins/@junghan0611/openclaw-pi-shell-acp), but currently parked.
 
 Each adapter has its own `README.md`. They do not change the pi-facing surface above.
 
