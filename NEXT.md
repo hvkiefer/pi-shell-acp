@@ -31,6 +31,28 @@ Verified in `~/repos/3rd/pi-mono/packages/coding-agent/src/core/package-manager.
 | git project `-l` | `./.pi/git/<host>/<path>` |
 | npm project `-l` | `./.pi/npm/node_modules/<name>` |
 
+### Current next — 0.8.1 cut coverage board (2026-05-31 KST)
+
+0.8.1 is no longer just the #29 resolver patch. Treat it as a **deployment-channel reliability hotfix**. Before cut, close or explicitly classify every remaining blind spot below.
+
+**Cut blockers / must close in 0.8.1:**
+
+1. **Final green release-gate artifact.** Last run `tmux rg081c` (killed), log `/tmp/pi-tmux-release-gate-081c.log`, scratch `/tmp/claude-1000/psa-rg-081c.6qQznN`. It was not green: passed through `smoke-entwurf-resume`, then `check-bridge` failed on Claude `entwurf_self` forced-call refusal; later `sentinel` had already shown ACP-Claude parent cells passing. Next session must rerun after deciding/fixing `check-bridge` role.
+2. **Decide `check-bridge` responsibility.** Current working tree replaced `NOT_VISIBLE` self-report with forced calls and standalone `check-bridge v3` passed 3-backend (`/tmp/psa-cb-new3.log`, `EXIT_CODE=0`). But the full release-gate still hit Claude refusal at the same probe. Likely best split: `check-bridge` owns direct MCP protocol + env-hermetic `test.sh`; `sentinel` owns live backend tool-callability/orchestration. If keeping backend forced-call in `check-bridge`, make it objective via event parsing or bounded retry policy that does not hard-fail on L1 refusal when sentinel covers the axis.
+3. **Tighten forced-call predicate if it stays.** Phase-2 predicate must not pass on `[tool:failed]` alone. Require `entwurf_send` plus a socket/not-found boundary (`control socket` / `소켓` / `not found` / `no such` / `isError` with the synthetic sessionId). Gemini evidence showed Korean paraphrase with `pi control socket을 찾을 수 없어`.
+4. **Hermetic launcher semantics.** Release gates must not depend on operator shell state. `pia` may be the human alias; scripts must use raw `pi` semantics and own their env. Minimum for 0.8.1: all external/negative MCP tests explicitly unset `PI_SESSION_ID` / `PI_AGENT_ID`; positive replyable tests inject synthetic env. Consider a `PI_BIN=${PI_BIN:-$(type -P pi)}` / clean-env wrapper if another ambient leak appears.
+5. **Pack artifact Entwurf ACP topology.** Current `smoke-installed-entwurf-acp` proves git+npm managed-root topology via symlink; `check-pack-install` proves tarball install + provider registration, but not Entwurf child injection from a packed artifact. Add or manually record a credential-free packed-tarball topology proof before cut: `pnpm pack` → install into temp `agentDir/npm/node_modules/@junghanacs/pi-shell-acp` → settings `npm:@junghanacs/pi-shell-acp` → resolver `-e` → `pi --no-extensions -e <bridge> --list-models pi-shell-acp`.
+6. **Post-publish npm registry smoke plan.** Pre-publish cannot install `@junghanacs/pi-shell-acp@0.8.1` from registry. Add a cut checklist item: immediately after `pnpm publish`, run `pi install npm:@junghanacs/pi-shell-acp@0.8.1` on a clean/temp agent dir or clean host and run `smoke-installed-entwurf-acp`/`--list-models` evidence. If it fails, deprecate/yank policy decision belongs to GLG.
+7. **Remote topology classification.** Deterministic tests cover remote path construction but not live SSH. If Oracle is available before cut, run one remote package-source proof (`host=oracle` or existing SSH alias) or document why 0.8.1 gates only deterministic remote mapping. Do not silently imply live SSH package-source coverage if not run.
+
+**Already closed in working tree / verify before next commit:**
+
+- `PI_SETTINGS_PATH` env override + deterministic subprocess assertion.
+- git+npm package-source live smoke (`smoke-installed-entwurf-acp`) using credential-free provider-registration proof.
+- `mcp/pi-tools-bridge/test.sh` `[4b]` env-hermetic unknown-taskId negative path.
+- `check-bridge` self-report removal attempt: forced `entwurf_self` / `entwurf_send` probes; standalone v3 green, but full release-gate still exposed Claude L1 refusal, so role split remains open.
+- `CHANGELOG.md` / clean-host docs updated to say git+npm, `PI_SETTINGS_PATH`, and gate hardening.
+
 ### A. Code fix — entwurf-core.ts resolver
 
 - In `resolveExplicitExtensionSpec`, compute `localRoot`/`remoteRoot` per source kind (local / `git:` / `npm:`), then reuse the existing candidate-probe loop (index.ts / extensions/index.ts / dist/... at line 580-601) unchanged.
@@ -57,7 +79,7 @@ Consider making `PI_SETTINGS_PATH` env-overridable (like `PI_ENTWURF_TARGETS_PAT
 
 ### D. Live gate — `smoke-installed-entwurf-acp`
 
-One package-installed topology (git user), real Entwurf ACP spawn, assert child no longer dies with `Unknown provider`. Isolate with temp `HOME`/`PI_CODING_AGENT_DIR` so the operator's real `~/.pi/agent/settings.json` is untouched. Use one cheap ACP target.
+Git + npm user package-installed topologies, real Entwurf ACP spawn, assert child no longer dies with `Unknown provider`. Isolate with temp `HOME`/`PI_CODING_AGENT_DIR` so the operator's real `~/.pi/agent/settings.json` is untouched. Use credential-free `--list-models` registration proof before any backend turn.
 
 ### E. Release-gate wiring (cut condition)
 
@@ -86,7 +108,9 @@ Five corrections to fold into the A–F work so we don't backtrack. All verified
 1. **Respect `PI_CODING_AGENT_DIR` / `PI_SETTINGS_PATH` env — required for the isolated smoke (D).** pi's `getAgentDir()` (pi-mono `config.ts:485`, `ENV_AGENT_DIR = PI_CODING_AGENT_DIR`) reads the env (expand-tilde) before falling back to `~/.pi/agent`. entwurf-core hardcodes `os.homedir()/.pi/agent` at **both line 43 (AGENT_DIR) and line 579 (remoteRoot)**. Make local resolution env-aware:
    ```ts
    const AGENT_DIR = process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
-   const PI_SETTINGS_PATH = process.env.PI_SETTINGS_PATH ?? path.join(AGENT_DIR, "settings.json");
+   const PI_SETTINGS_PATH = process.env.PI_SETTINGS_PATH
+     ? expandTilde(process.env.PI_SETTINGS_PATH)
+     : path.join(AGENT_DIR, "settings.json");
    ```
    Without this, `smoke-installed-entwurf-acp`'s temp-HOME isolation can't point the resolver at the synthetic install tree. (Keep remoteRoot on the *remote* homedir — env override is a local-resolution concern; don't leak local env into the SSH path.)
 

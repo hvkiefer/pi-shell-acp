@@ -22,13 +22,15 @@
  * has no source — that IS the desired "local always works" property. Fail-fast is
  * therefore asserted on the REMOTE path, where a local self-root cannot cross SSH.
  *
- * Env-isolation: PI_CODING_AGENT_DIR is set to a temp dir BEFORE the dynamic
- * import, so the resolver's module-level AGENT_DIR captures it. The real
+ * Env-isolation: PI_CODING_AGENT_DIR / PI_SETTINGS_PATH are set to temp paths
+ * before the resolver is imported (directly or in the subprocess env-check), so
+ * the module-level AGENT_DIR / PI_SETTINGS_PATH consts capture them. The real
  * ~/.pi/agent is never read or written; os.homedir() is only used to build the
  * EXPECTED remote path string (proving the local override does not leak remote).
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -166,6 +168,30 @@ check("remote git: with missing install dir throws EntwurfRoutingError", () => {
 check("remote with no settings source throws EntwurfRoutingError", () => {
 	setSource(null);
 	assert.throws(() => getRegistryRouting(ACP, true), EntwurfRoutingError);
+});
+
+// 10b. PI_SETTINGS_PATH override must be honored independently from
+//      PI_CODING_AGENT_DIR/settings.json. This is run in a subprocess because
+//      entwurf-core captures the env at module import time.
+check("PI_SETTINGS_PATH env override is honored", () => {
+	const agent = fs.mkdtempSync(path.join(os.tmpdir(), "psa-route-settings-"));
+	try {
+		const root = path.join(agent, "git", "github.com", "junghan0611", "pi-shell-acp");
+		fs.mkdirSync(root, { recursive: true });
+		const settingsPath = path.join(agent, "custom-settings.json");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["git:github.com/junghan0611/pi-shell-acp"] }));
+		const out = execFileSync(
+			process.execPath,
+			["--experimental-strip-types", path.join(REPO_ROOT, "scripts", "resolve-acp-bridge.ts"), "remote"],
+			{
+				env: { ...process.env, PI_CODING_AGENT_DIR: agent, PI_SETTINGS_PATH: settingsPath },
+				encoding: "utf8",
+			},
+		);
+		assert.equal(out, path.posix.join(REMOTE_AGENT, "git", "github.com", "junghan0611", "pi-shell-acp"));
+	} finally {
+		fs.rmSync(agent, { recursive: true, force: true });
+	}
 });
 
 // 11. Project-scope (-l) sources live in cwd/.pi, never user settings.json, so the

@@ -58,7 +58,9 @@ function expandTilde(p: string): string {
 const AGENT_DIR = process.env.PI_CODING_AGENT_DIR
 	? expandTilde(process.env.PI_CODING_AGENT_DIR)
 	: path.join(os.homedir(), ".pi", "agent");
-const PI_SETTINGS_PATH = path.join(AGENT_DIR, "settings.json");
+const PI_SETTINGS_PATH = process.env.PI_SETTINGS_PATH
+	? expandTilde(process.env.PI_SETTINGS_PATH)
+	: path.join(AGENT_DIR, "settings.json");
 const SESSIONS_BASE = path.join(AGENT_DIR, "sessions");
 const ENTWURF_TARGETS_PATH = process.env.PI_ENTWURF_TARGETS_PATH ?? path.join(AGENT_DIR, "entwurf-targets.json");
 export const DEFAULT_ENTWURF_MODEL = "openai-codex/gpt-5.4";

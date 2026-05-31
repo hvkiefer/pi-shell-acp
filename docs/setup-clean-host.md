@@ -837,10 +837,10 @@ credential-free:
 ./run.sh smoke-installed-entwurf-acp
 ```
 
-It reproduces a git-installed package source in an isolated agent dir, drives
-the real resolver to compute the bridge `-e`, then spawns a `pi --no-extensions
--e <bridge> --list-models pi-shell-acp` child and asserts the provider is
-registered (no `Unknown provider`, no `No models matching`). The resolver math
+It reproduces git- and npm-installed package sources in an isolated agent dir,
+drives the real resolver to compute each bridge `-e`, then spawns a
+`pi --no-extensions -e <bridge> --list-models pi-shell-acp` child and asserts
+the provider is registered (no `Unknown provider`, no `No models matching`). The resolver math
 across the full install matrix is pinned by `./run.sh
 check-package-source-routing` (no backend), which also runs inside `pnpm check`
 and the release gate. Run this whenever you intend to delegate to a

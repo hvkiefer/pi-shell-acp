@@ -218,6 +218,14 @@ fi
 echo "[4b] entwurf_resume unknown taskId"
 
 RESUME_NEG=$(
+  # Hermetic env: this case asserts the external-MCP-host SYNC path
+  # (isError + session_not_found). A replyable pi-session caller (PI_SESSION_ID
+  # + PI_AGENT_ID present) would instead default to the async resume path, whose
+  # error text is "entwurf_resume async error: ... session not found ...", NOT
+  # the `session_not_found` token. Unset both so the gate is deterministic
+  # regardless of who launches it — running release-gate from inside a live pi
+  # session (which exports PI_SESSION_ID/PI_AGENT_ID) must not flip this result.
+  unset PI_AGENT_ID PI_SESSION_ID
   {
     printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}'
     printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
