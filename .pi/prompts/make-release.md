@@ -273,9 +273,9 @@ rm -f "/tmp/release-notes-v${VERSION}.md"
 - **Does not commit anything** — the agent's commit cycle is separate;
   this command does not author a "Release v..." commit. The release
   is identified by the tag, not by a marker commit.
-- **Does not run `npm publish`** — operator decides separately.
-  pi-shell-acp 0.4.x has not been published to the npm registry; first
-  publish would be a deliberate decision, not a reflex.
+- **Does not run `pnpm publish`** — operator decides separately. If the
+  operator publishes the npm package after this command, run the post-publish
+  registry smoke below before declaring the cut complete.
 - **Does not auto-author release titles** — title is always
   `v<version>`, theme stays in the CHANGELOG body.
 - **Does not bump downstream consumers** — `agent-config` pins
@@ -285,6 +285,26 @@ rm -f "/tmp/release-notes-v${VERSION}.md"
   procedure.
 - **Does not delete or move tags on failure** — operator inspects and
   retries. Force-pushing a moved tag to remote is out of scope here.
+
+## Post-publish registry smoke (operator checklist)
+
+If the operator runs `pnpm publish --access public`, immediately prove the
+registry-installed package source, not just the local tarball:
+
+```bash
+VERSION="$ARGUMENTS"
+TMP_AGENT=$(mktemp -d -t psa-registry-smoke.XXXXXX)
+PI_CODING_AGENT_DIR="$TMP_AGENT" pi install "npm:@junghanacs/pi-shell-acp@${VERSION}"
+printf '%s\n' "{ \"packages\": [\"npm:@junghanacs/pi-shell-acp@${VERSION}\"] }" > "$TMP_AGENT/settings.json"
+BRIDGE=$(PI_CODING_AGENT_DIR="$TMP_AGENT" node --experimental-strip-types scripts/resolve-acp-bridge.ts)
+test "$BRIDGE" = "$TMP_AGENT/npm/node_modules/@junghanacs/pi-shell-acp"
+PI_CODING_AGENT_DIR="$TMP_AGENT" pi --no-extensions -e "$BRIDGE" --list-models pi-shell-acp
+rm -rf "$TMP_AGENT"
+```
+
+Pass criteria: output includes `pi-shell-acp` and `claude-sonnet-4-6`, with no
+`Unknown provider` / `No models matching`. If this fails after publish, stop and
+ask GLG whether to deprecate/yank before notifying downstream consumers.
 
 ## Failure modes
 

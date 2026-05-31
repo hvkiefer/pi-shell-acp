@@ -145,8 +145,9 @@ parent_spawn() {
         "$prompt" >"$out_file" 2>&1
       ;;
     acp-claude)
-      # ACP parent brings pi-tools-bridge MCP into scope (per validate_pi_tools_bridge_backend).
-      # The MCP entwurf/entwurf_resume tools are what the parent will invoke.
+      # ACP parent brings pi-tools-bridge MCP into scope through the repo extension.
+      # The MCP entwurf/entwurf_resume tools are what the parent will invoke; live
+      # backend callability for this path is owned by sentinel itself.
       # --entwurf-control: ACP-parent async resume routes through the MCP
       # `spawn_async_resume` RPC, which needs this session's control socket
       # (mcp/pi-tools-bridge/src/index.ts throws "No pi control socket" without it).

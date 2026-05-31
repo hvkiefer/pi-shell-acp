@@ -37,21 +37,22 @@ Verified in `~/repos/3rd/pi-mono/packages/coding-agent/src/core/package-manager.
 
 **Cut blockers / must close in 0.8.1:**
 
-1. **Final green release-gate artifact.** Last run `tmux rg081c` (killed), log `/tmp/pi-tmux-release-gate-081c.log`, scratch `/tmp/claude-1000/psa-rg-081c.6qQznN`. It was not green: passed through `smoke-entwurf-resume`, then `check-bridge` failed on Claude `entwurf_self` forced-call refusal; later `sentinel` had already shown ACP-Claude parent cells passing. Next session must rerun after deciding/fixing `check-bridge` role.
-2. **Decide `check-bridge` responsibility.** Current working tree replaced `NOT_VISIBLE` self-report with forced calls and standalone `check-bridge v3` passed 3-backend (`/tmp/psa-cb-new3.log`, `EXIT_CODE=0`). But the full release-gate still hit Claude refusal at the same probe. Likely best split: `check-bridge` owns direct MCP protocol + env-hermetic `test.sh`; `sentinel` owns live backend tool-callability/orchestration. If keeping backend forced-call in `check-bridge`, make it objective via event parsing or bounded retry policy that does not hard-fail on L1 refusal when sentinel covers the axis.
-3. **Tighten forced-call predicate if it stays.** Phase-2 predicate must not pass on `[tool:failed]` alone. Require `entwurf_send` plus a socket/not-found boundary (`control socket` / `소켓` / `not found` / `no such` / `isError` with the synthetic sessionId). Gemini evidence showed Korean paraphrase with `pi control socket을 찾을 수 없어`.
-4. **Hermetic launcher semantics.** Release gates must not depend on operator shell state. `pia` may be the human alias; scripts must use raw `pi` semantics and own their env. Minimum for 0.8.1: all external/negative MCP tests explicitly unset `PI_SESSION_ID` / `PI_AGENT_ID`; positive replyable tests inject synthetic env. Consider a `PI_BIN=${PI_BIN:-$(type -P pi)}` / clean-env wrapper if another ambient leak appears.
-5. **Pack artifact Entwurf ACP topology.** Current `smoke-installed-entwurf-acp` proves git+npm managed-root topology via symlink; `check-pack-install` proves tarball install + provider registration, but not Entwurf child injection from a packed artifact. Add or manually record a credential-free packed-tarball topology proof before cut: `pnpm pack` → install into temp `agentDir/npm/node_modules/@junghanacs/pi-shell-acp` → settings `npm:@junghanacs/pi-shell-acp` → resolver `-e` → `pi --no-extensions -e <bridge> --list-models pi-shell-acp`.
-6. **Post-publish npm registry smoke plan.** Pre-publish cannot install `@junghanacs/pi-shell-acp@0.8.1` from registry. Add a cut checklist item: immediately after `pnpm publish`, run `pi install npm:@junghanacs/pi-shell-acp@0.8.1` on a clean/temp agent dir or clean host and run `smoke-installed-entwurf-acp`/`--list-models` evidence. If it fails, deprecate/yank policy decision belongs to GLG.
-7. **Remote topology classification.** Deterministic tests cover remote path construction but not live SSH. If Oracle is available before cut, run one remote package-source proof (`host=oracle` or existing SSH alias) or document why 0.8.1 gates only deterministic remote mapping. Do not silently imply live SSH package-source coverage if not run.
+1. **Final green release-gate artifact.** Next action: create a fresh scratch dir and run `./run.sh release-gate <scratch>` from this commit. Previous run `tmux rg081c` (killed), log `/tmp/pi-tmux-release-gate-081c.log`, scratch `/tmp/claude-1000/psa-rg-081c.6qQznN`, failed at the old `check-bridge` Claude `entwurf_self` forced-call probe. That probe is now removed; `check-bridge` is direct MCP protocol only, while backend tool-callability is owned by `smoke-async-resume` + `sentinel` inside the same release gate.
+2. **Hermetic launcher semantics watch.** Release gates must not depend on operator shell state. Current known leak (`PI_SESSION_ID` / `PI_AGENT_ID` into external negative MCP tests) is fixed in `mcp/pi-tools-bridge/test.sh`; no new ambient leak is known. If full release-gate fails in a way that depends on `pia`/shell env, add a `PI_BIN=${PI_BIN:-$(type -P pi)}` or clean-env wrapper then rerun.
 
-**Already closed in working tree / verify before next commit:**
+**Closed in this 0.8.1 prep commit:**
 
 - `PI_SETTINGS_PATH` env override + deterministic subprocess assertion.
 - git+npm package-source live smoke (`smoke-installed-entwurf-acp`) using credential-free provider-registration proof.
+- packed tarball topology added to `smoke-installed-entwurf-acp`: `npm pack` → temp managed npm root → settings `npm:@junghanacs/pi-shell-acp` → resolver `-e` → `pi --no-extensions -e <bridge> --list-models pi-shell-acp`; local targeted run passed 2026-05-31 KST.
 - `mcp/pi-tools-bridge/test.sh` `[4b]` env-hermetic unknown-taskId negative path.
-- `check-bridge` self-report removal attempt: forced `entwurf_self` / `entwurf_send` probes; standalone v3 green, but full release-gate still exposed Claude L1 refusal, so role split remains open.
+- `check-bridge` role split resolved: direct MCP `tools/list` + `test.sh` only; backend live tool-callability/orchestration is owned by `smoke-async-resume` + `sentinel`. Local `./run.sh check-bridge` passed 2026-05-31 KST.
+- post-publish npm registry smoke checklist added to `.pi/prompts/make-release.md`: temp `PI_CODING_AGENT_DIR` + `pi install npm:@junghanacs/pi-shell-acp@<version>` + resolver `-e` + `pi --no-extensions --list-models`.
+- remote topology proof classified/closed: local resolver with git package source produced remote `-e /home/junghan/.pi/agent/git/github.com/junghan0611/pi-shell-acp`; `ssh oracle 'pi --no-extensions -e <remote-bridge> --list-models pi-shell-acp'` passed. Log: `/tmp/psa-remote-routing-081-20260531-162412.log`.
+- stale `scripts/sentinel-runner.sh` comment referencing deleted `validate_pi_tools_bridge_backend` removed after peer review.
+- packed-tarball smoke peer installs now derive `@earendil-works/pi-*` version from `package.json` devDeps instead of hardcoding `0.77.0`.
 - `CHANGELOG.md` / clean-host docs updated to say git+npm, `PI_SETTINGS_PATH`, and gate hardening.
+- local gates before commit: `./run.sh check-bridge`, `./run.sh smoke-installed-entwurf-acp`, `./run.sh check-dep-versions`, `pnpm check`, `bash -n run.sh`, `bash -n scripts/sentinel-runner.sh`, `git diff --check` all passed.
 
 ### A. Code fix — entwurf-core.ts resolver
 
