@@ -82,6 +82,7 @@ Failure codes:
   R3 identity drift on resume (lastModel changed)
   R4 bridge path != resume|load      (child stderr, ACP-target only)
   R5 semantic recall missed          (token not in last assistant turn)
+  R6 parent emitted no resume tool call (tool-omission; checked before R2)
 EOF
 }
 
@@ -171,24 +172,37 @@ parent_spawn() {
 }
 
 # ----------------------------------------------------------------------------
-# Prompts. Deliberately terse: we only need the model to call the tool once.
-# The model's post-call prose is irrelevant — we read raw JSON and session JSONL.
+# Prompts. Each one is a REAL task with a purpose, not a "call this tool with
+# these args" mechanical drill. A capable model handed a purposeless procedure
+# ("entwurf_resume 도구를 정확히 1회 호출하고 즉시 턴을 종료하라") can rationally
+# collapse it into a no-op — observed 2026-05-31 as a cell-5 tool-call omission:
+# the parent Sonnet thought "call then end the turn immediately" and ended the
+# turn WITHOUT emitting the call (toolResults:[], stopReason:stop). The fix is
+# to hand the parent a goal it can only reach by calling the tool and reading
+# the worker's answer, then reporting it.
 #
-# The spawn task plants a neutral memory token and asks the child for a fixed
-# ack (READY). The resume task asks the child to recall the token in one word.
-# Token neutrality + short ack protects the check from safety-filter contamination
+# Both tasks run mode:"sync" so the parent BLOCKS on the worker and receives the
+# answer inline. Every parent surface honors explicit mode:"sync" — the native
+# entwurf_resume tool branch (pi-extensions/entwurf.ts) and the MCP bridge's
+# runEntwurfResumeSync. The replyable-caller async default only applies when
+# mode is OMITTED; pinning sync removes that variance from the matrix (the async
+# resume path has its own live gate, smoke-async-resume).
+#
+# The spawn task plants a neutral memory token and asks the worker for a fixed
+# ack (READY); the resume task asks the worker to recall the token. Token
+# neutrality + short ack protects the check from safety-filter contamination
 # (see Prompt hygiene rules at the top of this file).
 # ----------------------------------------------------------------------------
 build_spawn_prompt() {
   local provider="$1" model="$2" token="$3"
-  printf 'entwurf 도구를 정확히 1회 호출하라. 인수: { task: "기억 단어는 %s 다. READY 한 단어만 답해라.", provider: "%s", model: "%s", mode: "sync" }. 도구 호출이 끝나면 설명이나 요약 없이 즉시 턴을 종료하라.' \
-    "$token" "$provider" "$model"
+  printf '분신을 하나 띄워서 "%s" 라는 단어를 기억시켜라. entwurf 도구를 mode:"sync"로 호출하되 인수는 { task: "기억 단어는 %s 다. READY 한 단어만 답해라.", provider: "%s", model: "%s", mode: "sync" } 로 주고, 분신이 답한 한 단어를 너의 최종 답으로 보고하라.' \
+    "$token" "$token" "$provider" "$model"
 }
 
 build_resume_prompt() {
   local task_id="$1"
-  printf 'entwurf_resume 도구를 정확히 1회 호출하라. 인수: { taskId: "%s", prompt: "기억 단어를 한 단어로만 답해라." }. 도구 호출이 끝나면 설명이나 요약 없이 즉시 턴을 종료하라.' \
-    "$task_id"
+  printf '방금 띄운 분신(taskId=%s)에게 기억한 단어가 무엇인지 물어봐라. entwurf_resume 도구를 mode:"sync"로 호출하되 인수는 { taskId: "%s", prompt: "기억 단어를 한 단어로만 답해라.", mode: "sync" } 로 주고, 분신이 답한 그 한 단어를 너의 최종 답으로 보고하라.' \
+    "$task_id" "$task_id"
 }
 
 # ----------------------------------------------------------------------------
@@ -479,10 +493,27 @@ run_cell() {
     finalize_cell; return
   fi
 
-  # Native parent's entwurf_resume is async (see pi-extensions/entwurf.ts
-  # registerTool('entwurf_resume')). ACP parent routes through the MCP
-  # bridge's runEntwurfResumeSync which is blocking. Poll uniformly to
-  # cover both: wait for session turns to exceed the pre-resume snapshot.
+  # Tool-omission guard (R6) — classify a no-op parent immediately instead of
+  # blocking the full WAIT_BUDGET on a turn that will never grow. The resume
+  # prompt pins mode:"sync", so a parent that actually invoked the tool blocks
+  # on the worker and the child turn is already appended by the time the parent
+  # returns; a parent that omitted the call returns fast with no tool invocation
+  # in its own stream. The marker is the parent's tool-call event, matched
+  # across all three surfaces (native `toolCall`/`toolName`/`toolUse`, Claude
+  # `mcp__pi-tools-bridge__…`, Codex `pi-tools-bridge/…`). The prompt echoes
+  # `entwurf_resume` but none of these tokens, so an omission cannot be masked
+  # by prompt echo. Non-authoritative for PASS — a genuine call still has to
+  # clear the turn-growth + identity + continuity checks below.
+  if ! grep -qE 'toolName|toolUse|"type":"tool[cC]all|tool_execution_start|mcp__pi-tools-bridge__|pi-tools-bridge/entwurf' "$resume_log"; then
+    CELL_FCODE="R6"
+    CELL_NOTE="parent emitted no entwurf_resume tool call (tool-omission) — see $resume_log"
+    finalize_cell; return
+  fi
+
+  # Resume prompt pins mode:"sync" on every parent surface, so the worker runs
+  # synchronously and its turn is appended before the parent returns. Poll the
+  # saved session file to confirm the turn landed (instant on the sync path; the
+  # budget only absorbs slow backends).
   local resume_analysis
   if resume_analysis=$(wait_for_turns_gt "$SPAWN_SESSION" "$RESUME_TB"); then
     :
