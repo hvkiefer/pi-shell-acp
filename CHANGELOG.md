@@ -4,6 +4,8 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.8.1 — 2026-05-31
+
 Hotfix track for #29 — package-installed Entwurf ACP routing.
 
 ### Fixed
@@ -12,6 +14,7 @@ Hotfix track for #29 — package-installed Entwurf ACP routing.
 - **Unresolved `pi-shell-acp` routing fails fast instead of warning-then-spawning.** The spawn path (`getRegistryRouting`) now throws `EntwurfRoutingError` before launching a guaranteed-broken child, and the resume paths (sync + async) surface an explicit `acp_bridge_unresolved` failure, rather than emitting a warning and spawning anyway. Fail-fast scope is explicit ACP intent only — registry `provider=pi-shell-acp`, resume `recordedProvider=pi-shell-acp`, and opt-in Codex-via-ACP; the Claude-only heuristic keeps its warning-only `pi-claude-code-use` fallback.
 - **`check-bridge` negative-path `entwurf_resume` test is now env-hermetic.** The `[4b]` unknown-taskId case asserts the external-MCP-host sync error token `session_not_found`, but it inherited the launcher's environment — running `release-gate` from inside a live pi session (which exports `PI_SESSION_ID` / `PI_AGENT_ID`) made the resume default to the replyable-caller async path, whose error text omits that token, so the gate failed for the launcher's identity rather than for any bridge defect. The case now unsets both vars so the result is deterministic regardless of who launches the gate.
 - **`check-bridge` is now an objective direct-MCP/protocol gate, not a backend self-recognition gate.** The attempted per-backend forced-call probe removed the old `NOT_VISIBLE` self-report escape, but a full release-gate still exposed Claude L1 variance: the child refused to call `entwurf_self` while the surrounding operational gates had already proven ACP-parent orchestration. `check-bridge` now owns only the direct MCP server contract (`tools/list` + `mcp/pi-tools-bridge/test.sh` negative paths). Live backend tool-callability/orchestration belongs to `smoke-async-resume` and `sentinel`, whose assertions are based on operational artifacts rather than a model's description of its tool schema.
+- **`verify-resume` now uses neutral continuity prompts instead of `secret token` wording.** The old prompt pair (`test-token-123`, `What was the secret token?`) could trigger Claude safety/refusal behaviour and make continuity look broken when the bridge was actually fine. The gate now plants and recalls an ordinary word (`owl`), matching VERIFY.md's prompt-hygiene rule so release-gate continuity checks measure continuity, not safety interpretation.
 
 ### Added
 
@@ -28,6 +31,12 @@ Hotfix track for #29 — package-installed Entwurf ACP routing.
 ### Changed
 
 - **`prepare` script is `husky 2>/dev/null || true`.** The bare `husky || true` still exited 0 on consumer/git-install machines (husky is dev-only) but printed a cosmetic `husky: command not found` line. Redirecting stderr drops the noise; behavior is otherwise unchanged.
+
+### Verification
+
+- Final release-gate evidence before cut: `/tmp/pi-tmux-release-gate-0811c.log` — `PASS=15 FAIL=0 SKIP=0`, run from the repo cwd against scratch project `/tmp/psa-release-gate-0811c.Z7L4VB` with no `--allow-skip-gemini`.
+- The new install-topology live gate passed inside the release gate: `smoke-installed-entwurf-acp (#29)` proved git source, npm source, and packed-tarball source routing against the final `junghanacs-pi-shell-acp-0.8.1.tgz` package shape.
+- Artifact cross-check: `/tmp/smoke-async-resume-20260531-181934.json`, `/tmp/sentinel-20260531-182435.json`, and `/tmp/session-messaging-smoke-20260531-182737.json` all point at the scratch session dir, not the repo session dir.
 
 ## 0.8.0 — 2026-05-29
 

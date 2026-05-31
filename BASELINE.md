@@ -251,6 +251,23 @@ the scoring criteria so it stays scannable.
 
 # HISTORY
 
+## [2026-05-31 Sun] — 0.8.1 release-gate baseline
+
+Release-facing baseline for the 0.8.1 hotfix cut: the single `./run.sh release-gate /tmp/psa-release-gate-0811c.Z7L4VB` command remains the full static + live verification floor. It was invoked from the repo cwd and completed with **15 PASS / 0 FAIL / 0 SKIP** with Gemini present and no `--allow-skip-gemini`.
+
+| Axis | Baseline result |
+|---|---|
+| Static floor | `pnpm check` passed on version `0.8.1`: lint, typecheck, plugin checks, MCP / shell-quote / prompt-format / async-resume / package-source-routing / model-lock / model / backend / registration / dep-version / auth-boundary / SDK / transcript-poison / pack gates. |
+| Install topology | **PASS** — new `smoke-installed-entwurf-acp (#29)` gate passed for git source, npm source, and packed tarball source routing; the packed topology resolved and registered the final `junghanacs-pi-shell-acp-0.8.1.tgz` shape. |
+| Runtime backends | `smoke-all` passed across Claude, Codex, and Gemini. |
+| Async resume | `smoke-async-resume` passed 6/6; `A.async.claude-sonnet-4-6` needed one bounded retry after an initial no-ack attempt, then completed cleanly. |
+| Orchestration | `sentinel` passed 6/6; `session-messaging` passed 4/4; `verify-resume` cross-cwd recall passed. |
+| Compaction policy | `LIVE=1 smoke-compaction-policy` passed the release contract; Gemini remained an observed backend property row where `/compact` acknowledgement still did not imply sentinel recall. |
+| Tool-surface truthfulness | `xt-tool-surface` rejected backend built-in `-xt` requests up front and honored the extension-tool exemption. |
+| Scratch cwd hygiene | Latest artifacts contain no repo session-dir paths: `sentinel-20260531-182435.json`, `smoke-async-resume-20260531-181934.json`, and `session-messaging-smoke-20260531-182737.json` all point at the scratch session dir. |
+
+Evidence: `/tmp/pi-tmux-release-gate-0811c.log`, `/tmp/smoke-async-resume-20260531-181934.json`, `/tmp/sentinel-20260531-182435.json`, `/tmp/session-messaging-smoke-20260531-182737.json`.
+
 ## [2026-05-29 Fri] — 0.8.0 Opus 4.8 first baseline (operator interview)
 
 First operator-driven baseline run with **`pi-shell-acp / claude-opus-4-8` as the live subject** — the model the 0.8.0 Step-3 curated-surface swap promotes into the Opus slot. Run by GLG through a real pi-shell-acp session (not the synthetic gate): a Q-B0 / Q-B0-CARRIER identity interview followed by an entwurf word-chain (끝말잇기) that exercised spawn + resume-sync + resume-async against an `openai-codex / gpt-5.4` child. **All axes PASS** — the 4.8 surface routes, self-identifies, and orchestrates correctly in real use, not just under the release gate.

@@ -3296,8 +3296,8 @@ verify_resume() {
   local project_dir session_file model prompt_a prompt_b other_dir
   project_dir=$(normalize_project_dir "$1")
   model=${PI_SHELL_ACP_VERIFY_MODEL:-claude-sonnet-4-6}
-  prompt_a=${PI_SHELL_ACP_VERIFY_PROMPT_A:-'Remember this exact secret token for later: test-token-123. Reply only READY.'}
-  prompt_b=${PI_SHELL_ACP_VERIFY_PROMPT_B:-'What was the secret token? Reply with the token only.'}
+  prompt_a=${PI_SHELL_ACP_VERIFY_PROMPT_A:-'Remember this ordinary word for the next turn: owl. Reply only READY.'}
+  prompt_b=${PI_SHELL_ACP_VERIFY_PROMPT_B:-'What ordinary word did I ask you to remember? Reply with the word only.'}
   session_file=$(mktemp /tmp/pi-shell-acp-verify-XXXXXX.jsonl)
 
   # Cross-cwd target. The same-cwd verify-resume below would not have caught

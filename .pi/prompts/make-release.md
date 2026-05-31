@@ -92,10 +92,7 @@ done. Abort.
 pnpm check
 ```
 
-All eight static gates (lint / typecheck / check-mcp / check-models /
-check-backends / check-registration / check-dep-versions /
-check-sdk-surface) must pass. If any fail, fix the underlying issue —
-do not bypass.
+The full static release floor in `pnpm check` must pass. The exact gate set evolves with the repo (today it includes lint / typecheck / plugin checks / MCP, shell-quote, prompt-format, async-resume, package-source-routing, model-lock, models, backends, registration, dep-version, auth-boundary, SDK-surface, transcript-poison, and pack checks). If any fail, fix the underlying issue — do not bypass.
 
 ### 6. GitHub auth + target consistency
 
