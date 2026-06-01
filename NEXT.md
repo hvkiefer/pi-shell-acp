@@ -3,20 +3,29 @@
 > 다음에 할 일만 남긴다. 로그가 아니다.
 > 결정 trace 와 evidence 는 commit history / CHANGELOG / VERIFY / BASELINE / README / AGENTS / 코드로 보낸다.
 
-## Active — close 0.8.2 hotfix release (2026-06-01 KST)
+## Active — start 0.9.0 Entwurf garden-native session identity (#28)
 
-0.8.2 본류는 Claude Opus 4.8 signed thinking-block 400 → poisoned ACP mapping invalidation hotfix다. `@agentclientprotocol/claude-agent-acp` 0.39.0 / `@anthropic-ai/sdk` 0.100.1 peer 정합과 `verify-transcript-poison` 가드가 들어갔다.
+0.8.x hotfix line is closed. Next main work is 0.9.0: make Entwurf sessions garden-native by replacing public `taskId` / `*entwurf-<taskId>*` handles with Pi `--session-id` + `--name` primitives. Detailed direction and touch points live in the **Top priority — 0.9.0** section below.
 
-Current state:
-- Commit `f9ce35a chore(release): prepare v0.8.2` exists and branch is ahead of origin.
-- Uncommitted release-facing doc/sentinel hardening remains in `CHANGELOG.md`, `VERIFY.md`, `BASELINE.md`, `NEXT.md`, `.pi/prompts/{prepare-release,make-release}.md`, and `scripts/sentinel-runner.sh`.
-- Full sentinel evidence: `/tmp/sentinel-20260601-120416.json` → 6/6 PASS, log `/tmp/pi-tmux-sentinel-082.log`. Ready-gate retry did **not** fire in that green run; the restored purpose-driven prompt's natural warmup was enough. The ready-gate remains a bounded 1× backup for the ACP-Claude MCP cold-start race.
-- Full release-gate evidence: `/tmp/pi-tmux-release-gate-082.log` → `PASS=15 FAIL=0 SKIP=0`, scratch `/tmp/claude-1000/psa-rg-082.HVwOvk`, sentinel artifact `/tmp/sentinel-20260601-121604.json`.
+Immediate next steps:
+1. Re-read the 0.9.0 section below and the Opus review evidence before editing code.
+2. Implement in small slices: sync spawn/resume core first, then async/MCP/test/doc surfaces.
+3. Preserve the key guard from the review: resume must append to the existing `sessionId` session file from the saved header cwd; wrong cwd must not silently create a new session.
+4. Keep `sessionId` public and `runId` internal/diagnostic if a per-process execution id is needed.
 
-Next actions:
-1. Review the doc alignment diff, then commit/amend the release-facing hardening into the 0.8.2 release prep according to GLG release policy.
-2. Run the standard release sequence (`/make-release 0.8.2` / tag + push + GitHub release; GLG handles npm publish).
-3. Record upstream follow-up separately: `claude-agent-acp`/Claude agent SDK `newSession({mcpServers})` returns before injected MCP servers have deterministic connected/failed status. pi-shell-acp should not add a runtime probe barrier; deterministic readiness belongs upstream (`mcpServerStatus()` or equivalent). Avoid the earlier overclaim that the model retried a tool 39× — raw streaming partials inflated that count.
+## Released — 0.8.2 Claude Opus 4.8 transcript poison hotfix
+
+0.8.2 was tagged/released/published on 2026-06-01 KST from `90d1e8d` / `v0.8.2`.
+
+Evidence:
+- Release gate: `/tmp/pi-tmux-release-gate-082.log` → `PASS=15 FAIL=0 SKIP=0`, scratch `/tmp/claude-1000/psa-rg-082.HVwOvk`.
+- Sentinel: `/tmp/sentinel-20260601-121604.json` inside the release gate and `/tmp/sentinel-20260601-120416.json` focused run, both 6/6 PASS.
+- GitHub Release: https://github.com/junghan0611/pi-shell-acp/releases/tag/v0.8.2
+- npm: `@junghanacs/pi-shell-acp@0.8.2` published; post-publish registry smoke passed with `pi install npm:@junghanacs/pi-shell-acp@0.8.2` and `pi --no-extensions -e <registry bridge> --list-models pi-shell-acp` showing `claude-sonnet-4-6`.
+
+Follow-up to record upstream, not block 0.9.0:
+- `claude-agent-acp` / Claude agent SDK `newSession({mcpServers})` returns before injected MCP servers have deterministic connected/failed status. pi-shell-acp should not add a runtime probe barrier; deterministic readiness belongs upstream (`mcpServerStatus()` or equivalent).
+- Avoid the earlier overclaim that the model retried a tool 39× — raw streaming partials inflated that count.
 
 ## Released — 0.8.1 package-installed Entwurf ACP routing (#29)
 
