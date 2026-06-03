@@ -81,18 +81,26 @@ Done in `entwurf-core.ts` (locked-grammar SSOT, merged here because it is the on
 - Gate `check-entwurf-session-identity` (80 assertions, no backend) wired into `pnpm check` + `pnpm run` alias.
 - Still NO public schema rename; `taskId` execution path untouched.
 
-**Phase 3 — Entwurf sync path pilot — ← CURRENT NEXT**
+**Phase 3 precursor — bounded session-file readers — ← CURRENT NEXT**
 
-Now that helpers are proven:
-- wire `runEntwurfSync` to `generateSessionId` + `assertSessionIdAvailableForSpawn` + `buildSessionName` + `--session-id`/`--name` (drop `${ts}_entwurf-${taskId}.jsonl` species);
-- wire `runEntwurfResumeSync` to `findSessionFileById` (header scan) + header-cwd authority + `--session-id`;
-- live 3-turn `smoke-session-id-name` (B): same-cwd append, spawn-only name, wrong-cwd footgun-as-evidence;
-- prove append-not-recreate (T4) and cross-cwd authority (T5);
-- then decide whether async/MCP/docs migration is safe.
+Before leaning on resume as a hot path, harden the second whole-file reader (sessions are only ~1–2 MB, so this is hardening, not a crisis):
+- `analyzeSessionFileLike` still does `readFileSync` + `content.trim().split("\n")`. Convert to a **sync chunked line reader** (fs.readSync loop, byte-level `\n` split, per-line utf8 decode so chunk boundaries never corrupt multibyte chars). **Keep the sync signature** — 5+ sync call sites (entwurf.ts, entwurf-async.ts, cross-cwd/compaction smokes; sentinel re-implements in bash). Behavior must stay byte-for-byte equal; existing cross-cwd/compaction smokes assert its output.
+- Add a deterministic "1 MB+ body analysis stays bounded + correct" assertion to `check-entwurf-session-identity` (it already covers the bounded `readSessionHeader`).
 
-Later phases remain: async state (`sessionId` + internal `runId`), MCP/control schema rename, sentinel/async-resume/compaction migration, docs/#31 recipe, and consumer lockstep (`entwurf-peek`, semantic-memory).
+**Phase 3a — direct-pi substrate smoke (no public API change)**
+- live 3-turn `smoke-session-id-name` (B): same-cwd append, spawn-only name, wrong-cwd footgun-as-evidence. Direct `pi --session-id`/`--name` through the bridge; **does not touch the Entwurf tool surface**, so it is safe to land alone.
 
-**Residual note (not a blocker):** `readSessionHeader`'s bounded read returns `null` if a header's first line exceeds 8192 bytes (truncated JSON.parse fails silently). Real pi headers are <1KB so this is 8x margin, but if ever tightened: when `newlineIdx < 0 && bytesRead === buffer.length`, treat as "header did not fit" explicitly (grow or error) rather than silent null.
+**Phase 3b — atomic Entwurf sync migration (lockstep, single slice)**
+- wire `runEntwurfSync` → `generateSessionId` + `assertSessionIdAvailableForSpawn` + `buildSessionName` + `--session-id`/`--name` (drop `${ts}_entwurf-${taskId}.jsonl` species);
+- wire `runEntwurfResumeSync` → `findSessionFileById` (header scan) + header-cwd authority + `--session-id`;
+- prove append-not-recreate (T4) and cross-cwd authority (T5).
+- **Lockstep rule (non-negotiable):** the `taskId → sessionId` rename must change `entwurf-core` return type + `entwurf.ts` native tool + `mcp/pi-tools-bridge` Zod schema/tool descriptions + every test/smoke **in one commit**. A half-migrated state where core emits a `sessionId` but the MCP/native surface still advertises `taskId` would break external clients (Claude Code parsing "Task ID: …"). **Forbidden mid-state:** a `taskId` field carrying a `sessionId` value. No compatibility shim.
+
+Later phases remain: async state (`sessionId` + internal `runId`), full MCP/control schema rename, sentinel/async-resume/compaction migration, docs/#31 recipe, and consumer lockstep (`entwurf-peek`, semantic-memory).
+
+**Residual notes (not blockers):**
+- `readSessionHeader`'s bounded read returns `null` if a header's first line exceeds 8192 bytes (truncated JSON.parse fails silently). Real pi headers are <1 KB so this is 8× margin; if ever tightened, when `newlineIdx < 0 && bytesRead === buffer.length` treat as "header did not fit" explicitly rather than silent null.
+- `assertSessionIdAvailableForSpawn` is a **check, not a reservation** (TOCTOU): two same-millisecond parallel spawns could both pass the check before either writes. 6-hex suffix = 16,777,216 space makes a same-second collision ≈ 0, so this is accepted risk at the local-CLI scale. A future `O_EXCL` reservation lock is possible but overengineered now.
 
 ### Action plan before implementation
 

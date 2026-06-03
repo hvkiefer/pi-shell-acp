@@ -512,6 +512,7 @@ export function parseMessages(messages: AssistantMessageLike[]): string {
  * without re-reading the file.
  */
 const SESSION_HEADER_READ_BYTES = 8192;
+const SESSION_ANALYSIS_CHUNK_BYTES = 64 * 1024;
 
 export function readSessionHeader(sessionFile: string): { id?: string; cwd?: string } | null {
 	let fd: number | undefined;
@@ -561,33 +562,71 @@ export function analyzeSessionFileLike(sessionFile: string): SessionAnalysis {
 		cost: 0,
 	};
 
-	try {
-		const content = fs.readFileSync(sessionFile, "utf-8");
-		for (const line of content.trim().split("\n")) {
-			try {
-				const entry = JSON.parse(line) as { type?: string; message?: AssistantMessageLike };
-				if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+	// Per-line accumulation. Identical semantics to the old
+	// `readFileSync().trim().split("\n")` pass (last-wins fields, turn/cost
+	// accumulation, malformed lines skipped) but streamed so a multi-MB
+	// transcript is never held whole in memory at once.
+	const processLine = (line: string): void => {
+		const trimmed = line.trim();
+		if (!trimmed) return;
+		try {
+			const entry = JSON.parse(trimmed) as { type?: string; message?: AssistantMessageLike };
+			if (entry.type !== "message" || entry.message?.role !== "assistant") return;
 
-				const msg = entry.message;
-				analysis.turns++;
+			const msg = entry.message;
+			analysis.turns++;
 
-				const text = extractTextContent(msg.content).trim();
-				if (text) analysis.lastAssistantText = text;
-				if (typeof msg.errorMessage === "string" && msg.errorMessage.trim()) {
-					analysis.lastError = msg.errorMessage.trim();
-				}
-				if (typeof msg.stopReason === "string") analysis.lastStopReason = msg.stopReason;
-				if (typeof msg.model === "string") analysis.lastModel = msg.model;
-				if (typeof msg.provider === "string") analysis.lastProvider = msg.provider;
-
-				const c = msg.usage?.cost?.total;
-				if (typeof c === "number") analysis.cost += c;
-			} catch {
-				/* skip malformed lines */
+			const text = extractTextContent(msg.content).trim();
+			if (text) analysis.lastAssistantText = text;
+			if (typeof msg.errorMessage === "string" && msg.errorMessage.trim()) {
+				analysis.lastError = msg.errorMessage.trim();
 			}
+			if (typeof msg.stopReason === "string") analysis.lastStopReason = msg.stopReason;
+			if (typeof msg.model === "string") analysis.lastModel = msg.model;
+			if (typeof msg.provider === "string") analysis.lastProvider = msg.provider;
+
+			const c = msg.usage?.cost?.total;
+			if (typeof c === "number") analysis.cost += c;
+		} catch {
+			/* skip malformed lines */
 		}
+	};
+
+	let fd: number | undefined;
+	try {
+		fd = fs.openSync(sessionFile, "r");
+		const chunk = Buffer.alloc(SESSION_ANALYSIS_CHUNK_BYTES);
+		// `leftover` holds a partial trailing line carried across chunk reads.
+		// Splitting on the newline BYTE (0x0a) and decoding each complete line
+		// independently keeps multibyte UTF-8 from being corrupted at a chunk
+		// boundary (a newline never falls inside a multibyte sequence).
+		let leftover = Buffer.alloc(0);
+		let bytesRead = 0;
+		// biome-ignore lint/suspicious/noAssignInExpressions: standard read loop
+		while ((bytesRead = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+			const buf =
+				leftover.length > 0 ? Buffer.concat([leftover, chunk.subarray(0, bytesRead)]) : chunk.subarray(0, bytesRead);
+			let start = 0;
+			let nl = buf.indexOf(0x0a, start);
+			while (nl !== -1) {
+				processLine(buf.toString("utf8", start, nl));
+				start = nl + 1;
+				nl = buf.indexOf(0x0a, start);
+			}
+			// Copy the remainder before the next read overwrites `chunk`.
+			leftover = Buffer.from(buf.subarray(start));
+		}
+		if (leftover.length > 0) processLine(leftover.toString("utf8"));
 	} catch {
 		/* file not readable */
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {
+				/* best-effort close */
+			}
+		}
 	}
 
 	return analysis;

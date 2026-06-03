@@ -48,6 +48,7 @@ const {
 	findSessionFilesById,
 	assertSessionIdAvailableForSpawn,
 	readSessionHeader,
+	analyzeSessionFileLike,
 } = await import("../pi-extensions/lib/entwurf-core.ts");
 
 let n = 0;
@@ -304,6 +305,50 @@ try {
 	eq(findSessionFilesById(dupId).length, 2, "findSessionFilesById returns all duplicates");
 	throws(() => findSessionFileById(dupId), "findSessionFileById throws on ambiguous duplicate");
 	throws(() => assertSessionIdAvailableForSpawn(dupId), "spawn pre-check throws on duplicate id");
+
+	// ---- analyzeSessionFileLike: streamed, bounded, semantics preserved ----
+	const msg = (m: Record<string, unknown>) =>
+		`${JSON.stringify({ type: "message", message: { role: "assistant", ...m } })}\n`;
+	const analyzeFile = path.join(dir, "analyze-semantics.jsonl");
+	fs.writeFileSync(
+		analyzeFile,
+		`${JSON.stringify({ type: "session", id: "20260603T210000-aaaaaa", cwd: "/a" })}\n` +
+			`${JSON.stringify({ type: "message", message: { role: "user", content: "hi" } })}\n` + // non-assistant: not counted
+			msg({ content: "first", model: "m1", provider: "p1", stopReason: "end_turn", usage: { cost: { total: 0.01 } } }) +
+			"{ this is not valid json\n" + // malformed: skipped
+			msg({
+				content: "second",
+				model: "claude-opus-4-8",
+				provider: "pi-shell-acp",
+				stopReason: "tool_use",
+				errorMessage: "oops",
+				usage: { cost: { total: 0.02 } },
+			}),
+	);
+	const a1 = analyzeSessionFileLike(analyzeFile);
+	eq(a1.turns, 2, "analyze: only assistant turns counted (user + malformed skipped)");
+	eq(a1.lastAssistantText, "second", "analyze: last-wins assistant text");
+	eq(a1.lastModel, "claude-opus-4-8", "analyze: last-wins model");
+	eq(a1.lastProvider, "pi-shell-acp", "analyze: last-wins provider");
+	eq(a1.lastStopReason, "tool_use", "analyze: last-wins stopReason");
+	eq(a1.lastError, "oops", "analyze: last error captured");
+	eq(Math.round(a1.cost * 100) / 100, 0.03, "analyze: cost accumulated");
+
+	// bounded streaming: a single line > chunk size (incl. multibyte) spanning
+	// several reads must reassemble correctly and not corrupt the trailing turn.
+	const bigBody = `한${"a".repeat(300 * 1024)}글`; // > 64KB chunk, multibyte at both ends
+	const bigFile = path.join(dir, "analyze-big.jsonl");
+	fs.writeFileSync(
+		bigFile,
+		`${JSON.stringify({ type: "session", id: "20260603T210000-bbbbbb", cwd: "/b" })}\n` +
+			msg({ content: bigBody, model: "m-big", provider: "p-big", usage: { cost: { total: 1 } } }) +
+			msg({ content: "final", model: "claude-sonnet-4-6", provider: "pi-shell-acp", usage: { cost: { total: 0.5 } } }),
+	);
+	const a2 = analyzeSessionFileLike(bigFile);
+	eq(a2.turns, 2, "analyze(big): turns correct across chunk boundaries");
+	eq(a2.lastAssistantText, "final", "analyze(big): trailing turn intact after multi-chunk line");
+	eq(a2.lastModel, "claude-sonnet-4-6", "analyze(big): trailing model intact");
+	eq(Math.round(a2.cost * 100) / 100, 1.5, "analyze(big): cost summed across large line");
 
 	console.log(`[check-entwurf-session-identity] ${n} assertions ok`);
 } finally {
