@@ -21,7 +21,7 @@ Do **not** start implementation until the action plan below is closed enough tha
 ### Decisions to carry unless GLG overrides
 
 1. `sessionId` grammar: `YYYYMMDDTHHMMSS-xxxxxx` (6 hex suffix) + parent-side collision pre-check against `*_<id>.jsonl` before spawn.
-2. `displayName`: `entwurf · {model} · from {caller-session-or-host} · {task-hint}`; set on spawn only, never on resume.
+2. `session name`: denote-style `{sessionId}=={provider}/{model}--{titleSlug}__{tag}_{tag}`, assembled only via `buildSessionName(...)`; set on spawn only, never on resume. Full grammar in "Locked — session identity & name grammar". (이전 `·`-구분 displayName 폐기 — 오해 금지.)
 3. Resume model identity: re-supply recorded `--provider/--model` on resume for 0.9.0. Inherit-without-model is a later stretch only after live smoke.
 4. Async state: `activeEntwurfs` keyed by durable `sessionId`; add internal/diagnostic `runId` for per-process runs and resume notifications.
 5. Public schema/result/help text: remove `taskId` as a handle. `sessionFile` is diagnostic only. No legacy fallback prose in docs/tool descriptions.
@@ -72,7 +72,7 @@ Phase 1 substrate notes (Claude review boost, fold into the smoke before writing
 **Phase 2 — control routines on top of proven substrate**
 
 Only after Phase 1 is green:
-- add helper routines for generating ids, resolving sessions by header id, collision pre-check, duplicate fail-fast, and displayName grammar;
+- add helper routines for generating ids, resolving sessions by header id, collision pre-check, duplicate fail-fast, and the `buildSessionName(...)` builder/parser (see locked grammar);
 - test those helpers deterministically;
 - still avoid public schema rename until helpers are proven.
 
@@ -117,7 +117,7 @@ Later phases remain: async state (`sessionId` + internal `runId`), MCP/control s
 - `agent-config` must be handled in the same campaign or explicitly accepted as broken for new sessions:
   - `skills/entwurf-peek/scripts/entwurf-peek.py` currently discovers children by `entwurf-*.jsonl`.
   - `skills/semantic-memory/SKILL.md` mentions `--session-file-contains _entwurf-`.
-- New discovery direction: session header id + session name beginning `entwurf ·`, not filename species.
+- New discovery direction: session header id + session name carrying the `entwurf` tag (`…__entwurf…`), not filename species.
 - This is also the bridge toward #30: discovery should be “garden session metadata” flavored, not Pi filename flavored.
 
 **E. Implementation slices after plan is green**
@@ -294,19 +294,64 @@ Pi 0.76.0 `--session-id` + Pi 0.78.0 `--name` 가 준비되었으므로 Entwurf 
 
 - **Breaking change allowed / intended.** 기존 `taskId` / `*entwurf-<taskId>*.jsonl` saved-session 호환은 유지하지 않는다. 이미 필요한 세션은 semantic-memory 축에 임베딩되었다고 보고, 잘못된 구버전 handle 은 깨져야 한다.
 - **Public handle = `sessionId`.** `taskId` 는 public schema, help text, result text, docs, tests, comments 에서 제거한다. 필요하면 내부 process-run 식별자는 `runId` 같은 별도 이름으로만 둔다.
-- **Spawn uses Pi primitives.** Entwurf spawn 은 직접 session file path 를 만들거나 `--session <file>` 을 넘기지 않고 `pi --session-id <id> --name <displayName>` 을 넘긴다.
+- **Spawn uses Pi primitives.** Entwurf spawn 은 직접 session file path 를 만들거나 `--session <file>` 을 넘기지 않고 `pi --session-id <id> --name <session-name>` (locked grammar) 을 넘긴다.
 - **Resume uses `--session-id`.** Resume 은 먼저 JSONL header scan 으로 `sessionId` 의 saved session file / header cwd / recorded provider+model 을 찾고, child cwd 를 header cwd 에 맞춘 뒤 `pi --session-id <sessionId>` 로 이어붙인다. `--session <file>` 은 0.9.0 Entwurf path 에서 제거한다.
 - **Session file is diagnostic only.** API/문서/테스트의 primary handle 로 `sessionFile` 을 쓰지 않는다. 있으면 디버그 출력에만 둔다.
 - **No compatibility comments.** 구버전 taskId / filename convention 을 설명하는 주석·문서가 남아 있으면 agent 가 우회한다. 구현 버전에 맞는 주석·테스트·문서만 남긴다.
 
-### Proposed identity / name grammar
+### Locked — session identity & name grammar (carry into 0.9.0 / 1.0.0)
 
-- `sessionId`: timestamp-first, collision-safe, Pi validator compatible.
-  - 추천: `YYYYMMDDTHHMMSS-xxxx` (예: `20260530T120912-a3f8`)
-  - 이유: garden sort/link 감각 유지 + 병렬 spawn collision 방지. 순수 second timestamp 만 쓰면 Pi `--session-id` 의 “있으면 open” 동작 때문에 race/collision 이 조용히 이어붙을 수 있다.
-- `displayName`: Entwurf meaning layer.
-  - 예: `entwurf · gpt-5.4 · from 20260530T120000 · review release gate`
-  - 포함 축: `entwurf`, model, caller/session hint, short task hint. 너무 길면 task hint truncate.
+규약 확정 (GLG + GPT-힣 + Claude 수렴, 2026-06-03). 이전 `·`-구분 displayName / 4-hex sessionId 예시는 **폐기** — 오해 금지. 이건 0.9.0 Entwurf 만이 아니라 1.0.0 garden session id 까지 잇는 protocol 이다.
+
+**Authority 분리 (모순 없는 한 줄):**
+- lookup / resume authority = JSONL header `id` + header `cwd`. **파일명 파싱 절대 금지.**
+- model authority = JSONL 최초 `model_change` + resume 재공급 `provider/model`.
+- name = 표시 / 검색 / 무결성 mirror. title·tags 는 로직 영향 0.
+- name 의 `provider/model` mismatch 는 routing 근거가 아니라 **corrupt-metadata fail-fast** 로만 처리.
+
+**파일명** = Pi 산물 `<created-at>_<sessionId>.jsonl`. Entwurf 특수 파일종(`*_entwurf-<taskId>.jsonl`) 폐기. 탐색 보조로 `*_<sessionId>.jsonl` glob 은 가능하나 최종 authority 는 header scan.
+
+**sessionId** (durable handle = JSONL header id):
+```
+YYYYMMDDTHHMMSS-[0-9a-f]{6}
+예: 20260603T191245-a3f09c
+```
+timestamp = garden sort 감각, 6 hex = 병렬 spawn collision 방지. 부모가 spawn 전 생성 + `*_<id>.jsonl` glob + header scan 으로 collision / duplicate-header-id (다른 cwd 포함) 를 사전 fail-fast.
+
+**session name** (`--name`; session_info entry 로 저장, header 아님):
+```
+{sessionId}=={provider}/{model}--{titleSlug}__{tag}_{tag}
+```
+예:
+```
+20260603T191245-a3f09c==pi-shell-acp/claude-opus-4-8--review-substrate-smoke__entwurf_review
+20260603T191245-b71d02==openai-codex/gpt-5.5--async-resume-check__entwurf_smoke
+```
+- `==` signature / `--` title / `__` tag-시작 delimiter / `_` tag separator (denote 문법 그대로).
+- `{provider}/{model}` = `pi/entwurf-targets.json` **exact tuple**. 정규식으로 모델명 창조 금지 — `.` 있는 model 이 실재한다 (`openai-codex/gpt-5.5`, `pi-shell-acp/gemini-3.1-pro-preview`). exact-match only, `.` 허용.
+- `{titleSlug}` = ascii slug, lowercase, hyphen ok, **underscore 금지**. raw title 은 자유 입력으로 받고 builder 가 canonicalize: 공백/유니코드/구두점 → `-`, raw 의 `__` → `-`, 빈 title → `untitled` 또는 task-hint fallback.
+- tags = lowercase alnum, `_` separator. **entwurf 여부 = tag 중 `entwurf` 존재** (없으면 Entwurf 세션 아님). 모르면 `__entwurf` 만, 의미 생기면 `review`/`smoke`/`sync`/`async`/`phase1` 추가.
+- spawn 때만 name. resume 때 name 재설정 안 함 (substrate 실측 OK).
+
+**Builder / parser 계약:**
+- name 직접 문자열 조립 금지. `buildSessionName({ sessionId, provider, model, rawTitle, tags })` 만 사용 — 에이전트가 raw title 을 그대로 붙여 canonical name 을 망가뜨리는 실수 차단.
+- parser 는 canonical output 만 파싱. raw title 은 parser 가 보지 않는다 (builder 가 이미 slug 화).
+
+### Smoke design (locked — refines C. T1–T10)
+
+**A. Deterministic — `check-entwurf-session-identity` (no backend, 0 token, `pnpm check` 편입):**
+- `T-grammar`: `buildSessionName` 조립 → parser round-trip, 동일 필드. sessionId validator `YYYYMMDDTHHMMSS-[0-9a-f]{6}`. provider/model 은 **registry exact tuple** 검증 (정규식 금지).
+- `T-titleSlug`: raw title `"Review substrate smoke / --name 검증"` → `review-substrate-smoke-name` 류 **sanitize** (reject 아님). `__`/underscore/공백/유니코드 정규화 확인.
+- `T-name-no-logic`: title/tags 가 바뀌어도 sessionId·lookup 불변.
+- `T-model-immut`: spawn name model ≠ recorded model → fail-fast. lookup authority 는 header/model_change, name model 은 integrity mirror 비교만.
+- `T-collision`: glob 보조 + header 최종 authority. duplicate header id across cwd 도 fail-fast 포함.
+
+**B. Live — `smoke-session-id-name` (substrate, release-gate 편입). 정직하게 3 cheap sonnet turns:**
+- `T1` (same cwd turn1): `pi --session-id <id> --name <denote-name> -e <bridge> --provider pi-shell-acp --model claude-sonnet-4-6 -p ok` → header id==id, header cwd==launch cwd, session_info.name==denote-name (header 아님).
+- `T2` (same cwd turn2, `--name` 미공급): 파일 1개 + user/assistant count↑ + 같은 acpSessionId + path=resume + session_info 1개 유지 (**append + spawn-only name**).
+- `T3` (wrong cwd turn1, 같은 id): 새 파일 + `incompatible_config` + 새 acp mapping. **실패 아님, footgun evidence** = 0.9.0 resume guard 가 막을 대상 (resume 은 header cwd 로 child cwd 강제, wrong-cwd `--session-id` 호출 금지).
+
+핵심 불변식 (smoke 가 못 박는 것): 파일명 파싱 0회, lookup 은 header id/cwd, name 은 session_info 문자열로만 등장.
 
 ### Implementation touch points to specify before coding
 
