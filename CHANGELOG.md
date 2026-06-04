@@ -4,6 +4,17 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+Evidence-closure work on top of 0.9.0's garden-native identity. No runtime behavior change: it strengthens two live gates so 0.9.0's guarantees are proven *directly* rather than indirectly, and trims a stale follow-up.
+
+### Changed (test harness — evidence closure)
+
+- **`cross-cwd-resume-smoke` now asserts append-not-recreate at the file/id level (T5), not just by recall.** The cross-cwd resume gate (`verify-resume` Phase 2) proved the issue-#9 fix *semantically* — the sentinel was recalled across the cwd boundary — but never directly asserted that the resume **appended to the one true session file** rather than silently minting a shadow session in the resumer's cwd. Around the existing recall, the smoke now captures a structural baseline after spawn and re-checks it after resume: (a) exactly one session file carries the header id before and after (no shadow minted anywhere), (b) it is the same file, appended in place (turn count grew), (c) the header id and cwd never drifted (resume authority stays = header, never the resumer's process cwd), and (d) no session for that id exists under the resumer's (wrong) cwd session dir. Live-verified: spawn at a scratch project dir, resume from `$HOME`, same file appended (turns 1→2), header id/cwd stable, no shadow under the resumer's (`$HOME`) session dir.
+- **`smoke-resident-garden-guard` now directly proves the resume-into-uuid friendly pre-cancel (0 tokens).** The `session_before_switch` reason `"resume"` non-garden pre-cancel was previously only backstopped by the `session_start` hard guard — the friendly path was never exercised on its own. A new RESUME-INTO-UUID section drives an in-process RPC `switch_session` into a SYNTHETIC legacy-uuid session file (a one-line `{type:"session", id:<uuid>}` header is enough, because runtime `switchSession` calls `emitBeforeSwitch("resume", path)` BEFORE `SessionManager.open`). It asserts the switch is cancelled (`cancelled:true`), the friendly "resume is blocked … not garden-native" guidance lands on stderr, the hard guard never fires, 0 tokens (no `agent_start`), the resident stays on its garden id, and no control socket boots for the uuid. The 0-token sweep is now 30/0 (NEGATIVE + REPLACEMENT + RESUME-INTO-UUID + GNEW).
+
+### Removed (follow-up hygiene)
+
+- **Dropped the stale "semantic-memory `_entwurf-` guidance refresh" follow-up from `NEXT.md`.** `agent-config` `skills/semantic-memory/SKILL.md` was already migrated to garden-native discovery in 0.9.0 (no `_entwurf-` filename species; identity in the JSONL header/name; `--session-file-contains` reframed as a generic path filter), so the carried item no longer described reality.
+
 ## 0.9.0 — 2026-06-04
 
 0.9.0 is the garden-native identity release. This is not just an Entwurf handle rename: the garden's own denote-style naming scheme is imported into the session layer so Entwurf sessions stop being treated as a separate species of worker artifact. Resident sessions, Entwurf children, and the later 1.0.0 meta-bridge direction all converge on the same garden session ontology — one durable `sessionId`, one human-readable and machine-parseable name surface, one rule that the session comes first and the transcript file is only its trace.

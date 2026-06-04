@@ -23,8 +23,14 @@
  *      sentinel was recalled. The model never sees the sentinel in its system
  *      prompt — recall is only possible through ACP-side transcript hydration
  *      keyed off the bridge's `pi:<sessionId>` -> `acpSessionId` mapping.
+ *   4. Structural append-not-recreate assertions (T5). Recall (step 3) is the
+ *      SEMANTIC proof; step 4 is the FILE/ID-level proof: exactly one session
+ *      file for the id before and after, the resume appended IN PLACE to that
+ *      same file (turn growth), the header id/cwd never drifted, and NO shadow
+ *      session was minted under the resumer's (wrong) cwd session dir. Resume
+ *      authority stays = header id + header cwd — never the resumer's process cwd.
  *
- * Exit 0 = recalled, 1 = not recalled (regression present), 2 = setup failure.
+ * Exit 0 = recalled + structurally sound, 1 = regression present, 2 = setup failure.
  *
  * Cost: two short claude-sonnet-4-6 turns (~few cents). Acceptable for an
  * explicit verify-gate; not for tight CI.
@@ -32,7 +38,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { analyzeSessionFileLike, runEntwurfResumeSync, runEntwurfSync } from "../pi-extensions/lib/entwurf-core.ts";
+import {
+	analyzeSessionFileLike,
+	cwdToSessionDir,
+	findSessionFilesById,
+	readSessionHeader,
+	runEntwurfResumeSync,
+	runEntwurfSync,
+} from "../pi-extensions/lib/entwurf-core.ts";
 
 interface CliArgs {
 	projectDir: string;
@@ -78,6 +91,10 @@ function fail(stage: string, message: string, extra?: string): never {
 	process.exit(1);
 }
 
+function samePath(a: string, b: string): boolean {
+	return path.resolve(a) === path.resolve(b);
+}
+
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 
@@ -120,6 +137,36 @@ async function main(): Promise<void> {
 		);
 	}
 
+	// Structural baseline (T5): capture the append target BEFORE the cross-cwd
+	// resume so step 4 can prove the resume APPENDED to this exact file rather
+	// than minting a shadow session in the resumer's cwd. Header is the sole
+	// authority — id + cwd are read from the JSONL header, never the filename.
+	const filesBefore = findSessionFilesById(spawn.sessionId);
+	if (filesBefore.length !== 1) {
+		fail(
+			"spawn-structural",
+			`expected exactly 1 session file for id ${spawn.sessionId} after spawn, found ${filesBefore.length}: ${filesBefore.join(", ")}`,
+		);
+	}
+	const baselineFile = filesBefore[0] as string;
+	if (!samePath(baselineFile, spawn.sessionFile)) {
+		fail(
+			"spawn-structural",
+			`findSessionFilesById file (${baselineFile}) != runEntwurfSync sessionFile (${spawn.sessionFile})`,
+		);
+	}
+	const headerBefore = readSessionHeader(baselineFile);
+	if (headerBefore?.id !== spawn.sessionId) {
+		fail("spawn-structural", `header id ${headerBefore?.id ?? "null"} != sessionId ${spawn.sessionId}`);
+	}
+	if (!headerBefore?.cwd || !samePath(headerBefore.cwd, args.projectDir)) {
+		fail("spawn-structural", `header cwd ${headerBefore?.cwd ?? "null"} != project-dir ${args.projectDir}`);
+	}
+	const turnsBefore = beforeAnalysis.turns;
+	console.error(
+		`[cross-cwd-resume] structural baseline: file=${baselineFile} headerId=${headerBefore.id} headerCwd=${headerBefore.cwd} turns=${turnsBefore}`,
+	);
+
 	// Step 2 — resume from other-dir cwd. options.cwd intentionally undefined.
 	// This is the MCP entwurf_resume shape: the resumer process is unrelated to
 	// the original spawn process, so no in-process `info.cwd` exists.
@@ -151,7 +198,50 @@ async function main(): Promise<void> {
 		);
 	}
 
-	console.error(`[cross-cwd-resume] PASS — sentinel recalled across cwd boundary.`);
+	// Step 4 — structural append-not-recreate assertions (T5). Recall above is
+	// the SEMANTIC proof; these are the FILE/ID-level proof.
+	const filesAfter = findSessionFilesById(spawn.sessionId);
+	// (a) still exactly one session file for this id — no shadow minted anywhere.
+	if (filesAfter.length !== filesBefore.length || filesAfter.length !== 1) {
+		fail(
+			"structural-count",
+			`session-file count for id ${spawn.sessionId} changed across resume: before=${filesBefore.length} after=${filesAfter.length} (${filesAfter.join(", ")})`,
+		);
+	}
+	// (b) it is the SAME file, appended in place (turn growth).
+	const afterFile = filesAfter[0] as string;
+	if (!samePath(afterFile, baselineFile)) {
+		fail("structural-samefile", `resume wrote a different session file: before=${baselineFile} after=${afterFile}`);
+	}
+	if (afterAnalysis.turns <= turnsBefore) {
+		fail(
+			"structural-append",
+			`resume did not append: turns before=${turnsBefore} after=${afterAnalysis.turns} (same file, no growth)`,
+		);
+	}
+	// (c) header id + cwd unchanged by the resume — authority stays = header.
+	const headerAfter = readSessionHeader(baselineFile);
+	if (headerAfter?.id !== spawn.sessionId) {
+		fail("structural-header", `header id drifted after resume: ${headerAfter?.id ?? "null"} != ${spawn.sessionId}`);
+	}
+	if (!headerAfter?.cwd || !samePath(headerAfter.cwd, args.projectDir)) {
+		fail("structural-header", `header cwd drifted after resume: ${headerAfter?.cwd ?? "null"} != ${args.projectDir}`);
+	}
+	// (d) NO session for this id under the resumer's (wrong) cwd session dir.
+	const otherSessionDir = cwdToSessionDir(args.otherDir);
+	const strayInOther = filesAfter.filter((f) => samePath(path.dirname(f), otherSessionDir));
+	if (strayInOther.length > 0) {
+		fail(
+			"structural-wrongcwd",
+			`resume minted a shadow session under the resumer cwd dir ${otherSessionDir}: ${strayInOther.join(", ")}`,
+		);
+	}
+	console.error(
+		`[cross-cwd-resume] structural PASS: same file appended (turns ${turnsBefore}→${afterAnalysis.turns}), ` +
+			`header id/cwd stable, no shadow under ${otherSessionDir}.`,
+	);
+
+	console.error(`[cross-cwd-resume] PASS — sentinel recalled across cwd boundary + structurally sound.`);
 }
 
 main().catch((err) => {

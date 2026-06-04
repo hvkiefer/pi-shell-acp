@@ -35,16 +35,24 @@ faking pi transcript ownership.
 **Scope guard:** do NOT build a generic worker-pool orchestrator out of #31 — document the
 parallel-team pattern, keep the bridge thin.
 
+## Recently landed — evidence closure on the 0.9.0 substrate (under CHANGELOG `## Unreleased`)
+
+Closes two 0.9.0 carried follow-ups by making indirect proofs direct, plus one stale-item trim.
+**No release** — runtime behavior is unchanged and there is no user-facing value, so this stays on
+`0.9.0` with the entry under `## Unreleased`; a tag waits for 1.0.0 or a real runtime/user-facing
+patch (cutting 0.9.1 for gate hygiene would only add version noise). Code + live evidence landed.
+
+- **DONE — cross-cwd resume append-not-recreate (T5).** `cross-cwd-resume-smoke.ts` now asserts at
+  the file/id level (one file before/after, same file appended, header id/cwd stable, no shadow
+  under the resumer cwd dir) on top of the existing recall. Live-verified via `verify-resume`.
+- **DONE — resume-into-uuid friendly pre-cancel.** `smoke-resident-garden-guard.sh` new
+  RESUME-INTO-UUID section drives RPC `switch_session` into a synthetic legacy-uuid file and proves
+  the `session_before_switch` reason `"resume"` cancel directly (0 tokens, hard guard never fires).
+  Live-verified: guard 0-token sweep 30/0.
+- **DONE — stale `_entwurf-` follow-up removed** (agent-config SKILL.md was already migrated in 0.9.0).
+
 ## Carried-forward follow-ups from 0.9.0 (real next work, not cut blockers)
 
-- **cross-cwd resume authority (T5) — dedicated live gate STILL TODO.** Resume must append to the
-  existing sessionId from the saved header cwd; wrong cwd must not silently create a new session.
-  Footgun is proven in `smoke-session-id-name` T3 and the resume path forces child cwd to the
-  saved header cwd, but there is no dedicated end-to-end resume-append live gate yet.
-- **resume-into-uuid pre-cancel — not yet live/deterministically proven.** The
-  `session_before_switch` reason `"resume"` non-garden pre-cancel is backstopped by the
-  `session_start` hard guard but needs a synthetic legacy-uuid session file to prove the friendly
-  pre-cancel path directly.
 - **`/gnew` T3 backend axis — Claude-only measured.** Backend identity after `/gnew`
   (`PI_SESSION_ID` → backend MCP child) is live-proven on `claude-sonnet-4-6` only; the resident
   guard runs at the default `SMOKE_RGG_MODEL`. The switchSession rebind is backend-agnostic at the
@@ -58,10 +66,6 @@ parallel-team pattern, keep the bridge thin.
   `pi.sendMessage` must sit inside a best-effort arrow wrapper). Correct while `entwurf.ts` is
   completion-send only. If a plain UI send is ever added there, refine the guard to
   close-handler scope / allowlist — do NOT loosen the equality check.
-- **semantic-memory `_entwurf-` guidance refresh.** `agent-config` `skills/semantic-memory/SKILL.md`
-  still mentions `--session-file-contains _entwurf-` (filename species). Migrate to garden-native
-  discovery: session header id + the `entwurf` name tag, not filename species. (`entwurf-peek`
-  already migrated in 0.9.0.)
 
 ## Deferred — dep bump (claude-agent-acp 0.40.0 / @agentclientprotocol/sdk 0.24.0) — SEPARATE track
 

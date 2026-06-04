@@ -20,6 +20,14 @@
 #   REPLACEMENT (0 tokens): builtin /new + /clone (RPC) must be CANCELLED — they
 #     would mint a non-garden uuid in-process; the pre-switch guard cancels them.
 #
+#   RESUME-INTO-UUID (0 tokens): an in-process resume (RPC switch_session) into a
+#     SYNTHETIC legacy-uuid session file must be pre-cancelled FRIENDLY at
+#     session_before_switch reason="resume" — proving that path directly, not just
+#     via the session_start hard-guard backstop. Asserts: switch_session
+#     cancelled:true, the "resume is blocked … not garden-native" guidance on
+#     stderr, the hard guard never fires, 0 tokens, resident stays on its garden
+#     id, no socket for the uuid.
+#
 #   GNEW (0 tokens): /gnew is the garden-native in-process replacement for the
 #     blocked /new. Driven via RPC `prompt "/gnew"` (session.prompt intercepts the
 #     slash → the registered command, BEFORE any model turn). It pre-creates an
@@ -38,7 +46,7 @@
 #     calls entwurf_self; the backend MCP child must report the NEW garden id —
 #     proving PI_SESSION_ID propagated through the in-process switch end to end.
 #
-# Cost: NEGATIVE + REPLACEMENT + GNEW = 0 tokens. POSITIVE + GNEW T3 = ~2 cheap turns.
+# Cost: NEGATIVE + REPLACEMENT + RESUME-INTO-UUID + GNEW = 0 tokens. POSITIVE + GNEW T3 = ~2 cheap turns.
 #
 set -euo pipefail
 
@@ -160,6 +168,73 @@ else
 	ok "no uuid control socket leaked"
 fi
 rm -f "$rep_err"
+
+# ─── RESUME-INTO-UUID — pre-cancel a resume INTO a legacy (non-garden) session ─
+# A garden resident must refuse an IN-PROCESS resume that would land on a
+# non-garden (legacy uuidv7) session id. session_before_switch reason="resume"
+# reads the TARGET session header id; a non-garden target is cancelled FRIENDLY
+# (0 tokens, process survives) so the resume never reaches the session_start hard
+# guard that would process.exit(1) the whole resident. Driven via RPC
+# switch_session into a SYNTHETIC legacy-uuid session file: runtime switchSession()
+# calls emitBeforeSwitch("resume", path) BEFORE SessionManager.open, so the
+# fixture only needs a readable {type:"session", id:<uuid>} header line. This is
+# the missing direct proof of the friendly pre-cancel path (it was previously only
+# backstopped by the session_start hard guard, never exercised on its own).
+echo "[smoke-resident-garden-guard] RESUME-INTO-UUID: legacy-uuid resume pre-cancelled (RPC, 0 tokens)"
+res_sid=$(bash "$REPO/run.sh" new-session-id)
+legacy_uuid="0192f1a0-1234-7abc-89de-0123456789ab" # uuidv7 shape; NOT garden-native
+legacy_dir=$(mktemp -d)
+legacy_file="$legacy_dir/legacy-resume-target.jsonl"
+printf '%s\n' "{\"type\":\"session\",\"id\":\"$legacy_uuid\",\"cwd\":\"$legacy_dir\"}" >"$legacy_file"
+res_err=$(mktemp)
+res_out=$(printf '%s\n' '{"type":"get_state"}' "{\"type\":\"switch_session\",\"sessionPath\":\"$legacy_file\"}" '{"type":"get_state"}' |
+	timeout "$TIMEOUT" pi --session-id "$res_sid" --entwurf-control --provider "$PROVIDER" \
+		--model "$MODEL" --mode rpc 2>"$res_err") || true
+
+if printf '%s\n' "$res_out" | grep -q '"command":"switch_session","success":true,"data":{"cancelled":true}'; then
+	ok "resume-into-uuid: switch_session cancelled (friendly pre-cancel fired)"
+else
+	bad "resume-into-uuid: switch_session was NOT cancelled — pre-switch guard missed the resume path"
+fi
+
+# Friendly guidance is the refuse path; assert BOTH the blocked-line and the
+# garden-native reason so a generic block can't pass for the resume-specific one.
+if grep -q "resume is blocked under --entwurf-control" "$res_err" && grep -q "is not garden-native" "$res_err"; then
+	ok "resume-into-uuid: friendly refuse message on stderr (garden-native reason)"
+else
+	bad "resume-into-uuid: friendly refuse message not found (resume blocked + not garden-native)"
+fi
+
+# The session_start hard guard must NOT fire — the pre-switch cancel caught it first.
+if grep -q "Non-garden session id" "$res_err"; then
+	bad "resume-into-uuid: hard guard fired (Non-garden session id) — pre-cancel missed; resident would exit"
+else
+	ok "resume-into-uuid: hard guard never fired (pre-cancel caught it; resident survives)"
+fi
+
+# 0 tokens — the cancel happens before any model turn.
+if printf '%s\n' "$res_out" | grep -q '"type":"agent_start"'; then
+	bad "resume-into-uuid: agent_start seen — a model turn RAN (should be a 0-token cancel)"
+else
+	ok "resume-into-uuid: no agent_start — 0-token cancel path"
+fi
+
+# Resident stayed on its original garden id (both get_state report it, never the uuid).
+res_ids=$(printf '%s\n' "$res_out" | grep -o '"sessionId":"[^"]*"' | sort -u)
+if [ "$res_ids" = "\"sessionId\":\"$res_sid\"" ]; then
+	ok "resume-into-uuid: resident stayed on the garden id ($res_sid)"
+else
+	bad "resume-into-uuid: sessionId drifted from $res_sid — got: ${res_ids:-<none>}"
+fi
+
+# No control socket for the legacy uuid (the cancelled resume never booted a server).
+if [ -e "$ENTWURF_DIR/$legacy_uuid.sock" ]; then
+	bad "resume-into-uuid: control socket created for the legacy uuid — server booted"
+else
+	ok "resume-into-uuid: no control socket for the legacy uuid"
+fi
+rm -f "$res_err"
+rm -rf "$legacy_dir"
 
 # ─── GNEW — /gnew births a NEW garden session IN-PROCESS (RPC, 0 tokens) ─────
 # Builtin /new stays blocked (REPLACEMENT above); /gnew is its garden-native
