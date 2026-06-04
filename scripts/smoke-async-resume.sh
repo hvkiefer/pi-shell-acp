@@ -125,18 +125,6 @@ count_jsonl_fixed() {
 	grep -F -c "$needle" "$file" 2>/dev/null || true
 }
 
-wait_jsonl_count_gt() {
-	local file="$1" needle="$2" before="$3" timeout_s="$4" i count
-	for i in $(seq 1 "$timeout_s"); do
-		count=$(count_jsonl_fixed "$file" "$needle")
-		if [ "$count" -gt "$before" ]; then
-			return 0
-		fi
-		sleep 1
-	done
-	return 1
-}
-
 record() {
 	local name="$1" status="$2" evidence="$3"
 	evidence=${evidence//\"/\\\"}
@@ -284,20 +272,36 @@ case_a_for_backend() {
 	# pattern proves the followUp delivery channel reached the parent
 	# session, but the smoke must distinguish them: a delivery-succeeds-
 	# execution-fails ❌ result is NOT a release gate PASS. Fail-closed.
-	parent_session_file=${parent_session_file:-$(find_parent_session_file "$new_sid")}
-	if [ -n "$parent_session_file" ]; then
-		wait_jsonl_count_gt "$parent_session_file" '"customType":"entwurf-complete"' "$complete_before" "$COMPLETE_TIMEOUT" || true
-	fi
-	if ! "$WAIT_FOR_TEXT" -t "$tmux_name" -p "🏁 resume|❌ resume" -T 1 >/dev/null 2>&1; then
-		pane_dump=$(tmux capture-pane -t "$tmux_name" -p -S -2000)
-		if ! echo "$pane_dump" | grep -qE "🏁 resume|❌ resume" && {
-			[ -z "$parent_session_file" ] || ! grep -F -q '"customType":"entwurf-complete"' "$parent_session_file"
-		}; then
-			local pane_tail
-			pane_tail=$(printf '%s' "$pane_dump" | tail -30)
-			record "$case_name" "FAIL" "no followUp completion within ${COMPLETE_TIMEOUT}s. pane tail: $pane_tail"
-			return
+	# The parent session file is persisted lazily by pi (only at the first
+	# assistant turn-end), so it may still be absent at ack time when the ack
+	# was observed via the tmux pane rather than the parent JSONL. A slow
+	# orchestrator can also stay mid-turn ("Rummaging…") long after the resume
+	# child finished, so the pane never renders "🏁 resume" inside the window
+	# even though entwurf-async.ts has already persisted the entwurf-complete
+	# CustomMessage to the parent JSONL. Re-resolve the parent file every tick
+	# and poll its persisted entwurf-complete count; the tmux pane is only a
+	# secondary fast-path channel. Fail-closed: no detected completion → FAIL.
+	local completed=0 i cnow
+	for i in $(seq 1 "$COMPLETE_TIMEOUT"); do
+		parent_session_file=${parent_session_file:-$(find_parent_session_file "$new_sid")}
+		if [ -n "$parent_session_file" ]; then
+			cnow=$(count_jsonl_fixed "$parent_session_file" '"customType":"entwurf-complete"')
+			if [ "$cnow" -gt "$complete_before" ]; then
+				completed=1
+				break
+			fi
 		fi
+		# 1s pane poll doubles as the loop tick.
+		if "$WAIT_FOR_TEXT" -t "$tmux_name" -p "🏁 resume|❌ resume" -T 1 >/dev/null 2>&1; then
+			completed=1
+			break
+		fi
+	done
+	if [ "$completed" -ne 1 ]; then
+		local pane_tail
+		pane_tail=$(tmux capture-pane -t "$tmux_name" -p -S -2000 | tail -30)
+		record "$case_name" "FAIL" "no followUp completion within ${COMPLETE_TIMEOUT}s. pane tail: $pane_tail"
+		return
 	fi
 
 	# Extract the completion line. PASS only on 🏁 (success). ❌ means the

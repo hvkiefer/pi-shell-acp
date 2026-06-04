@@ -12,22 +12,24 @@ Read #28 + #30 + #31 as one set:
 - **#30 / 1.0.0**: external native sessions become garden citizens through opaque meta-session records, not fake Pi transcripts. The top-level concept is **garden session id**; Pi sessions are the first backend that can use it directly.
 - **#31 field proof**: current 0.8.2 sustained 5 parallel Opus vision workers with repeated async resume. 0.9.0 must preserve this worker-team pattern while replacing `taskId` with `sessionId`.
 
-### Current mode — checkpoint committed; next session is a FULL LIVE TEST SWEEP, then release
+### Current mode — sweep DONE (release-gate 17/0 green on 0.9.0); cut-ready, awaiting GLG commit → GPT authoritative gate → publish
 
-3a substrate + 3b taskId→sessionId migration + 3c resident garden-native session are all **code + deterministic-tests landed and committed as a checkpoint** (NOT released — 0.9.0 is not cut yet). `pnpm check` is green; the resident guard is live-verified (negative 0-token blow-up + positive). nixos-config `pia`/alias + agent-config consumer (`entwurf-peek`) were handled by GLG + 담당자.
+The FULL LIVE TEST SWEEP is complete (2026-06-04, from Claude Code with pi all off — no self-test interference). `./run.sh release-gate` is **17 PASS / 0 FAIL / 0 SKIP** on version `0.9.0`, including the two newly-wired identity gates. Evidence + axis table: BASELINE.md (0.9.0 entry). Breaking-change log: CHANGELOG.md (`## 0.9.0`).
 
-> **Next session = re-run every live gate from a fresh scratch and nail the remaining false-negatives, THEN cut 0.9.0.** Do not open the next session by writing more product code — open it by running the live sweep below and fixing only what the evidence demands (harness or product). The smoke-async-resume harness evidence-model upgrade (parent-JSONL custom entries) is in but its last `grep -F` edit was never re-run to a full green — that is the first thing to confirm.
+Two false-negatives the sweep nailed — both **test-harness only, product proven correct**:
+- **smoke-async-resume** — completion detection missed the lazily-persisted parent `entwurf-complete` (🏁) for slow orchestrators (sonnet/gpt) because it resolved the parent file only once at check time. Now re-resolves + polls the parent JSONL every tick; fail-closed preserved; removed the dead `wait_jsonl_count_gt`. (This WAS the "last grep -F edit never re-run to green" flagged here.) Product was already correct: RESUME_OK in every resume child + 🏁 persisted in every parent across all 3 backends.
+- **check-native-async** — used a bogus REMOTE host, which the 3b remote-out-of-scope fail-fast (#11) now correctly rejects **before** `runEntwurfAsync` runs, so the test no longer exercised the async path. Switched to a LOCAL async spawn (matches 0.9.0 scope + actually drives `runEntwurfAsync` for its `explicitExtensions` ReferenceError guard).
 
-**Next-session live sweep (token-costing; from a fresh scratch dir):**
-```
-./run.sh smoke-async-resume                 # full green (Claude/Codex/Gemini A.async + D/B/C) — confirm the JSONL-evidence harness
-./run.sh smoke-resident-garden-guard        # negative 0-token; SMOKE_RGG_POSITIVE=1 for the +1-turn positive
-SMOKE_RGG_POSITIVE=1 ./run.sh smoke-resident-garden-guard
-./run.sh sentinel
-LIVE=1 ./run.sh smoke-compaction-policy
-./run.sh release-gate <fresh-scratch>       # the cut condition
-```
-Decisions to settle during the sweep: (a) wire `smoke-resident-garden-guard` (negative, 0-token) into `release-gate`; (b) wire `smoke-session-id-name` into `release-gate` before the Entwurf live gates (3a TODO); (c) bump `package.json` 0.8.2 → 0.9.0 at cut.
+Cut decisions (a)(b)(c) — **ALL DONE this sweep:**
+- (a) ✅ `smoke-resident-garden-guard` (negative, 0-token) wired into release-gate.
+- (b) ✅ `smoke-session-id-name` (3a) wired into release-gate, ahead of the Entwurf live gates.
+- (c) ✅ `package.json` 0.8.2 → 0.9.0.
+
+> **Remaining to cut (GLG-owned):** GLG reviews the committed sweep → GPT re-runs the authoritative `release-gate` from a pi session at cut time → `pnpm publish --access public` → tag `v0.9.0` + push → agenda stamp (`pi:release:`). The Claude Code sweep is the necessary-condition green; the pre-publish gate is re-run from pi at cut.
+
+**Future release-gate scenarios to wire (GLG: "5 more gate runs, each adds missing coverage, not a repeat"):** positive resident-guard variant (1-turn) as an opt-in row; cross-cwd resume authority (T5) as a dedicated live gate; remote/SSH fail-fast assertion once #11 reopens. Host hygiene done: `~/sync/org/setup/update-claude.sh` now pins `claude-agent-acp@0.39.0` (bump in lockstep with the release pin).
+
+**Deferred — dep bump (claude-agent-acp 0.40.0 / @agentclientprotocol/sdk 0.24.0) — SEPARATE track, NOT in 0.9.0.** sdk 0.24 removed `unstable_setSessionModel` (the model-set RPC) entirely (type + runtime), replacing it with `session/set_config_option` (configId="model"). Claude model selection survives via `_meta.claudeCode.options.model` at newSession, but **codex/gemini model-forcing has no other path** — `resolveCodex/GeminiAcpLaunch` pass no `--model`, so the RPC was their sole mechanism; an `as any` cast over the removed method would silently regress them (the exact 0.4.5 anti-pattern `check-sdk-surface` exists to block). Forward fix: migrate `enforceRequestedSessionModel` to `setSessionConfigOption({configId:"model", value})` with config-value discovery + a per-backend resolved-model release-gate assertion + live codex/gemini verification (codex-acp 0.15.0 is a bundled binary — set_config_option support is unverifiable statically). The critical Opus 4.8 thinking-blocks fix is ALREADY in 0.39.0, so 0.9.0 needs nothing from 0.40.0.
 
 The largest product guard for 3b, now landed and to be re-confirmed live:
 
@@ -66,7 +68,7 @@ Hardened both whole-file readers (sessions are only ~1–2 MB, so this was harde
 
 **Phase 3a — direct-pi substrate smoke (no public API change) — ✅ LANDED**
 - `scripts/smoke-session-id-name.ts` + `./run.sh smoke-session-id-name`: live 3-turn smoke dogfooding the locked helpers against a real `pi` process. Proven live: T1 header id==sessionId + header cwd==launch cwd + `session_info.name`==denote name (info layer); T2 append-not-recreate (turns 1→2, same file, name unchanged without `--name` = spawn-only); T3 wrong-cwd footgun (same id → 2 sessions under different cwds) recorded as evidence. Pi names the file `<created-at>_<sessionId>.jsonl` natively. Does NOT touch the Entwurf tool surface.
-- TODO: wire `smoke-session-id-name` into `release-gate` before the Entwurf live gates (LIVE / token-costing — GLG decides placement).
+- ✅ DONE (2026-06-04): wired `smoke-session-id-name` into `release-gate` ahead of the Entwurf live gates; live-verified PASS (T1/T2/T3) in the 17/0 sweep.
 
 **Phase 3b — atomic Entwurf taskId→sessionId migration (lockstep, single slice) — ✅ CODE LANDED (deterministic green; awaiting GLG live gates + commit)**
 - ✅ wire local `runEntwurfSync` → `generateSessionId` + `assertSessionIdAvailableForSpawn` + `buildSessionName` + `--session-id`/`--name` (dropped `${ts}_entwurf-${taskId}.jsonl` species);

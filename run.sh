@@ -3542,12 +3542,15 @@ JS
 }
 
 # pi-native async entwurf spawn smoke. Loads the native entwurf.ts directly
-# and asks a cheap model to invoke `entwurf` in async mode against a bogus
-# host. We read pi's --mode json event stream so the gate inspects the tool's
-# *actual* sync return (which contains "Async entwurf spawned" + Session ID),
-# not the model's natural-language interpretation. We also grep explicitly for
-# the regression class PM flagged: a stale `explicitExtensions` reference in
-# runEntwurfAsync would surface as a ReferenceError in the tool result.
+# and asks a cheap model to invoke `entwurf` in async mode locally. (Remote/SSH
+# entwurf is out of scope in the garden-native session identity — 0.9.0, #11 —
+# and now fails fast *before* runEntwurfAsync runs, so a remote host can no
+# longer be used to exercise the async spawn path.) We read pi's --mode json
+# event stream so the gate inspects the tool's *actual* sync return (which
+# contains "Async entwurf spawned" + Session ID), not the model's
+# natural-language interpretation. We also grep explicitly for the regression
+# class PM flagged: a stale `explicitExtensions` reference in runEntwurfAsync
+# would surface as a ReferenceError in the tool result.
 validate_pi_native_async_entwurf() {
   local raw
   log "pi-native: async entwurf spawn smoke (model: gpt-5.4-mini)..."
@@ -3558,7 +3561,7 @@ validate_pi_native_async_entwurf() {
               -e "$REPO_DIR/pi-extensions/entwurf.ts" \
               --provider openai-codex \
               --model gpt-5.4-mini \
-              'entwurf 도구를 task="noop", host="__native_async_smoke_bogus__", mode="async" 인수로 정확히 1회 호출하라. 도구의 첫 sync 응답을 그대로 echo하라. 그 다음에 도착하는 follow-up 메시지는 무시하고 더 출력하지 마라.' 2>&1); then
+              'entwurf 도구를 task="noop", mode="async" 인수로 정확히 1회 호출하라. 도구의 첫 sync 응답을 그대로 echo하라. 그 다음에 도착하는 follow-up 메시지는 무시하고 더 출력하지 마라.' 2>&1); then
     echo "$raw" >&2
     fail "pi-native async entwurf smoke: pi -p exited non-zero"
     return 1
@@ -3844,6 +3847,13 @@ release_gate() {
   # `./run.sh release-gate <scratch>` invocation route all sessions to scratch
   # regardless of the operator's cwd. `-e "$REPO_DIR/..."` (extension load) and
   # every other path the gates touch are absolute, so the cd is safe.
+  #
+  # The two garden-native identity gates (smoke-session-id-name,
+  # smoke-resident-garden-guard) also take no project arg but are exempt from
+  # the repo-pollution concern by construction: the substrate smoke runs every
+  # pi turn under its own os.tmpdir() agent dir + cwds (mkdtemp, cleaned up),
+  # and the guard is wired here as the NEGATIVE path only — a 0-token fail-fast
+  # that writes no session file at all.
   local self="$REPO_DIR/run.sh"
   gate() { ( cd "$project_dir" && "$@" ); }
 
@@ -3894,6 +3904,15 @@ release_gate() {
   #    is its live counterpart, proving real pi children load git+npm package
   #    bridge roots under --no-extensions (#29). It must pass before the Entwurf live
   #    gates, which assume package-source routing resolves.
+  #
+  #    Foundational garden-native identity gates run first (0.9.0, #28): the
+  #    substrate proof (Pi --session-id/--name through the bridge) and the
+  #    resident --entwurf-control guard (non-garden id → 0-token fail-fast).
+  #    If the identity foundation is broken, every Entwurf live gate below is
+  #    meaningless, so fail fast here. The guard's negative path is 0-token;
+  #    the substrate smoke is a few cheap turns.
+  run_step "smoke-session-id-name (3a substrate)" gate bash "$self" smoke-session-id-name
+  run_step "smoke-resident-garden-guard (3c guard, 0-token)" gate bash "$self" smoke-resident-garden-guard
   run_step "smoke-installed-entwurf-acp (#29)" gate bash "$self" smoke-installed-entwurf-acp
   run_step "smoke-all (3-backend runtime)"  gate bash "$self" smoke-all "$project_dir"
   run_step "smoke-async-resume"             gate bash "$self" smoke-async-resume

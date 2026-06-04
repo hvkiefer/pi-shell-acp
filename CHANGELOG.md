@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The repo uses semver.
 
-## Unreleased
+## 0.9.0 — 2026-06-04
 
 ### Changed (breaking — Entwurf public handle)
 
@@ -21,6 +21,17 @@ All notable changes to this project will be documented here. Format follows [Kee
   - **Status label is the screwdriver 🪛, not the word "entwurf".** The resident status reads `🪛 ready` before the first assistant turn (session file not yet on disk — model still changeable) and `🪛 <gardenId>` after (file written = model locked). The id's presence is the model-lock lifecycle signal. The status label is decoupled from the session-name tag (the word "entwurf" no longer appears in the status bar, so it can't be misread as "talking to an entwurf'd session").
   - **Resident session name is lazy and tagged `control`, never `entwurf`.** On the first turn (model now locked) `entwurf-control` sets a garden name via `pi.setSessionName(buildGardenSessionName(...))` with the `control` tag and the cwd basename as title. `buildGardenSessionName` is registry-FREE (a native model like `deepseek/deepseek-v4-pro` that is not an Entwurf spawn target passes, where the child `buildSessionName` would throw) and FORBIDS the `entwurf` tag — so a resident session is never resumable as an Entwurf child via `entwurf_resume` (the `entwurf` tag is that resume marker).
   - **Coverage:** deterministic `check-entwurf-session-identity` (now 125 assertions) covers `assertGardenNativeSessionId` (uuid→throw / garden→pass), `buildGardenSessionName` (registry-free native model, `entwurf` tag forbidden, round-trip), `computeResidentStatusLabel` (🪛 ready / 🪛 id), and the regression that a `control` session is NOT `entwurf_resume`-able. Live `smoke-resident-garden-guard` proves the negative (raw uuid → nonzero exit, no turn, no socket, 0 tokens) and, opt-in, the positive (garden id → garden header + `control` name).
+
+### Changed (release-gate + test harness)
+
+- **`release-gate` now runs the two garden-native identity gates first.** `smoke-session-id-name` (Phase 3a — Pi `--session-id`/`--name` substrate through the bridge) and `smoke-resident-garden-guard` (Phase 3c — the resident `--entwurf-control` guard, NEGATIVE 0-token path) run before the Entwurf live gates so an identity-foundation break fails fast instead of surfacing as confusing downstream failures. Both take no project arg and are exempt from the scratch-isolation concern by construction: the substrate smoke runs every pi turn under its own `os.tmpdir()` agent dir + cwds (`mkdtemp`, cleaned up), and the guard's negative path writes no session file at all.
+- **`smoke-async-resume` completion detection hardened against a lazy-persist false-negative.** pi persists a parent session file only at the first assistant turn-end, and a slow orchestrator can still be mid-turn long after the resume child finished — so the previous single `find_parent_session_file` lookup at completion-check time could miss a parent JSONL that was about to appear, recording FAIL even though `entwurf-async` had already delivered+persisted the `entwurf-complete` (🏁) CustomMessage. The completion phase now re-resolves the parent file every tick and polls its persisted `entwurf-complete` count (tmux pane is the secondary fast-path channel); fail-closed is preserved (no detected completion → FAIL). Removed the now-unused `wait_jsonl_count_gt` helper. Test-harness only; no runtime behavior change. Product was already correct — verified by RESUME_OK in every resume child plus the persisted 🏁 in every parent across all three backends.
+- **`check-native-async` exercises a LOCAL async spawn instead of a bogus remote host.** The native async spawn smoke used `host="__native_async_smoke_bogus__"` to enter `runEntwurfAsync` cheaply, but the 0.9.0 remote-out-of-scope fail-fast (#11) now rejects any non-`local` host *before* `runEntwurfAsync` runs — so the bogus-host call no longer exercised the async path at all (and failed the gate). The smoke now spawns a local async entwurf, which both matches the 0.9.0 scope and actually drives `runEntwurfAsync` for the stale-`explicitExtensions` ReferenceError guard it exists to catch.
+
+### Verification
+
+- 0.9.0 release-gate green evidence: see `BASELINE.md` (full `./run.sh release-gate <scratch>` run including the two newly-wired identity gates).
+- The async-resume repair was confirmed in isolation (6 PASS / 0 FAIL across Claude/Codex/Gemini + direct-stdio + external negative paths) before re-running the full gate.
 
 ## 0.8.2 — 2026-06-01
 

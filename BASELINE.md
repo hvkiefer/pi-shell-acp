@@ -251,6 +251,28 @@ the scoring criteria so it stays scannable.
 
 # HISTORY
 
+## [2026-06-04 Thu] — 0.9.0 release-gate baseline
+
+Release-facing baseline for the 0.9.0 garden-native session identity cut (#28). The single `./run.sh release-gate /tmp/claude-1000/psa-rg-090c.LFmaa4` command completed with **17 PASS / 0 FAIL / 0 SKIP** with Gemini present and no `--allow-skip-gemini`. This run is the first to include the two newly-wired garden-native identity gates ahead of the Entwurf live gates.
+
+| Axis | Baseline result |
+|---|---|
+| Static floor | `pnpm check` passed on version `0.9.0`, including the transcript-poison guard, `check-entwurf-session-identity` (125 assertions), `check-sdk-surface` (0 casts), and the package-source routing/static pack gates. |
+| Identity substrate (3a) | **PASS** — `smoke-session-id-name` proved Pi `--session-id`/`--name` through the bridge: T1 header id/cwd + `session_info` name, T2 append + spawn-only name, T3 wrong-cwd footgun evidence. Fully isolated under `os.tmpdir()`. |
+| Resident guard (3c) | **PASS** — `smoke-resident-garden-guard` negative path: a non-garden (`uuidv7`) `--entwurf-control` session hard-exits before any model turn (nonzero exit, guard reason on stderr, no socket, no session file, **0 tokens**). |
+| Install topology | **PASS** — `smoke-installed-entwurf-acp (#29)` passed for git source, npm source, and packed-tarball routing. |
+| Runtime backends | `smoke-all` passed across Claude, Codex, and Gemini. |
+| Async resume | `smoke-async-resume` passed across the release-gate matrix (Claude/Codex/Gemini + direct-stdio + external negatives). Completion detection now re-resolves the lazily-persisted parent session file each tick (fail-closed preserved). |
+| Native async | `check-native-async` passed via a LOCAL async spawn (remote/SSH is out of scope and fails fast in 0.9.0, #11). |
+| Orchestration | `sentinel` passed 6/6 inside the release gate (`/tmp/sentinel-20260604-104113.json`). |
+| Messaging / continuity | `session-messaging` and `verify-resume` cross-cwd recall passed. |
+| Compaction policy | `LIVE=1 smoke-compaction-policy` passed the release contract. |
+| Tool-surface truthfulness | `xt-tool-surface` rejected backend built-in `-xt` requests up front and honored the extension-tool exemption. |
+
+Evidence: `/tmp/psa-release-gate-090c.log`, `/tmp/sentinel-20260604-104113.json`, scratch `/tmp/claude-1000/psa-rg-090c.LFmaa4`. Async-resume repair confirmed in isolation first (`/tmp/psa-smoke-async-resume-090-fix.log`, 6 PASS / 0 FAIL).
+
+> **Note — final cut gate is GLG/GPT's.** This baseline is the necessary-condition green from the Claude Code sweep (pi all off, no self-test interference). The authoritative pre-publish `release-gate` is re-run from a pi session at cut time.
+
 ## [2026-06-01 Mon] — 0.8.2 release-gate baseline
 
 Release-facing baseline for the 0.8.2 hotfix cut: the single `./run.sh release-gate /tmp/claude-1000/psa-rg-082.HVwOvk` command remains the full static + live verification floor. It was invoked from the repo cwd and completed with **15 PASS / 0 FAIL / 0 SKIP** with Gemini present and no `--allow-skip-gemini`.
