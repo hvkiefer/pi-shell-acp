@@ -16,7 +16,7 @@
 #   3. entwurf_send envelope contract (env-missing wiring break vs valid-env missing-socket)
 #   3b. entwurf_peers empty environment
 #   4. entwurf bogus SSH host
-#   4b. entwurf_resume unknown taskId
+#   4b. entwurf_resume unknown sessionId
 #   4c-4e. Schema + registry gates
 #   5. entwurf_self positive (with env) and negative (env wiring break)
 #
@@ -212,10 +212,10 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 4b. entwurf_resume negative path — unknown taskId must surface isError
+# 4b. entwurf_resume negative path — unknown sessionId must surface isError
 # ----------------------------------------------------------------------------
 
-echo "[4b] entwurf_resume unknown taskId"
+echo "[4b] entwurf_resume unknown sessionId"
 
 RESUME_NEG=$(
   # Hermetic env: this case asserts the external-MCP-host SYNC path
@@ -229,14 +229,14 @@ RESUME_NEG=$(
   {
     printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}'
     printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-    printf '%s\n' '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"taskId":"__definitely_does_not_exist__","prompt":"noop"}}}'
+    printf '%s\n' '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"sessionId":"20990101T000000-deadbe","prompt":"noop"}}}'
     sleep 1
   } | rpc 2>/dev/null | grep '"id":21' || true
 )
 if echo "$RESUME_NEG" | grep -q '"isError":true' && echo "$RESUME_NEG" | grep -q 'session_not_found'; then
-  ok "unknown taskId returns isError + session_not_found"
+  ok "unknown sessionId returns isError + session_not_found"
 else
-  fail "unknown taskId did not surface session_not_found: ${RESUME_NEG:0:200}"
+  fail "unknown sessionId did not surface session_not_found: ${RESUME_NEG:0:200}"
 fi
 
 # ----------------------------------------------------------------------------
@@ -269,8 +269,8 @@ if [ "$RESUME_SCHEMA" = "NOT_FOUND" ]; then
   fail "entwurf_resume tool not in tools/list: ${SCHEMA_JSON:0:200}"
 elif echo "$RESUME_SCHEMA" | grep -qw model; then
   fail "entwurf_resume schema exposes 'model' (Identity Preservation Rule violation): $RESUME_SCHEMA"
-elif ! echo "$RESUME_SCHEMA" | grep -qw taskId; then
-  fail "entwurf_resume schema unexpectedly missing 'taskId': $RESUME_SCHEMA"
+elif ! echo "$RESUME_SCHEMA" | grep -qw sessionId; then
+  fail "entwurf_resume schema unexpectedly missing 'sessionId': $RESUME_SCHEMA"
 else
   ok "entwurf_resume schema has no 'model' (locked): $RESUME_SCHEMA"
 fi

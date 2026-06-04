@@ -19,6 +19,11 @@
 		"noEmit": true,
 		"rootDir": ".."
 	},
+	// Override the root `exclude` (which lists "scripts"): without this, the
+	// inherited exclude filters out everything `include` adds under scripts/, so
+	// the verification scripts were silently NOT typechecked (fence gap found in
+	// Phase 3b). Re-list the root's other exclusions, minus "scripts".
+	"exclude": ["../node_modules", "../mcp", "../plugins"],
 	"include": [
 		"./**/*.ts",
 		"../pi-extensions/lib/**/*.ts",

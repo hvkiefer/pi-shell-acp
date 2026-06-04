@@ -371,6 +371,24 @@ Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a
 
 In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
+### Garden launcher
+
+A `--entwurf-control` session must be garden-native — its header `id` must be a garden sessionId (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`), not pi's default `uuidv7`. The session id is fixed at launch (pi assigns it before extensions load), so the launcher injects it; `entwurf-control` only enforces. Launch through:
+
+```bash
+pi --session-id "$(/path/to/pi-shell-acp/run.sh new-session-id)" \
+   --entwurf-control --emacs-agent-socket server
+```
+
+`run.sh new-session-id` prints one fresh garden sessionId from the `generateSessionId` SSOT (do not reimplement the format in the shell — it would drift from the validator the guard enforces). An operator alias bakes this in, e.g.:
+
+```bash
+pia() { pi --session-id "$(/path/to/pi-shell-acp/run.sh new-session-id)" \
+            --entwurf-control --emacs-agent-socket server "$@"; }
+```
+
+Enforcement (no uuid / back-compat path): a `--entwurf-control` session whose id is not garden-native is refused at `session_start` and the process **hard-exits before any model turn** (a `uuidv7` from a raw `pi --entwurf-control` blows up immediately — nonzero exit, no socket, no tokens). The status bar reads `🪛 ready` until the first assistant turn writes the session file (model still changeable), then `🪛 <gardenId>` (model locked). The resident session name is set lazily on that first turn, tagged `control` (never `entwurf`, so it is not resumable as an Entwurf child). Gates: `run.sh check-entwurf-session-identity` (deterministic) + `run.sh smoke-resident-garden-guard` (live).
+
 The human-greeted 담당자 pattern is first-class: the operator opens a pi-shell-acp session in repo B, greets it directly, then passes that `sessionId` to another session via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics; only the creation sequence differs.
 
 **Asymmetric Mitsein** (비대칭 공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Gemini CLI used as a human terminal) without spawning it. The two channels are deliberately asymmetric: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. The pi-side sessionId travels inside the task instruction itself, so no second harness, no control daemon, and no transcript scraping are introduced. This is a workflow pattern, not a product surface — the bridge stays thin; the asymmetry is an honest acknowledgment of the limit, not a defect.

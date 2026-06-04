@@ -60,6 +60,8 @@ Usage:
   ./run.sh smoke-installed-entwurf-acp # live counterpart (#29): git+npm package sources plus packed tarball resolve + a --no-extensions child registers provider pi-shell-acp (credential-free --list-models proof)
   ./run.sh smoke-session-id-name      # live 3-turn substrate smoke (Phase 3a): Pi 0.78 --session-id/--name through the bridge — header id/cwd, session_info name, append-not-recreate, spawn-only name, wrong-cwd footgun evidence
   ./run.sh smoke-async-resume [backends...] # live async-resume smoke (Claude+Codex+Gemini + handler/external cases), required before entwurf releases
+  ./run.sh new-session-id             # print one fresh garden-native session id for operator launchers (--session-id)
+  ./run.sh smoke-resident-garden-guard # live resident --entwurf-control garden guard (negative 0-token; SMOKE_RGG_POSITIVE=1 for positive)
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md + pi devDeps/peer pins) agree
@@ -3542,7 +3544,7 @@ JS
 # pi-native async entwurf spawn smoke. Loads the native entwurf.ts directly
 # and asks a cheap model to invoke `entwurf` in async mode against a bogus
 # host. We read pi's --mode json event stream so the gate inspects the tool's
-# *actual* sync return (which contains "Async entwurf spawned" + Task ID),
+# *actual* sync return (which contains "Async entwurf spawned" + Session ID),
 # not the model's natural-language interpretation. We also grep explicitly for
 # the regression class PM flagged: a stale `explicitExtensions` reference in
 # runEntwurfAsync would surface as a ReferenceError in the tool result.
@@ -3579,18 +3581,18 @@ validate_pi_native_async_entwurf() {
 
   # The sync tool return contains these strings verbatim — independent of how
   # the model paraphrases. Either marker proves the spawn completed cleanly.
-  if grep -qE 'Async entwurf spawned|Task ID:' <<< "$raw"; then
-    local taskid
+  if grep -qE 'Async entwurf spawned|Session ID:' <<< "$raw"; then
+    local sessionid
     # `head -1` still closes its stdin early, which can send SIGPIPE back
     # to grep under pipefail. Swallow the rc so the assignment survives —
     # the captured string is the only thing we need.
-    taskid=$(grep -oE 'Task ID: [a-f0-9]+' <<< "$raw" | head -1 || true)
-    ok "pi-native async entwurf spawn (${taskid:-Task ID present})"
+    sessionid=$(grep -oE 'Session ID: [0-9]{8}T[0-9]{6}-[0-9a-f]{6}' <<< "$raw" | head -1 || true)
+    ok "pi-native async entwurf spawn (${sessionid:-Session ID present})"
     return 0
   fi
 
   echo "$raw" >&2
-  fail "pi-native async entwurf produced neither Task ID nor a recognized error"
+  fail "pi-native async entwurf produced neither Session ID nor a recognized error"
   return 1
 }
 
@@ -3992,6 +3994,19 @@ case "$cmd" in
     ;;
   check-entwurf-session-identity)
     check_entwurf_session_identity
+    ;;
+  new-session-id)
+    # Garden launcher helper: print one fresh garden sessionId (SSOT:
+    # generateSessionId). Used by the operator alias to make every
+    # --entwurf-control session a garden citizen. Stdout = the id only.
+    (cd "$REPO_DIR" && node --experimental-strip-types scripts/new-session-id.ts)
+    ;;
+  smoke-resident-garden-guard)
+    # LIVE negative (0 tokens) + opt-in positive gate for the resident
+    # --entwurf-control garden-native enforcement. NEGATIVE: raw uuid session
+    # must blow up before any turn. POSITIVE (SMOKE_RGG_POSITIVE=1): garden id
+    # passes + control-tagged name.
+    (cd "$REPO_DIR" && bash scripts/smoke-resident-garden-guard.sh)
     ;;
   check-plugin-empty-final-recovery)
     check_plugin_empty_final_recovery

@@ -12,7 +12,7 @@
 #
 # Sender surfaces:
 #   native — pi's control.ts CLI bridge
-#            (pi -p --entwurf-control --entwurf-session <id> --entwurf-send-message ...)
+#            (pi -p --session-id <garden> --entwurf-control --entwurf-session <id> --entwurf-send-message ...)
 #   MCP    — pi-tools-bridge stdio JSON-RPC (tools/call entwurf_send)
 #
 # Targets are pi sessions with --entwurf-control. "ACP" here means the target
@@ -91,14 +91,19 @@ record() {
   fi
 }
 
+new_session_id() {
+  bash "$REPO/run.sh" new-session-id
+}
+
 case_native() {
   local case_name="$1" target="$2"
-  local full out rc
+  local full out rc sender_sid
   # tail -1 used to be enough but pi --provider warmup now prints vLLM rate
   # banners on every spawn, which crowd out the real status line. Capture the
   # full stream and grep for the delivery marker; keep a short tail summary
   # for the FAIL evidence so the artifact stays small.
-  full=$(timeout 20 pi -p --entwurf-control --entwurf-session "$target" \
+  sender_sid=$(new_session_id) || { record "$case_name" "FAIL" "new-session-id failed"; return; }
+  full=$(timeout 20 pi -p --session-id "$sender_sid" --entwurf-control --entwurf-session "$target" \
         --entwurf-send-message "sms:$case_name" \
         --entwurf-send-mode follow_up \
         --entwurf-send-wait message_processed 2>&1)
@@ -163,14 +168,16 @@ echo
 
 log "→ Target-N (native: $NATIVE_PROVIDER/$NATIVE_MODEL) in tmux $TMUX_N"
 pre=$(snapshot_sockets)
-tmux new -d -s "$TMUX_N" -c "$PWD" "pi --entwurf-control --provider $NATIVE_PROVIDER --model $NATIVE_MODEL" \
+TGT_N_LAUNCH=$(new_session_id) || { log "FATAL: new-session-id Target-N failed"; exit 1; }
+tmux new -d -s "$TMUX_N" -c "$PWD" "pi --session-id $TGT_N_LAUNCH --entwurf-control --provider $NATIVE_PROVIDER --model $NATIVE_MODEL" \
   || { log "FATAL: tmux new Target-N failed"; exit 1; }
 TGT_N=$(wait_for_new_socket "$pre") || { log "FATAL: Target-N socket did not appear in ${BOOT_TIMEOUT}s"; exit 1; }
 log "  Target-N: $TGT_N"
 
 log "→ Target-A (ACP: $ACP_PROVIDER/$ACP_MODEL) in tmux $TMUX_A"
 pre=$(snapshot_sockets)
-tmux new -d -s "$TMUX_A" -c "$PWD" "pi --entwurf-control --provider $ACP_PROVIDER --model $ACP_MODEL" \
+TGT_A_LAUNCH=$(new_session_id) || { log "FATAL: new-session-id Target-A failed"; exit 1; }
+tmux new -d -s "$TMUX_A" -c "$PWD" "pi --session-id $TGT_A_LAUNCH --entwurf-control --provider $ACP_PROVIDER --model $ACP_MODEL" \
   || { log "FATAL: tmux new Target-A failed"; exit 1; }
 TGT_A=$(wait_for_new_socket "$pre") || { log "FATAL: Target-A socket did not appear in ${BOOT_TIMEOUT}s"; exit 1; }
 log "  Target-A: $TGT_A"

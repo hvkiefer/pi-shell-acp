@@ -76,10 +76,12 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 # entwurf siblings can address it if a follow-up demo needs it.
 COMMON_ENV="PI_SHELL_ACP_DEBUG=1 PI_EMACS_AGENT_SOCKET=$EMACS_SOCKET"
 COMMON_ARGS="--entwurf-control --emacs-agent-socket $EMACS_SOCKET"
+new_session_id() { bash "$REPO_ROOT/run.sh" new-session-id; }
 
 # ---------- start driver (single pane) ----------
+DRIVER_LAUNCH_ID=$(new_session_id)
 tmux new-session -d -s "$SESSION" -n demo -x 220 -y 50 \
-  "$COMMON_ENV pi --model $DRIVER_MODEL $COMMON_ARGS 2>>$DRIVER_LOG"
+  "$COMMON_ENV pi --session-id $DRIVER_LAUNCH_ID --model $DRIVER_MODEL $COMMON_ARGS 2>>$DRIVER_LOG"
 DRIVER_PANE=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id}' | head -1)
 
 # Give pi time to print its banner and reach the prompt.
@@ -93,7 +95,7 @@ drive() {
   sleep "$SCENE1_DELAY"
 
   # Scene 2 — entwurf surface: spawn a sibling, receive its reply inline.
-  tmux send-keys -t "$DRIVER_PANE" -l "Now demonstrate the entwurf surface. Spawn a sibling via the entwurf tool — provider: pi-shell-acp, model: gpt-5.4, mode: sync, cwd: $SIBLING_CWD. Task body: \"You are a sibling spawned for a recorded demo. Reply in one English sentence: which backend ACP model are you running on, and what does the entwurf_self envelope say about your identity (sessionId, agentId, cwd)?\". After the entwurf returns, print the Task ID and quote the sibling reply verbatim in one line."
+  tmux send-keys -t "$DRIVER_PANE" -l "Now demonstrate the entwurf surface. Spawn a sibling via the entwurf tool — provider: pi-shell-acp, model: gpt-5.4, mode: sync, cwd: $SIBLING_CWD. Task body: \"You are a sibling spawned for a recorded demo. Reply in one English sentence: which backend ACP model are you running on, and what does the entwurf_self envelope say about your identity (sessionId, agentId, cwd)?\". After the entwurf returns, print the Session ID and quote the sibling reply verbatim in one line."
   tmux send-keys -t "$DRIVER_PANE" Enter
   sleep $((SCENE2_DELAY + FINAL_PAUSE))
 

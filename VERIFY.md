@@ -32,7 +32,7 @@ Anything weaker than this — single-turn smoke, individual-turn tool calls, or 
 These supersede the per-section rules they touch — the original sections are kept for context, but the rules below are what must hold:
 
 - **§1A.4 Layer 3 pass criterion** is **8 turns / 3+ early facts / one verbatim string injected before turn 5**, not 5 turns. Real bridge runs at 9-turn / 4-fact / 100% recall with the current code; lowering the bar to 5 turns hides regressions.
-- **§10.3 process-count formula** counts **distinct alive `(sessionKey, backend, modelId, bridgeConfigSignature)` tuples**, not entwurf taskIds. A single `entwurf` + N `entwurf_resume` calls on the same target reuse one child (see `acp-bridge.ts:2340` — `bridgeSessions.get(sessionKey)` + `isSessionCompatible`). Delta=0 against a verifier that was already holding the bridge session is the **expected** state, not an under-count.
+- **§10.3 process-count formula** counts **distinct alive `(sessionKey, backend, modelId, bridgeConfigSignature)` tuples**, not entwurf sessionIds. A single `entwurf` + N `entwurf_resume` calls on the same target reuse one child (see `acp-bridge.ts:2340` — `bridgeSessions.get(sessionKey)` + `isSessionCompatible`). Delta=0 against a verifier that was already holding the bridge session is the **expected** state, not an under-count.
 - **§1A.5 Layer 4 prerequisite**: a verifier already running through `pi-shell-acp` cannot dispatch to direct Claude Code via standard MCP tools — it can only call its sibling via entwurf. Layer 4 requires either a human in the loop or a verifier that holds both transport handles. Attempting Layer 4 from inside a single bridged session produces meaningless symmetry, not comparison.
 - **§12.1 `PI_ENTWURF_CHILD_STDERR_LOG` self-spawn limit**: `export` from a shell that is already bound to a running bridge process does **not** propagate into that bridge — the env must be present at bridge-process spawn time. Either restart the parent session with the env exported, or run VERIFY.md from a plain shell that has not yet bound the bridge.
 
@@ -64,12 +64,16 @@ This document records only **verification intent (what we're looking at) and pas
 ### Default Execution Shape — entwurf orchestration
 
 - Single-turn verification: one `entwurf(provider="pi-shell-acp", model="<M>", mode="sync")` call
-- Multi-turn verification: first turn via `entwurf(mode="sync")`, subsequent turns via `entwurf_resume(mode="sync", taskId=...)`. Both surfaces default to `async` since 0.7.x (spawn from 0.7.0, resume from 0.7.6); pass `mode="sync"` explicitly for verification turns because the operator needs inline answers, not detached followUp delivery.
+- Multi-turn verification: first turn via `entwurf(mode="sync")`, subsequent turns via `entwurf_resume(mode="sync", sessionId=...)`. Both surfaces default to `async` since 0.7.x (spawn from 0.7.0, resume from 0.7.6); pass `mode="sync"` explicitly for verification turns because the operator needs inline answers, not detached followUp delivery.
 - Different backend verification: same pattern with only provider/model changed (e.g., `pi-shell-acp/codex-...`)
 
 ### Async resume — separate live gate
 
 The async path is verified by `./run.sh smoke-async-resume` (scripts/smoke-async-resume.sh, added in 0.7.6). The live smoke covers the replyable MCP → `spawn_async_resume` control-RPC → native async launcher path across Claude, Codex, and Gemini (Hard Rule #7 three-backend equality): the backend performs an MCP `entwurf` sync-only spawn, then calls `entwurf_resume(mode="async")`; the gate asserts an immediate async ack and a later successful `🏁 resume … completed` followUp. `❌ resume` is fail-closed, not PASS. The omitted-mode conditional default (replyable → async, external → sync) is pinned by the deterministic `./run.sh check-async-resume-gate` (16 assertions) in the `pnpm check` chain; the live smoke uses explicit `mode="async"` so model prompt-following cannot hide the async branch. The latest 0.8.1 pre-cut baseline is `/tmp/smoke-async-resume-20260531-181934.json` (6 PASS / 0 FAIL / 0 SKIP, including `A.async.claude-sonnet-4-6` after a bounded retry on the first no-ack attempt). It is NOT in the deterministic `pnpm check` chain because it requires live ACP turns and a small token spend (~$0.10–$0.30). Run it before any release that touches the entwurf surface, and after any change to `pi-extensions/lib/entwurf-async.ts`, `mcp/pi-tools-bridge/src/{index,resume-mode}.ts`, or `pi-extensions/entwurf-control.ts` (the entwurf-control RPC dispatcher).
+
+### Resident garden-native session — separate live gate (0.9.0)
+
+The `--entwurf-control` garden-native enforcement is verified by `./run.sh smoke-resident-garden-guard` (scripts/smoke-resident-garden-guard.sh). The deterministic half lives in `./run.sh check-entwurf-session-identity` (125 assertions, in the `pnpm check` chain): `assertGardenNativeSessionId` (uuid→throw / garden→pass), `buildGardenSessionName` (registry-free native model, `entwurf` tag forbidden, round-trip), `computeResidentStatusLabel` (`🪛 ready`/`🪛 <id>`), and the regression that a `control`-tagged resident session is NOT `entwurf_resume`-able. The live half proves the actual blow-up: NEGATIVE (default, **0 tokens**) launches raw `pi --entwurf-control` with no `--session-id` and asserts nonzero exit + no `agent_start` + no token usage + no control socket + no session file (the guard `process.exit(1)`s at `session_start` before any turn — `ctx.shutdown()` alone was verified insufficient, the model turn ran and leaked 26k tokens). POSITIVE (`SMOKE_RGG_POSITIVE=1`, ~1 cheap turn) launches with a garden `--session-id "$(./run.sh new-session-id)"` and asserts the garden header id on disk + a `control`-tagged resident name (never `entwurf`). Run it after any change to `pi-extensions/entwurf-control.ts` or the resident helpers in `pi-extensions/lib/entwurf-core.ts`. Baseline 2026-06-04: negative 6/6, positive 10/10.
 
 ### Release gate — current floor
 
@@ -305,7 +309,7 @@ The core question is one:
 
 This evaluation is separate from the continuity smoke. If smoke proves "sessions continue," this questionnaire examines **tool self-awareness / native tool usability / pi-facing MCP boundary awareness / long-turn focus / quality relative to direct Claude Code**.
 
-The execution shape follows §0A — Layers 0–3 start with one `entwurf` for a single target (`pi-shell-acp/claude-sonnet-4-6`) and continue via `entwurf_resume` with the same taskId for multi-turn. Layer 4 is a comparison with direct Claude Code, so it uses a separate path.
+The execution shape follows §0A — Layers 0–3 start with one `entwurf` for a single target (`pi-shell-acp/claude-sonnet-4-6`) and continue via `entwurf_resume` with the same sessionId for multi-turn. Layer 4 is a comparison with direct Claude Code, so it uses a separate path.
 
 ### 1A.1 Layer 0 — Self-Awareness at Session Start
 
@@ -402,9 +406,9 @@ Note: check the default visibility boundary together with the operator verificat
 
 ### 1A.4 Layer 3 — Is Focus Maintained as Turns Accumulate?
 
-Intent: Not whether sessions continue, but **whether quality is maintained in a continuing state**. For a single target, inject a fact on the first turn (`entwurf`) (e.g., "Remember 3 core invariants from AGENTS.md, reply with READY only") → continue with `entwurf_resume` on the same taskId 4–5 times, mixing retrieval/exploration/retrieval.
+Intent: Not whether sessions continue, but **whether quality is maintained in a continuing state**. For a single target, inject a fact on the first turn (`entwurf`) (e.g., "Remember 3 core invariants from AGENTS.md, reply with READY only") → continue with `entwurf_resume` on the same sessionId 4–5 times, mixing retrieval/exploration/retrieval.
 
-> **Continuation note.** When this layer is run **after §3 + §4 on the same target**, a fresh `entwurf` is no longer available (the bridge enforces uniqueness per target — see §3 operational note). Equivalent procedure: inject the §1A.4 invariants on the **next available turn** (e.g., turn 11) of the same `taskId`, then perform 3–4 more resumes mixing repo exploration (§9) before the recall quiz. The pass criterion is identical — the early-turn injection must survive the intervening exploration.
+> **Continuation note.** When this layer is run **after §3 + §4 on the same target**, a fresh `entwurf` is no longer available (the bridge enforces uniqueness per target — see §3 operational note). Equivalent procedure: inject the §1A.4 invariants on the **next available turn** (e.g., turn 11) of the same `sessionId`, then perform 3–4 more resumes mixing repo exploration (§9) before the recall quiz. The pass criterion is identical — the early-turn injection must survive the intervening exploration.
 
 Pass (post-0.4.1, see strengthened rules above):
 - After **8 turns**, holds **3+ early-turn facts** including **one verbatim string injected before turn 5**
@@ -485,7 +489,7 @@ Note:
 
 One sync `entwurf` call for the `pi-shell-acp/claude-sonnet-4-6` target.
 
-> **Operational note — `entwurf` uniqueness per (provider, model, session).** The MCP bridge enforces one live `entwurf` per (provider, model) tuple within a verifier session. Strictly speaking §3.1 and §3.2 are two separate single-turn intents, but the second one cannot be a fresh `entwurf` to the same target — it must be the **first `entwurf_resume` of the same `taskId`**. This is operationally fine: §3.1 verifies hook prompt extraction (turn 1), §3.2 verifies tool-call mapping (turn 2 = first resume). Fact injection (§4) then begins from turn 3 onward. If the verifier strictly needs a fresh ACP session for §3.2, run it against a different target (e.g., `claude-opus-4-8` or `gpt-5.5`).
+> **Operational note — `entwurf` uniqueness per (provider, model, session).** The MCP bridge enforces one live `entwurf` per (provider, model) tuple within a verifier session. Strictly speaking §3.1 and §3.2 are two separate single-turn intents, but the second one cannot be a fresh `entwurf` to the same target — it must be the **first `entwurf_resume` of the same `sessionId`**. This is operationally fine: §3.1 verifies hook prompt extraction (turn 1), §3.2 verifies tool-call mapping (turn 2 = first resume). Fact injection (§4) then begins from turn 3 onward. If the verifier strictly needs a fresh ACP session for §3.2, run it against a different target (e.g., `claude-opus-4-8` or `gpt-5.5`).
 
 ### 3.1 SessionStart Hook Regression Check
 
@@ -509,7 +513,7 @@ Pass:
 
 ## 4. Multi-Turn Verification — Does a Single Target Continue?
 
-This is where it gets important. The execution shape follows §0A — start with a first turn `entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync")`, then continue throwing `entwurf_resume` with the same taskId.
+This is where it gets important. The execution shape follows §0A — start with a first turn `entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync")`, then continue throwing `entwurf_resume` with the same sessionId.
 
 Verification facts follow the §0A wording guide — ban `secret token` / `password` / `API key` types, use only non-sensitive plaintext (code names / colors / animal names, etc.).
 
@@ -545,7 +549,7 @@ Run `find "$CACHE_DIR" -maxdepth 1 -type f | sort` twice, before and after §4 e
 Pass:
 - After the first turn, a persisted session record corresponding to `pi:<sessionId>` is newly created
 - The record persists even after the first turn's child pi process exits
-- `entwurf_resume` with the same taskId reuses that record as-is to continue the ACP session (continuity maintained)
+- `entwurf_resume` with the same sessionId reuses that record as-is to continue the ACP session (continuity maintained)
 
 ---
 
@@ -610,7 +614,7 @@ If broken, suspect:
 
 After a normal exit, persisted mappings must survive so the next child pi process can pick them up. When the first `entwurf` from §4 finishes, the child pi process exits naturally — the cache record must not be invalidated at that point — this invariant is already observed via the §5.1 snapshot.
 
-If you want to check semantic continuity once more, after the last turn of §4, throw one more `entwurf_resume` with the same taskId after some time and confirm the previous conversation context continues naturally.
+If you want to check semantic continuity once more, after the last turn of §4, throw one more `entwurf_resume` with the same sessionId after some time and confirm the previous conversation context continues naturally.
 
 Pass:
 - Continues from the previous conversation context
@@ -741,7 +745,7 @@ Pass:
 
 **resume/load/new consistency (multi-turn):**
 
-Run two or more turns using the §4 pattern (`entwurf` → same taskId `entwurf_resume`) and confirm the MCP server list seen in each turn is identical.
+Run two or more turns using the §4 pattern (`entwurf` → same sessionId `entwurf_resume`) and confirm the MCP server list seen in each turn is identical.
 
 Pass: The server lists in both responses are identical.
 Fail: Only visible in turn 1, or different in turn 2 → session fingerprint or three-path injection consistency issue.
@@ -833,7 +837,7 @@ done
 
 Any backend ACP child whose parent `pi` process has already exited is an
 **orphan** — flag and preserve as evidence (§13). If the parent is alive
-but does not match any verifier-controlled taskId, it's likely a **prior
+but does not match any verifier-controlled sessionId, it's likely a **prior
 verification cycle's leftover**; identify and close before continuing.
 
 ---
@@ -842,17 +846,17 @@ verification cycle's leftover**; identify and close before continuing.
 
 The key is whether **pi session files are maintained as the shared record source** even when using ACP.
 
-After the `entwurf` → `entwurf_resume` pair from §4 finishes, locate the child pi session file for that task (identify location via taskId) and inspect it with `wc -l` / `tail`.
+After the `entwurf` → `entwurf_resume` pair from §4 finishes, locate the child pi session file for that session (identify location via sessionId) and inspect it with `wc -l` / `tail`.
 
-> **Path pattern.** entwurf-spawned child pi sessions are written to:
+> **Path pattern (0.9.0 garden-native identity).** entwurf-spawned child pi sessions are Pi-named:
 > ```
-> ~/.pi/agent/sessions/--<cwd-encoded>--/<timestamp>_entwurf-<taskId>.jsonl
+> ~/.pi/agent/sessions/--<cwd-encoded>--/<created-at>_<sessionId>.jsonl
 > ```
-> where `<cwd-encoded>` is the entwurf cwd with `/` replaced by `-`. To resolve a `taskId` to its session file in one line:
+> where `<cwd-encoded>` is the entwurf cwd with `/` replaced by `-` and `<sessionId>` is `YYYYMMDDTHHMMSS-[0-9a-f]{6}`. The JSONL header `id` is the real authority; the filename is a discovery aid. To resolve a `sessionId` to its session file in one line:
 > ```bash
-> ls ~/.pi/agent/sessions/--*--/*_entwurf-<TASK_ID>.jsonl 2>/dev/null
+> ls ~/.pi/agent/sessions/--*--/*_<SESSION_ID>.jsonl 2>/dev/null
 > ```
-> A naive `grep -rl <TASK_ID> ~/.pi/agent/sessions/` will also match the **parent** verifier's session (where the verifier quoted the taskId in its own output) — do not analyze that file as the spawn's transcript. Use the path pattern instead.
+> A naive `grep -rl <SESSION_ID> ~/.pi/agent/sessions/` will also match the **parent** verifier's session (where the verifier quoted the sessionId in its own output) — do not analyze that file as the spawn's transcript. Use the path pattern instead.
 >
 > Schema reminder: `role` is at `.message.role`, not at the top level. To count actual user/assistant turns:
 > ```bash
@@ -890,7 +894,7 @@ The following are documented but observability/automation is still insufficient.
 3. ~~Clearly observing the `unstable_setSessionModel` path vs new session fallback path on model switch~~ — see §12.3
 4. ~~Observing how cleanly bridge and child process are cleaned up on cancel/abort~~ — see §12.4
 5. Checking stream shape stability as tool notices / thinking / text blocks accumulate in long sessions
-6. Entwurf-style continuity (see §12.5) — for every backend covered by the smoke, the bridge's resume/load path continues for the same spawn shape as entwurf. Entwurf orchestration itself (which target to spawn for, taskId / async completion / resume identity lock) now lives in this repo's `pi-extensions/entwurf.ts` + `pi/entwurf-targets.json` + `mcp/pi-tools-bridge/`. (Previously owned by agent-config. Migration history in AGENTS.md `§Entwurf Orchestration`.)
+6. Entwurf-style continuity (see §12.5) — for every backend covered by the smoke, the bridge's resume/load path continues for the same spawn shape as entwurf. Entwurf orchestration itself (which target to spawn for, sessionId / async completion / resume identity lock) now lives in this repo's `pi-extensions/entwurf.ts` + `pi/entwurf-targets.json` + `mcp/pi-tools-bridge/`. (Previously owned by agent-config. Migration history in AGENTS.md `§Entwurf Orchestration`.)
 7. Separating observability of `bridge continuity` (sessionKey/acpSessionId/bootstrap path) and `semantic continuity` (retrieving previous turn facts) — the two layers can pass/fail independently. The rule is only in §0A, but there's no automated smoke that judges them separately yet.
 
 In other words, this document is not a completion declaration but an **operational document that exposes the next improvement points**.
@@ -1111,8 +1115,8 @@ When a problem occurs, at minimum preserve the following:
 ```bash
 pgrep -af 'claude-agent-acp|codex-acp|gemini .*--acp|gemini --acp' || true
 find "$CACHE_DIR" -maxdepth 1 -type f | sort
-# resolve taskId(s) to entwurf-child session files (see §11 path pattern)
-ls ~/.pi/agent/sessions/--*--/*_entwurf-${TASK_ID}.jsonl 2>/dev/null
+# resolve sessionId(s) to entwurf-child session files (see §11 path pattern)
+ls ~/.pi/agent/sessions/--*--/*_${SESSION_ID}.jsonl 2>/dev/null
 # bootstrap evidence (only available if PI_ENTWURF_CHILD_STDERR_LOG was set, §12.1)
 [ -n "$PI_ENTWURF_CHILD_STDERR_LOG" ] && \
   grep -E '\[pi-shell-acp:(bootstrap|model-switch|cancel|shutdown)\]' \
@@ -1120,9 +1124,9 @@ ls ~/.pi/agent/sessions/--*--/*_entwurf-${TASK_ID}.jsonl 2>/dev/null
 ```
 
 Also preserve:
-- Exact calls used (entwurf provider/model/mode + entwurf_resume taskId)
+- Exact calls used (entwurf provider/model/mode + entwurf_resume sessionId)
 - Full stdout/stderr
-- Child pi session file path for that task
+- Child pi session file path for that session
 - Cache directory changes
 - Difference between expected and actual results
 
@@ -1130,8 +1134,8 @@ Short record example:
 
 ```text
 [verify] multi-turn continuity failed
-- call: entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync") → taskId=...
-        then entwurf_resume(taskId=..., task="What was the password I just told you? Reply in one word only.")
+- call: entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync") → sessionId=...
+        then entwurf_resume(sessionId=..., task="What was the password I just told you? Reply in one word only.")
 - injected: "The password is owl. Reply with READY only, no explanation."
 - expected: second turn returns "owl"
 - actual: model says it does not remember

@@ -15,7 +15,7 @@
  *
  *   1. process.chdir($PROJECT_DIR) then runEntwurfSync({ cwd: $PROJECT_DIR })
  *      to spawn a sibling that plants a unique sentinel token.
- *   2. process.chdir($OTHER_DIR) then runEntwurfResumeSync(taskId, ..., { cwd: undefined })
+ *   2. process.chdir($OTHER_DIR) then runEntwurfResumeSync(sessionId, ..., { cwd: undefined })
  *      — the exact MCP-resume call shape. options.cwd is intentionally
  *      undefined so the fix's `readSessionHeader(sessionFile)?.cwd` fallback
  *      is what aligns the child spawn cwd with the original.
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 		fail("spawn", `runEntwurfSync rc=${spawn.exitCode} error=${spawn.error ?? "n/a"}`, spawn.output);
 	}
 	console.error(
-		`[cross-cwd-resume] step1 ok: taskId=${spawn.taskId} turns=${spawn.turns} sessionFile=${spawn.sessionFile}`,
+		`[cross-cwd-resume] step1 ok: sessionId=${spawn.sessionId} turns=${spawn.turns} sessionFile=${spawn.sessionFile}`,
 	);
 
 	const beforeAnalysis = analyzeSessionFileLike(spawn.sessionFile);
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
 	process.chdir(args.otherDir);
 	console.error(`[cross-cwd-resume] step2: runEntwurfResumeSync (cwd=${process.cwd()}, options.cwd=undefined)`);
 	const resume = await runEntwurfResumeSync(
-		spawn.taskId,
+		spawn.sessionId,
 		"Recall test. No tool calls. Reply with the exact token sentence: `token=<value>`. One line only.",
 		{
 			host: "local",

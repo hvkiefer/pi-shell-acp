@@ -4,10 +4,10 @@
 # Covers the high-risk diagonal slice of parent_surface × target before
 # committing to a full 18-cell positive matrix. Each cell runs:
 #   spawn:  parent pi → entwurf(task, provider, model, mode=sync)
-#   resume: parent pi → entwurf_resume(taskId, prompt)
+#   resume: parent pi → entwurf_resume(sessionId, prompt)
 # and asserts structural evidence only — never the parent model's
 # natural-language echo. Evidence comes from two sources:
-#   1. raw `pi --mode json` stdout (for Task ID extraction)
+#   1. raw `pi --mode json` stdout (for Session ID extraction)
 #   2. the entwurf's session JSONL (for turn count, identity, cost)
 #
 # Usage:
@@ -91,8 +91,8 @@ Cells:
 
 Failure codes:
   S1 parent non-zero exit            (spawn stage)
-  S2 no "Task ID:" in raw stream
-  S3 session file not found for taskId
+  S2 no "Session ID:" in raw stream
+  S3 session file not found for sessionId
   S4 session has no assistant turn
   S5 identity mismatch (lastModel vs target)
   S6 bridge path != new             (child stderr, ACP-target only)
@@ -139,7 +139,7 @@ ALL_CELLS=(
 # ----------------------------------------------------------------------------
 # Parent spawn — runs pi with the chosen parent surface, captures stdout.
 # Uses `pi --mode json` so the tool_result payloads reach stdout verbatim,
-# giving us a paraphrase-free anchor for `Task ID: <8hex>`.
+# giving us a paraphrase-free anchor for `Session ID: <YYYYMMDDTHHMMSS-xxxxxx>`.
 #
 # child_stderr_log (4th arg, optional): when set, exported to the parent pi as
 # PI_ENTWURF_CHILD_STDERR_LOG so entwurf-core's mirrorChildStderr() appends
@@ -147,6 +147,10 @@ ALL_CELLS=(
 # child-side `[pi-shell-acp:bootstrap]` bridge markers — parent stderr can't
 # see the bridge when target provider is pi-shell-acp (bridge lives in child).
 # ----------------------------------------------------------------------------
+new_session_id() {
+  bash "$SCRIPT_DIR/run.sh" new-session-id
+}
+
 parent_spawn() {
   local parent_key="$1" prompt="$2" out_file="$3" child_stderr_log="${4:-}"
   if [ -n "$child_stderr_log" ]; then
@@ -176,13 +180,17 @@ parent_spawn() {
       # matches prod. The flag is passed explicitly here — this script never relies on a
       # shell alias (non-interactive bash does not expand aliases, and `pi` resolves to the
       # pnpm binary), so renaming the alias `pi`→`pia` does not affect the sentinel.
-      timeout "$TIMEOUT" pi --mode json -p --entwurf-control \
+      local launch_sid
+      launch_sid=$(new_session_id) || return 2
+      timeout "$TIMEOUT" pi --mode json -p --session-id "$launch_sid" --entwurf-control \
         -e "$REPOS/pi-shell-acp" \
         --provider pi-shell-acp --model claude-sonnet-4-6 \
         "$prompt" >"$out_file" 2>&1
       ;;
     acp-codex)
-      timeout "$TIMEOUT" pi --mode json -p --entwurf-control \
+      local launch_sid
+      launch_sid=$(new_session_id) || return 2
+      timeout "$TIMEOUT" pi --mode json -p --session-id "$launch_sid" --entwurf-control \
         -e "$REPOS/pi-shell-acp" \
         --provider pi-shell-acp --model gpt-5.4 \
         "$prompt" >"$out_file" 2>&1
@@ -222,19 +230,19 @@ build_spawn_prompt() {
 }
 
 build_resume_prompt() {
-  local task_id="$1"
-  printf '방금 띄운 분신(taskId=%s)에게 기억한 단어가 무엇인지 물어봐라. entwurf_resume 도구를 mode:"sync"로 호출하되 인수는 { taskId: "%s", prompt: "기억 단어를 한 단어로만 답해라.", mode: "sync" } 로 주고, 분신이 답한 그 한 단어를 너의 최종 답으로 보고하라.' \
-    "$task_id" "$task_id"
+  local session_id="$1"
+  printf '방금 띄운 분신(sessionId=%s)에게 기억한 단어가 무엇인지 물어봐라. entwurf_resume 도구를 mode:"sync"로 호출하되 인수는 { sessionId: "%s", prompt: "기억 단어를 한 단어로만 답해라.", mode: "sync" } 로 주고, 분신이 답한 그 한 단어를 너의 최종 답으로 보고하라.' \
+    "$session_id" "$session_id"
 }
 
 # ----------------------------------------------------------------------------
 # Evidence extraction
 # ----------------------------------------------------------------------------
-# Task ID appears verbatim in the tool_result content of the entwurf tool
+# Session ID appears verbatim in the tool_result content of the entwurf tool
 # response (see formatSyncSummary / async spawn). Grepping the raw --mode json
-# stream is paraphrase-proof.
-extract_task_id() {
-  grep -oE 'Task ID: [a-f0-9]{8}' "$1" | head -1 | awk '{print $3}'
+# stream is paraphrase-proof. sessionId grammar: YYYYMMDDTHHMMSS-[0-9a-f]{6}.
+extract_session_id() {
+  grep -oE 'Session ID: [0-9]{8}T[0-9]{6}-[0-9a-f]{6}' "$1" | head -1 | awk '{print $3}'
 }
 
 # Cold-start readiness signal: the parent's raw stream shows the entwurf MCP
@@ -245,31 +253,37 @@ entwurf_tool_uncallable() {
   grep -q 'No such tool available' "$1" 2>/dev/null
 }
 
+# Pi names entwurf session files `<created-at>_<sessionId>.jsonl` (0.9.0
+# garden-native identity). The sessionId in the filename is the discovery aid;
+# the JSONL header `id` is the real authority (findSessionFileById in core).
 find_session_file() {
-  local task_id="$1"
-  find "$PROJECT_SESSION_DIR" -type f -name "*entwurf-${task_id}*.jsonl" 2>/dev/null | head -1
+  local session_id="$1"
+  find "$PROJECT_SESSION_DIR" -type f -name "*_${session_id}.jsonl" 2>/dev/null | head -1
 }
 
-# S2 fallback: find the most recent project-local entwurf-*.jsonl created
-# after $1 (epoch). Needed when the parent surface does not echo tool_result
-# text into the raw --mode json assistant content (observed with ACP Codex
-# parent, where `[tool:done]` is emitted but the structured result lives
-# outside the captured content stream). Keep the search scoped to the current
-# project session dir; a global search can pick up an unrelated live user's
-# entwurf and turn a tool-call omission into a false identity failure.
-# Emits: "<taskId>\t<session_file>" on stdout, empty on miss.
+# S2 fallback: find the most recent project-local session file created after $1
+# (epoch). Needed when the parent surface does not echo tool_result text into
+# the raw --mode json assistant content (observed with ACP Codex parent, where
+# `[tool:done]` is emitted but the structured result lives outside the captured
+# content stream). Keep the search scoped to the current project session dir;
+# a global search can pick up an unrelated live user's session and turn a
+# tool-call omission into a false identity failure. Entwurf-ness is no longer a
+# filename species (0.9.0): the newest-after-threshold session in this isolated
+# project dir is the one we just spawned. The sessionId is parsed from the
+# Pi filename `<created-at>_<sessionId>.jsonl`.
+# Emits: "<sessionId>\t<session_file>" on stdout, empty on miss.
 find_new_entwurf_session() {
   local threshold_ts="$1"
   local newest
-  newest=$(find "$PROJECT_SESSION_DIR" -type f -name '*entwurf-*.jsonl' \
+  newest=$(find "$PROJECT_SESSION_DIR" -type f -name '*_[0-9]*T[0-9]*-*.jsonl' \
            -newermt "@$threshold_ts" 2>/dev/null |
            xargs -r -I{} stat -c '%Y {}' "{}" 2>/dev/null |
            sort -nr | head -1 | awk '{ $1=""; sub(/^ /, ""); print }')
   [ -z "$newest" ] && return 1
-  local tid
-  tid=$(basename "$newest" | grep -oE 'entwurf-[a-f0-9]{8}' | head -1 | sed 's/^entwurf-//')
-  [ -z "$tid" ] && return 1
-  printf '%s\t%s\n' "$tid" "$newest"
+  local sid
+  sid=$(basename "$newest" | grep -oE '[0-9]{8}T[0-9]{6}-[0-9a-f]{6}' | head -1)
+  [ -z "$sid" ] && return 1
+  printf '%s\t%s\n' "$sid" "$newest"
 }
 
 # Analyze a entwurf session JSONL and emit {turns, cost, lastModel, lastProvider, lastStopReason, lastError}.
@@ -402,7 +416,7 @@ FAIL_COUNT=0
 run_cell() {
   local CELL_ID="$1" CELL_PARENT="$2" CELL_TP="$3" CELL_TM="$4"
   local CELL_STATUS="FAIL" CELL_FCODE="" CELL_NOTE=""
-  local SPAWN_TASK_ID="" SPAWN_SESSION=""
+  local SPAWN_SESSION_ID="" SPAWN_SESSION=""
   local SPAWN_TURNS=0 SPAWN_PROV="" SPAWN_MODEL="" SPAWN_STOP="" SPAWN_COST=0
   local RESUME_TB=0 RESUME_TA=0 RESUME_PROV="" RESUME_MODEL="" RESUME_STOP="" RESUME_COST=0
   local PARENT_COST=0
@@ -437,7 +451,7 @@ run_cell() {
 
   # Spawn with a cold-start ready-gate. Retry ONLY when no worker was spawned
   # AND the parent hit "No such tool available" (entwurf MCP not yet callable).
-  # A successful spawn breaks immediately — structural evidence (Task ID or the
+  # A successful spawn breaks immediately — structural evidence (Session ID or the
   # project-local session-file fallback) wins even if the raw stream also
   # contains an earlier uncallable-tool diagnostic. A genuine omission (no
   # such-tool signal at all) is not retried. See READY_RETRIES.
@@ -458,20 +472,20 @@ run_cell() {
       finalize_cell; return
     fi
 
-    SPAWN_TASK_ID=$(extract_task_id "$spawn_log")
-    if [ -z "$SPAWN_TASK_ID" ]; then
+    SPAWN_SESSION_ID=$(extract_session_id "$spawn_log")
+    if [ -z "$SPAWN_SESSION_ID" ]; then
       # S2 fallback — parent surfaces that don't echo tool_result into their
       # raw stream (ACP Codex) still write a session file. The fs is truth.
       local fb
       if fb=$(find_new_entwurf_session "$spawn_threshold"); then
-        SPAWN_TASK_ID="${fb%%$'\t'*}"
+        SPAWN_SESSION_ID="${fb%%$'\t'*}"
         SPAWN_SESSION="${fb##*$'\t'}"
-        log "  [fallback] taskId=$SPAWN_TASK_ID from session-file delta"
+        log "  [fallback] sessionId=$SPAWN_SESSION_ID from session-file delta"
       fi
     fi
 
     # Worker spawned → success.
-    [ -n "$SPAWN_TASK_ID" ] && break
+    [ -n "$SPAWN_SESSION_ID" ] && break
 
     # No worker. Cold-start race? Back off and re-run, up to READY_RETRIES.
     if entwurf_tool_uncallable "$spawn_log" && [ "$spawn_attempt" -le "$READY_RETRIES" ]; then
@@ -485,19 +499,19 @@ run_cell() {
     if entwurf_tool_uncallable "$spawn_log"; then
       CELL_NOTE="entwurf MCP tool stayed uncallable ('No such tool') after the warmup-grace retry — real backend-readiness defect, not a warmup race — see $spawn_log"
     else
-      CELL_NOTE="no 'Task ID:' in raw stream and no new entwurf session file after parent exit — see $spawn_log"
+      CELL_NOTE="no 'Session ID:' in raw stream and no new entwurf session file after parent exit — see $spawn_log"
     fi
     finalize_cell; return
   done
-  log "  spawn taskId=$SPAWN_TASK_ID"
+  log "  spawn sessionId=$SPAWN_SESSION_ID"
 
   # Reuse session file from fallback if already resolved; otherwise look it up.
   if [ -z "$SPAWN_SESSION" ]; then
-    SPAWN_SESSION=$(find_session_file "$SPAWN_TASK_ID")
+    SPAWN_SESSION=$(find_session_file "$SPAWN_SESSION_ID")
   fi
   if [ -z "$SPAWN_SESSION" ] || [ ! -f "$SPAWN_SESSION" ]; then
     CELL_FCODE="S3"
-    CELL_NOTE="no session JSONL found for entwurf-$SPAWN_TASK_ID under $PROJECT_SESSION_DIR"
+    CELL_NOTE="no session JSONL found for sessionId=$SPAWN_SESSION_ID under $PROJECT_SESSION_DIR"
     finalize_cell; return
   fi
 
@@ -538,7 +552,7 @@ run_cell() {
   RESUME_TB="$SPAWN_TURNS"
   local resume_prompt resume_log="$LOG_DIR/cell${CELL_ID}-resume.log"
   local resume_child_log="$LOG_DIR/cell${CELL_ID}-resume-child.log"
-  resume_prompt=$(build_resume_prompt "$SPAWN_TASK_ID")
+  resume_prompt=$(build_resume_prompt "$SPAWN_SESSION_ID")
 
   # Resume with the same cold-start ready-gate as the spawn stage. Retry fast
   # (before spending WAIT_BUDGET) only when the entwurf_resume tool was
@@ -671,7 +685,7 @@ finalize_cell() {
   json=$(
     CELL_ID="$CELL_ID" CELL_PARENT="$CELL_PARENT" CELL_TP="$CELL_TP" CELL_TM="$CELL_TM" \
     CELL_STATUS="$CELL_STATUS" CELL_FCODE="$CELL_FCODE" CELL_NOTE="$CELL_NOTE" \
-    SPAWN_TASK_ID="$SPAWN_TASK_ID" SPAWN_SESSION="$SPAWN_SESSION" \
+    SPAWN_SESSION_ID="$SPAWN_SESSION_ID" SPAWN_SESSION="$SPAWN_SESSION" \
     SPAWN_TURNS="$SPAWN_TURNS" SPAWN_PROV="$SPAWN_PROV" SPAWN_MODEL="$SPAWN_MODEL" \
     SPAWN_STOP="$SPAWN_STOP" SPAWN_COST="$SPAWN_COST" \
     RESUME_TB="$RESUME_TB" RESUME_TA="$RESUME_TA" \
@@ -692,7 +706,7 @@ const obj = {
   failureCode: str("CELL_FCODE"),
   note: str("CELL_NOTE"),
   spawn: {
-    taskId: str("SPAWN_TASK_ID"),
+    sessionId: str("SPAWN_SESSION_ID"),
     sessionFile: str("SPAWN_SESSION"),
     turns: num("SPAWN_TURNS"),
     lastProvider: str("SPAWN_PROV"),

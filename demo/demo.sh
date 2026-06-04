@@ -71,6 +71,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 # Plain `2>>` is POSIX sh — works under tmux's default /bin/sh.
 COMMON_ENV="PI_SHELL_ACP_DEBUG=1 PI_EMACS_AGENT_SOCKET=$EMACS_SOCKET"
 COMMON_ARGS="--entwurf-control --emacs-agent-socket $EMACS_SOCKET"
+new_session_id() { bash "$REPO_ROOT/run.sh" new-session-id; }
 
 # Snapshot pre-existing control sockets so we can detect which one this demo's
 # peer pane creates. Without this, Scene 3 could greet an unrelated live pi
@@ -100,8 +101,9 @@ wait_for_new_socket() {
 # the operator's tmux `base-index` / `pane-base-index` settings.
 
 # ---------- start peer (top pane)  — equivalent to: piat / piag / piat5 ----------
+PEER_LAUNCH_ID=$(new_session_id)
 tmux new-session -d -s "$SESSION" -n demo -x 220 -y 50 \
-  "$COMMON_ENV pi --model $PEER_MODEL $COMMON_ARGS 2>>$PEER_LOG"
+  "$COMMON_ENV pi --session-id $PEER_LAUNCH_ID --model $PEER_MODEL $COMMON_ARGS 2>>$PEER_LOG"
 PEER_PANE=$(tmux list-panes -s -t "$SESSION" -F '#{pane_id}' | head -1)
 
 PEER_ID=$(wait_for_new_socket "$PRE_SOCKETS") || {
@@ -114,8 +116,9 @@ echo "Peer  sessionId: $PEER_ID  pane=$PEER_PANE"
 POST_PEER_SOCKETS=$(ls "$SOCK_DIR"/*.sock 2>/dev/null | sort || true)
 
 # ---------- start sender (bottom pane, split below)  — equivalent to: pias / piao ----------
+SENDER_LAUNCH_ID=$(new_session_id)
 SENDER_PANE=$(tmux split-window -t "$PEER_PANE" -v -P -F '#{pane_id}' \
-  "$COMMON_ENV pi --model $SENDER_MODEL $COMMON_ARGS 2>>$SENDER_LOG")
+  "$COMMON_ENV pi --session-id $SENDER_LAUNCH_ID --model $SENDER_MODEL $COMMON_ARGS 2>>$SENDER_LOG")
 
 SENDER_ID=$(wait_for_new_socket "$POST_PEER_SOCKETS") || {
   echo "ERROR: sender session never registered a control socket. Check $SENDER_LOG." >&2
@@ -131,12 +134,12 @@ sleep "$WARMUP"
 # window/pane base-index configs.
 drive() {
   # Scene 1 — spawn + memory write
-  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 1. Spawn a claude-sonnet-4-6 sibling via the entwurf tool. provider: pi-shell-acp, model: claude-sonnet-4-6, cwd: /home/junghan/repos/gh/pi-shell-acp, mode: sync. Task body: "You are a sibling for a recorded demo. Remember one fact only — my favorite forge color is tempered indigo. Reply with one short sentence acknowledging. No tool calls, no repo exploration." After it returns, print only the Task ID line so I can see it.'
+  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 1. Spawn a claude-sonnet-4-6 sibling via the entwurf tool. provider: pi-shell-acp, model: claude-sonnet-4-6, cwd: /home/junghan/repos/gh/pi-shell-acp, mode: sync. Task body: "You are a sibling for a recorded demo. Remember one fact only — my favorite forge color is tempered indigo. Reply with one short sentence acknowledging. No tool calls, no repo exploration." After it returns, print only the Session ID line so I can see it.'
   tmux send-keys -t "$SENDER_PANE" Enter
   sleep "$SCENE_DELAY"
 
   # Scene 2 — resume + memory recall
-  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 2. Resume the sibling you just spawned using entwurf_resume with the Task ID from scene 1. Prompt body: "Recall test. No tool calls. One short sentence only. What is my favorite forge color? Answer with just the color phrase."'
+  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 2. Resume the sibling you just spawned using entwurf_resume with the Session ID from scene 1. Prompt body: "Recall test. No tool calls. One short sentence only. What is my favorite forge color? Answer with just the color phrase."'
   tmux send-keys -t "$SENDER_PANE" Enter
   sleep "$SCENE_DELAY"
 

@@ -12,11 +12,26 @@ Read #28 + #30 + #31 as one set:
 - **#30 / 1.0.0**: external native sessions become garden citizens through opaque meta-session records, not fake Pi transcripts. The top-level concept is **garden session id**; Pi sessions are the first backend that can use it directly.
 - **#31 field proof**: current 0.8.2 sustained 5 parallel Opus vision workers with repeated async resume. 0.9.0 must preserve this worker-team pattern while replacing `taskId` with `sessionId`.
 
-### Current mode — execution underway; Phase 3b is the remaining surface-touching slice
+### Current mode — checkpoint committed; next session is a FULL LIVE TEST SWEEP, then release
 
-Planning closed and the safe foundation has landed (deps 0.78, locked grammar, helpers + deterministic gate, OOM hardening, live substrate smoke — see commit timeline at the bottom of this Active section). The remaining largest guard for 3b:
+3a substrate + 3b taskId→sessionId migration + 3c resident garden-native session are all **code + deterministic-tests landed and committed as a checkpoint** (NOT released — 0.9.0 is not cut yet). `pnpm check` is green; the resident guard is live-verified (negative 0-token blow-up + positive). nixos-config `pia`/alias + agent-config consumer (`entwurf-peek`) were handled by GLG + 담당자.
 
-> Resume must append to the existing `sessionId` session file from the saved header cwd; wrong cwd must not silently create a new session. (Wrong-cwd footgun is now live-proven in `smoke-session-id-name` T3 — 3b's resume path must force child cwd to the saved header cwd.)
+> **Next session = re-run every live gate from a fresh scratch and nail the remaining false-negatives, THEN cut 0.9.0.** Do not open the next session by writing more product code — open it by running the live sweep below and fixing only what the evidence demands (harness or product). The smoke-async-resume harness evidence-model upgrade (parent-JSONL custom entries) is in but its last `grep -F` edit was never re-run to a full green — that is the first thing to confirm.
+
+**Next-session live sweep (token-costing; from a fresh scratch dir):**
+```
+./run.sh smoke-async-resume                 # full green (Claude/Codex/Gemini A.async + D/B/C) — confirm the JSONL-evidence harness
+./run.sh smoke-resident-garden-guard        # negative 0-token; SMOKE_RGG_POSITIVE=1 for the +1-turn positive
+SMOKE_RGG_POSITIVE=1 ./run.sh smoke-resident-garden-guard
+./run.sh sentinel
+LIVE=1 ./run.sh smoke-compaction-policy
+./run.sh release-gate <fresh-scratch>       # the cut condition
+```
+Decisions to settle during the sweep: (a) wire `smoke-resident-garden-guard` (negative, 0-token) into `release-gate`; (b) wire `smoke-session-id-name` into `release-gate` before the Entwurf live gates (3a TODO); (c) bump `package.json` 0.8.2 → 0.9.0 at cut.
+
+The largest product guard for 3b, now landed and to be re-confirmed live:
+
+> Resume must append to the existing `sessionId` session file from the saved header cwd; wrong cwd must not silently create a new session. (Wrong-cwd footgun is live-proven in `smoke-session-id-name` T3; 3b's resume path forces child cwd to the saved header cwd.)
 
 ### Decisions to carry unless GLG overrides
 
@@ -41,7 +56,7 @@ Done in `entwurf-core.ts` (locked-grammar SSOT, merged here because it is the on
 - `findSessionFilesById` / `findSessionFileById` (header scan = authority, **throws on duplicate-across-cwd**) + `assertSessionIdAvailableForSpawn`;
 - `readSessionHeader` hardened to a bounded 8192-byte prefix read (no whole-transcript load — Gemini OOM catch).
 - Gate `check-entwurf-session-identity` (91 assertions, no backend) wired into `pnpm check` + `pnpm run` alias.
-- Still NO public schema rename; `taskId` execution path untouched.
+- (As of Phase 2) no public schema rename yet; the `taskId` execution path was still untouched at that point. **Superseded by Phase 3b below**, which performs the atomic `taskId → sessionId` rename.
 
 **Phase 3 precursor — bounded session-file readers — ✅ LANDED (7f1fee1)**
 
@@ -53,16 +68,33 @@ Hardened both whole-file readers (sessions are only ~1–2 MB, so this was harde
 - `scripts/smoke-session-id-name.ts` + `./run.sh smoke-session-id-name`: live 3-turn smoke dogfooding the locked helpers against a real `pi` process. Proven live: T1 header id==sessionId + header cwd==launch cwd + `session_info.name`==denote name (info layer); T2 append-not-recreate (turns 1→2, same file, name unchanged without `--name` = spawn-only); T3 wrong-cwd footgun (same id → 2 sessions under different cwds) recorded as evidence. Pi names the file `<created-at>_<sessionId>.jsonl` natively. Does NOT touch the Entwurf tool surface.
 - TODO: wire `smoke-session-id-name` into `release-gate` before the Entwurf live gates (LIVE / token-costing — GLG decides placement).
 
-**Phase 3b — atomic Entwurf sync migration (lockstep, single slice) — ← CURRENT NEXT**
-- wire `runEntwurfSync` → `generateSessionId` + `assertSessionIdAvailableForSpawn` + `buildSessionName` + `--session-id`/`--name` (drop `${ts}_entwurf-${taskId}.jsonl` species);
-- wire `runEntwurfResumeSync` → `findSessionFileById` (header scan) + header-cwd authority + `--session-id`;
-- prove append-not-recreate (T4) and cross-cwd authority (T5).
-- **Lockstep rule (non-negotiable):** the `taskId → sessionId` rename must change `entwurf-core` return type + `entwurf.ts` native tool + `mcp/pi-tools-bridge` Zod schema/tool descriptions + every test/smoke **in one commit**. A half-migrated state where core emits a `sessionId` but the MCP/native surface still advertises `taskId` would break external clients (Claude Code parsing "Task ID: …"). **Forbidden mid-state:** a `taskId` field carrying a `sessionId` value. No compatibility shim.
-- **Scope lock:** sync + local only. Remote (`host`/SSH) resume of the new identity is **out of scope / fail-fast** in 3b (header scan is local-FS; see #11). `runId` stays internal/diagnostic only — never a public handle.
+**Phase 3b — atomic Entwurf taskId→sessionId migration (lockstep, single slice) — ✅ CODE LANDED (deterministic green; awaiting GLG live gates + commit)**
+- ✅ wire local `runEntwurfSync` → `generateSessionId` + `assertSessionIdAvailableForSpawn` + `buildSessionName` + `--session-id`/`--name` (dropped `${ts}_entwurf-${taskId}.jsonl` species);
+- ✅ wire local `runEntwurfResumeSync` → `findSessionFileById` (header scan) + header-cwd authority + `--session-id`;
+- ✅ resume model authority moved to the **first `model_change`** via new `readSessionIdentity` (not last-assistant-message model); model-drift and corrupt session-name mirror → `SessionIdentityError` fail-fast;
+- ✅ Entwurf-resume gated on the name's `entwurf` tag (`readSessionIdentity(..., { requireEntwurf: true })`): no name / non-canonical name / no `entwurf` tag → fail-fast (replaces the old `*_entwurf-<taskId>.jsonl` species as the "is this an Entwurf session?" marker; no compatibility);
+- ✅ migrated the public Entwurf surface **all at once**: native `entwurf` sync+async spawn, native `entwurf_resume` sync+async resume, `entwurf_status`, MCP `entwurf_resume` schema/descriptions, and the control-RPC `spawn_async_resume` bridge that MCP async uses;
+- ✅ closed the `scripts/tsconfig.json` fence gap (root `exclude` was filtering out scripts/*.ts → they now typecheck);
+- ✅ smoke-async-resume harness upgraded to parent-JSONL custom-entry evidence (`entwurf-task` ack / `entwurf-complete` completion) instead of fragile tmux-pane scraping — fixes the false-negatives seen during 3b review; fail-closed preserved (`❌ resume` still FAILs). Last `grep -F` edit not yet re-run to a full green (see next-session sweep).
+- ⏳ live proof still owed (next-session sweep, token-costing): append-not-recreate (T4), cross-cwd authority (T5), async worker-team continuity (#31) under the new `sessionId` handle.
+- **Lockstep rule (non-negotiable):** the `taskId → sessionId` rename must change `entwurf-core` return type + `entwurf.ts` native tool + `entwurf-async.ts` active map/ack/completion payloads + `entwurf-control.ts` `spawn_async_resume` RPC + `mcp/pi-tools-bridge` Zod schema/tool descriptions + every affected test/smoke **in one commit**. A half-migrated state where any public surface still advertises `taskId` while another emits `sessionId` would break external clients (Claude Code parsing "Task ID: …"). **Forbidden mid-state:** a `taskId` field carrying a `sessionId` value. No compatibility shim.
+- **Scope lock:** local only for the new garden-native identity. Remote (`host`/SSH) spawn/resume/status discovery is **out of scope / fail-fast** in 3b (header scan is local-FS; see #11). `runId` is internal/diagnostic only — never a public handle. Async resume must be honestly `sessionId`-based in this slice; do not park async if that would break the #31 worker-team pattern.
 
-> **New-session kickoff for 3b — do NOT open with implementation.** Start by: (1) refresh the `taskId` touchpoint map (symbol scan: `runEntwurfSync`, `runEntwurfResumeSync`, `findEntwurfSessionFile`, `EntwurfResult.taskId`, `entwurf.ts` schema, `entwurf-async.ts`, `mcp/pi-tools-bridge` Zod, sentinel/cross-cwd/compaction/smoke-async-resume, docs/help); (2) write the explicit lockstep checklist (every file that must change in the one commit); (3) confirm the sync-only/local-only scope above. Only then implement. The locked grammar + helpers (entwurf-core) and the live substrate (3a) are the proven foundation to build on.
+> **New-session kickoff for 3b — do NOT open with implementation.** Start by: (1) refresh the `taskId` touchpoint map (symbol scan: `runEntwurfSync`, `runEntwurfResumeSync`, `findEntwurfSessionFile`, `EntwurfResult.taskId`, `entwurf.ts` schema, `entwurf-async.ts`, `entwurf-control.ts` `spawn_async_resume`, `mcp/pi-tools-bridge` Zod, sentinel/cross-cwd/compaction/smoke-async-resume, docs/help); (2) write the explicit lockstep checklist (every file that must change in the one commit); (3) confirm the local-only + sync+async public-surface scope above. Only then implement. The locked grammar + helpers (entwurf-core) and the live substrate (3a) are the proven foundation to build on.
 
-Later phases remain: async state (`sessionId` + internal `runId`), full MCP/control schema rename, sentinel/async-resume/compaction migration, docs/#31 recipe, and consumer lockstep (`entwurf-peek`, semantic-memory).
+**Phase 3c — resident operator session garden identity (`--entwurf-control`) — ✅ CODE+TESTS LANDED + COMMITTED (deterministic + live verified; alias rolled out by GLG + 담당자)**
+
+Garden identity now closes over the operator's OWN session, not just Entwurf children (GLG 2026-06-04: "native이든 pi-shell-acp이든 --entwurf-control 켜면 내 스타일로 고정 … 비-garden id 보이면 바로 터져야 돼"). Substrate verified in pi 0.78 source before coding: session id is launch-fixed (`session-manager` `newSession`), the file isn't written until the first assistant turn (`_persist` no-assistant guard), `assertValidSessionId` accepts both formats, `turn_end`/`pi.setSessionName`/`ctx.shutdown` all exist.
+
+- ✅ `entwurf-core`: `buildGardenSessionName` (registry-FREE, `entwurf` tag forbidden, `control` tag), `assertGardenNativeSessionId`, `computeResidentStatusLabel` (🪛 ready / 🪛 id), `RESIDENT_SESSION_TAG`.
+- ✅ `entwurf-control`: `refreshServer` guard — non-garden id under `--entwurf-control` → loud stderr + notify + **`process.exit(1)`** (verified live: `ctx.shutdown()` alone did NOT stop the turn, 26k tokens leaked; hard-exit is the actual guarantee, fires before `agent_start`). Status label switched from `entwurf <id>` to `🪛 ready`/`🪛 <id>`. New `turn_end` subscription flips the label and lazily sets the `control` garden name once the file exists.
+- ✅ launcher: `run.sh new-session-id` (prints `generateSessionId`); README §Garden launcher + alias snippet.
+- ✅ tests: `check-entwurf-session-identity` 108→125 assertions; live `smoke-resident-garden-guard` (negative 6/6 @ 0 tokens, positive 10/10 @ 1 cheap turn) + `run.sh` wiring.
+- ✅ alias rollout: garden launcher `_pi_garden_pi` lives in `~/.bashrc.local` (single home, alongside the other pi aliases); GLG + 담당자 own the nixos-config side. `run.sh new-session-id` is the SSOT id source the alias calls.
+- ✅ consumer lockstep: `agent-config` `entwurf-peek` migrated to garden-native discovery (kind by session_info `entwurf`/`control` name tag, not filename species; child trace via `Session ID:`; `test-discovery.py` 15/15). semantic-memory `--session-file-contains _entwurf-` guidance still to revisit.
+- **Scope note:** the guard fires for ALL `--entwurf-control` users (pi-shell-acp is published), not just GLG — documented as a 0.9.0 breaking change. Unconditional per "무조건 즉시 강제"; revisit only if a non-GLG consumer needs an opt-in.
+
+Later phases remain: remote/SSH identity (#11), docs/#31 recipe polish, semantic-memory `_entwurf-` guidance refresh. Do not defer any local public `taskId` surface to later phases.
 
 **Residual notes (not blockers):**
 - `readSessionHeader`'s bounded read returns `null` if a header's first line exceeds 8192 bytes (truncated JSON.parse fails silently). Real pi headers are <1 KB so this is 8× margin; if ever tightened, when `newlineIdx < 0 && bytesRead === buffer.length` treat as "header did not fit" explicitly rather than silent null.

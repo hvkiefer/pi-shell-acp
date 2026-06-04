@@ -129,6 +129,15 @@ Uses `entwurf` instead of `delegate` to avoid ecosystem collisions.
 
 > **Naming pair.** *Entwurf* (기투, projection-of-self) lives here in pi-shell-acp — the mechanism by which a resident agent throws siblings forward (spawn / resume / messaging). The resident-side counterpart is *Mitsein* (공존, being-with), defined in the resident's own knowledge base (cwd-scoped, not a global persona). pi-shell-acp owns the entwurf surface; resident-side conventions live where the resident wakes.
 
+### Garden launcher — the resident session is garden-native or it blows up (0.9.0)
+
+Garden identity covers the operator's OWN `--entwurf-control` session, not just spawned children. A `--entwurf-control` session's header `id` MUST be a garden sessionId (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`); pi assigns a `uuidv7` when `--session-id` is absent, so the launcher injects it and `entwurf-control` only enforces.
+
+- **Launch:** `pi --session-id "$(run.sh new-session-id)" --entwurf-control …` (operator alias). The id is fixed at launch — an extension cannot change it after pi's `newSession`. `run.sh new-session-id` is the `generateSessionId` SSOT; never reimplement the format in the shell.
+- **Enforcement:** non-garden id under `--entwurf-control` → loud stderr + notify + `process.exit(1)` at `session_start`, **before any model turn**. A bare `throw` / `ctx.shutdown()` there is swallowed by pi's runner (verified: the turn ran, 26k tokens leaked), so the guard hard-exits. No uuid / back-compat path — "보이면 바로 터진다".
+- **Status label = 🪛 (the forged screwdriver, the North Star), NOT the word "entwurf".** `🪛 ready` before the first assistant turn (file not on disk → model changeable), `🪛 <gardenId>` after (file written → model locked). The id's presence is the model-lock lifecycle signal; the status label is decoupled from the session-name tag.
+- **Resident name is lazy + `control`-tagged, never `entwurf`.** Set on the first turn via `pi.setSessionName(buildGardenSessionName(...))`. `buildGardenSessionName` is registry-FREE (native models like `deepseek/deepseek-v4-pro` pass) and FORBIDS the `entwurf` tag — the `entwurf` tag is the `entwurf_resume` marker, so a resident session must never carry it (else a general operator session becomes resumable as a child). Gates: `check-entwurf-session-identity` (deterministic) + `smoke-resident-garden-guard` (live).
+
 ### Send-is-throw
 
 Messages are thrown, not awaited.

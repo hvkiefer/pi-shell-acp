@@ -42,12 +42,17 @@ const {
 	slugifyTitle,
 	isKnownProviderModel,
 	buildSessionName,
+	buildGardenSessionName,
+	assertGardenNativeSessionId,
+	computeResidentStatusLabel,
+	RESIDENT_SESSION_TAG,
 	parseSessionName,
 	isEntwurfSessionName,
 	findSessionFileById,
 	findSessionFilesById,
 	assertSessionIdAvailableForSpawn,
 	readSessionHeader,
+	readSessionIdentity,
 	analyzeSessionFileLike,
 } = await import("../pi-extensions/lib/entwurf-core.ts");
 
@@ -349,6 +354,249 @@ try {
 	eq(a2.lastAssistantText, "final", "analyze(big): trailing turn intact after multi-chunk line");
 	eq(a2.lastModel, "claude-sonnet-4-6", "analyze(big): trailing model intact");
 	eq(Math.round(a2.cost * 100) / 100, 1.5, "analyze(big): cost summed across large line");
+
+	// ---- T-identity: resume identity authority = FIRST model_change ----
+	// (NEXT.md "Authority separation": model authority is the first model_change,
+	// NOT the last assistant message's model. Drift / corrupt name mirror fail-fast.)
+	const idDir = path.join(sessionsBase, "--identity-cwd--");
+	fs.mkdirSync(idDir, { recursive: true });
+	const mc = (provider: string, modelId: string) => `${JSON.stringify({ type: "model_change", provider, modelId })}\n`;
+	const sessionLine = (id: string, cwd: string) => `${JSON.stringify({ type: "session", id, cwd })}\n`;
+	const infoLine = (name: string) => `${JSON.stringify({ type: "session_info", name })}\n`;
+
+	// 1. first model_change = A, later ASSISTANT message reports model B →
+	//    identity follows the first model_change (A), never the assistant message.
+	const idA = "20260603T220000-1111aa";
+	const fileA = path.join(idDir, `2026-06-03T22-00-00-000Z_${idA}.jsonl`);
+	fs.writeFileSync(
+		fileA,
+		sessionLine(idA, "/identity/a") +
+			mc("openai-codex", "gpt-5.5") +
+			msg({ content: "drifted", model: "claude-opus-4-8", provider: "pi-shell-acp" }),
+	);
+	const recA = readSessionIdentity(fileA);
+	eq(recA?.provider, "openai-codex", "identity: provider = first model_change (not assistant message)");
+	eq(recA?.modelId, "gpt-5.5", "identity: modelId = first model_change (not assistant message)");
+	eq(recA?.cwd, "/identity/a", "identity: cwd from header");
+
+	// 2. later model_change differs from the first → drift fail-fast.
+	const idB = "20260603T220000-2222bb";
+	const fileB = path.join(idDir, `2026-06-03T22-00-00-000Z_${idB}.jsonl`);
+	fs.writeFileSync(
+		fileB,
+		sessionLine(idB, "/identity/b") + mc("pi-shell-acp", "claude-opus-4-8") + mc("openai-codex", "gpt-5.5"),
+	);
+	throws(() => readSessionIdentity(fileB), "identity: later model_change drift → fail-fast");
+
+	// 3. session name provider/model mirror disagrees with first model_change → corrupt.
+	const idC = "20260603T220000-3333cc";
+	const fileC = path.join(idDir, `2026-06-03T22-00-00-000Z_${idC}.jsonl`);
+	const mismatchName = buildSessionName({
+		sessionId: idC,
+		provider: "pi-shell-acp",
+		model: "claude-opus-4-8",
+		rawTitle: "x",
+		tags: ["entwurf"],
+	});
+	fs.writeFileSync(fileC, sessionLine(idC, "/identity/c") + mc("openai-codex", "gpt-5.5") + infoLine(mismatchName));
+	throws(() => readSessionIdentity(fileC), "identity: name provider/model mirror mismatch → fail-fast");
+
+	// 4. session name sessionId mirror disagrees with header id → corrupt.
+	const idD = "20260603T220000-4444dd";
+	const fileD = path.join(idDir, `2026-06-03T22-00-00-000Z_${idD}.jsonl`);
+	const wrongIdName = buildSessionName({
+		sessionId: "20260603T220000-9999ff",
+		provider: "openai-codex",
+		model: "gpt-5.5",
+		rawTitle: "x",
+		tags: ["entwurf"],
+	});
+	fs.writeFileSync(fileD, sessionLine(idD, "/identity/d") + mc("openai-codex", "gpt-5.5") + infoLine(wrongIdName));
+	throws(() => readSessionIdentity(fileD), "identity: name sessionId mirror mismatch → fail-fast");
+
+	// 5. clean session (matching name + single model_change) → identity, no throw.
+	const idE = "20260603T220000-5555ee";
+	const fileE = path.join(idDir, `2026-06-03T22-00-00-000Z_${idE}.jsonl`);
+	const cleanName = buildSessionName({
+		sessionId: idE,
+		provider: "pi-shell-acp",
+		model: "claude-sonnet-4-6",
+		rawTitle: "clean resume",
+		tags: ["entwurf", "async"],
+	});
+	fs.writeFileSync(
+		fileE,
+		sessionLine(idE, "/identity/e") +
+			mc("pi-shell-acp", "claude-sonnet-4-6") +
+			infoLine(cleanName) +
+			msg({ content: "ok", model: "claude-sonnet-4-6", provider: "pi-shell-acp" }),
+	);
+	noThrow(() => readSessionIdentity(fileE), "identity: clean session does not throw");
+	const recE = readSessionIdentity(fileE);
+	eq(recE?.provider, "pi-shell-acp", "identity(clean): provider");
+	eq(recE?.modelId, "claude-sonnet-4-6", "identity(clean): modelId mirrors name");
+
+	// 6. no model_change → null (caller refuses with its own no-recorded-model result).
+	const idF = "20260603T220000-6666ff";
+	const fileF = path.join(idDir, `2026-06-03T22-00-00-000Z_${idF}.jsonl`);
+	fs.writeFileSync(
+		fileF,
+		sessionLine(idF, "/identity/f") + msg({ content: "no model_change", model: "x", provider: "y" }),
+	);
+	eq(readSessionIdentity(fileF), null, "identity: no model_change → null");
+
+	// ---- T-require-entwurf: resume path only accepts genuine Entwurf sessions ----
+	// (locked 0.9.0 rule: entwurf 여부 = name tag 중 'entwurf' 존재; no compatibility.)
+	// G1. model_change but NO session_info name → not an Entwurf session.
+	throws(
+		() => readSessionIdentity(fileA, { requireEntwurf: true }),
+		"requireEntwurf: no session_info name → fail-fast",
+	);
+
+	// G2. session_info name present but non-canonical → not an Entwurf session.
+	const idG = "20260603T230000-7777aa";
+	const fileG = path.join(idDir, `2026-06-03T23-00-00-000Z_${idG}.jsonl`);
+	fs.writeFileSync(
+		fileG,
+		sessionLine(idG, "/identity/g") + mc("pi-shell-acp", "claude-opus-4-8") + infoLine("not a canonical name"),
+	);
+	throws(
+		() => readSessionIdentity(fileG, { requireEntwurf: true }),
+		"requireEntwurf: non-canonical session name → fail-fast",
+	);
+	noThrow(() => readSessionIdentity(fileG), "requireEntwurf off: non-canonical name is ignored (general path)");
+
+	// G3. canonical name that MIRRORS correctly but has NO entwurf tag → general pi session.
+	const idH = "20260603T230000-8888bb";
+	const fileH = path.join(idDir, `2026-06-03T23-00-00-000Z_${idH}.jsonl`);
+	const noTagName = buildSessionName({
+		sessionId: idH,
+		provider: "pi-shell-acp",
+		model: "claude-opus-4-8",
+		rawTitle: "general session",
+		tags: [],
+	});
+	fs.writeFileSync(
+		fileH,
+		sessionLine(idH, "/identity/h") + mc("pi-shell-acp", "claude-opus-4-8") + infoLine(noTagName),
+	);
+	throws(
+		() => readSessionIdentity(fileH, { requireEntwurf: true }),
+		"requireEntwurf: canonical name without 'entwurf' tag → fail-fast",
+	);
+	noThrow(() => readSessionIdentity(fileH), "requireEntwurf off: no-tag canonical name passes (general path)");
+
+	// G4. canonical name WITH the entwurf tag (fileE from above) → accepted.
+	noThrow(
+		() => readSessionIdentity(fileE, { requireEntwurf: true }),
+		"requireEntwurf: canonical __entwurf name → accepted",
+	);
+	eq(
+		readSessionIdentity(fileE, { requireEntwurf: true })?.modelId,
+		"claude-sonnet-4-6",
+		"requireEntwurf: accepted Entwurf session returns first-model_change identity",
+	);
+
+	// ========================================================================
+	// T-resident: top-level --entwurf-control garden session (0.9.0)
+	//   - assertGardenNativeSessionId: uuid → throw, garden → pass (immediate
+	//     enforcement; uuidv7 from a raw launch has no back-compat path).
+	//   - buildGardenSessionName: registry-FREE (native deepseek passes where
+	//     buildSessionName would throw); `entwurf` tag FORBIDDEN; round-trips.
+	//   - computeResidentStatusLabel: 🪛 ready before file, 🪛 <id> after.
+	//   - resident `control` name must NOT be resumable as an Entwurf child.
+	// ========================================================================
+
+	// assertGardenNativeSessionId — the immediate-enforcement guard core.
+	noThrow(() => assertGardenNativeSessionId("20260604T083632-f9c3b3"), "garden id passes the resident guard");
+	throws(
+		() => assertGardenNativeSessionId("019e8faa-04ea-7b73-bf2c-1465d525c2e8"),
+		"uuidv7 id rejected by resident guard (no back-compat)",
+	);
+	throws(() => assertGardenNativeSessionId(undefined), "missing id rejected by resident guard");
+	throws(() => assertGardenNativeSessionId("20260604T083632-f9c3"), "short-suffix id rejected by resident guard");
+
+	const residentSid = "20260604T083632-aa11bb";
+
+	// buildGardenSessionName is registry-FREE: a native model absent from the
+	// Entwurf target registry (deepseek/deepseek-v4-pro) must pass here, while the
+	// child builder buildSessionName refuses it.
+	throws(
+		() => buildSessionName({ sessionId: residentSid, provider: "deepseek", model: "deepseek-v4-pro" }),
+		"buildSessionName (child) refuses a non-registry native model",
+	);
+	noThrow(
+		() =>
+			buildGardenSessionName({
+				sessionId: residentSid,
+				provider: "deepseek",
+				model: "deepseek-v4-pro",
+				rawTitle: "home",
+				tags: [RESIDENT_SESSION_TAG],
+			}),
+		"buildGardenSessionName accepts a non-registry native model",
+	);
+
+	const residentName = buildGardenSessionName({
+		sessionId: residentSid,
+		provider: "deepseek",
+		model: "deepseek-v4-pro",
+		rawTitle: "pi-shell-acp",
+		tags: [RESIDENT_SESSION_TAG],
+	});
+	eq(residentName, `${residentSid}==deepseek/deepseek-v4-pro--pi-shell-acp__control`, "resident garden name shape");
+	const residentParsed = parseSessionName(residentName);
+	if (!residentParsed) assert.fail(`resident name did not parse: ${residentName}`);
+	eq(residentParsed.provider, "deepseek", "resident name parses provider");
+	eq(residentParsed.model, "deepseek-v4-pro", "resident name parses model");
+	eq(residentParsed.tags.join(","), "control", "resident name carries the control tag");
+	ok(!isEntwurfSessionName(residentName), "resident control name is NOT an Entwurf session name");
+
+	// The `entwurf` tag is FORBIDDEN on a resident name — that tag is the
+	// entwurf_resume marker; a resident session must never be resumable as a child.
+	throws(
+		() =>
+			buildGardenSessionName({
+				sessionId: residentSid,
+				provider: "deepseek",
+				model: "deepseek-v4-pro",
+				tags: ["entwurf"],
+			}),
+		"buildGardenSessionName forbids the entwurf tag",
+	);
+
+	// Regression guard for the closed blocker: a resident `control` session on
+	// disk must be REFUSED by readSessionIdentity(requireEntwurf) — it is not an
+	// Entwurf child and entwurf_resume must not open it.
+	const fileResident = path.join(tmp, "resident-control.jsonl");
+	fs.writeFileSync(
+		fileResident,
+		sessionLine(residentSid, "/identity/resident") + mc("deepseek", "deepseek-v4-pro") + infoLine(residentName),
+	);
+	throws(
+		() => readSessionIdentity(fileResident, { requireEntwurf: true }),
+		"requireEntwurf: resident control session is NOT resumable as an Entwurf child",
+	);
+	noThrow(
+		() => readSessionIdentity(fileResident),
+		"general path: resident control session reads fine (registry-free mirror)",
+	);
+
+	// computeResidentStatusLabel — 🪛 lifecycle signal (no "entwurf" text).
+	eq(
+		computeResidentStatusLabel({ sessionId: residentSid, sessionFileExists: false }),
+		"🪛 ready",
+		"status label before first turn (no file) = 🪛 ready",
+	);
+	eq(
+		computeResidentStatusLabel({ sessionId: residentSid, sessionFileExists: true }),
+		`🪛 ${residentSid}`,
+		"status label after first turn (file exists) = 🪛 <gardenId>",
+	);
+	ok(
+		!computeResidentStatusLabel({ sessionId: residentSid, sessionFileExists: true }).includes("entwurf"),
+		"status label never contains the word 'entwurf'",
+	);
 
 	console.log(`[check-entwurf-session-identity] ${n} assertions ok`);
 } finally {

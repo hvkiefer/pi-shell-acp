@@ -18,12 +18,12 @@
 # Cases (per backend that runs):
 #
 #   case A — MCP replyable async (the user-facing path)
-#     1. Spawn tmux pi session: `pi --entwurf-control --provider pi-shell-
-#        acp --model <M>`. wait_for_new_socket → sessionId.
+#     1. Spawn tmux pi session: `pi --session-id <garden> --entwurf-control
+#        --provider pi-shell-acp --model <M>`. wait_for_new_socket → sessionId.
 #     2. Send a procedural prompt to the backend asking it to: (a) call MCP
 #        `entwurf` (sync-only spawn) with a tiny payload, (b) call
-#        `entwurf_resume` on the returned taskId with mode='async'. Async ack
-#        appears in the tmux pane as "Resume spawned (async)" plus a Resume ID.
+#        `entwurf_resume` on the returned sessionId with mode='async'. Async ack
+#        appears in the tmux pane as "Resume spawned (async)" plus the Session ID.
 #     3. Wait for the entwurf-complete followUp to land in the pane:
 #        "🏁 resume" / "completed" pattern, OR "❌ resume" on failure.
 #     4. Assert: ack visible + successful completion visible; `❌ resume` is FAIL.
@@ -41,10 +41,10 @@
 #        ENTWURF_RESUME_ASYNC_REJECT_REASON ("replyable pi-session caller").
 #
 #   case C — external non-replyable + mode omitted → auto-sync shape reaches
-#     the saved-session lookup (asserts `session_not_found` on synthetic taskId).
+#     the saved-session lookup (asserts `session_not_found` on synthetic sessionId).
 #
 # Artifact: $SMARS_ARTIFACT (default /tmp/smoke-async-resume-<ts>.json).
-# Records pass/fail per case + each backend's resume taskId + the
+# Records pass/fail per case + each backend's resume sessionId + the
 # followUp text excerpt as evidence.
 #
 # Cost ceiling: per-backend ~2 ACP turns (one entwurf spawn + one resume).
@@ -111,6 +111,32 @@ wait_for_new_socket() {
 	return 1
 }
 
+find_parent_session_file() {
+	local session_id="$1"
+	find "$HOME/.pi/agent/sessions" -type f -name "*_${session_id}.jsonl" 2>/dev/null | head -1
+}
+
+count_jsonl_fixed() {
+	local file="$1" needle="$2"
+	if [ -z "$file" ] || [ ! -f "$file" ]; then
+		printf '0\n'
+		return
+	fi
+	grep -F -c "$needle" "$file" 2>/dev/null || true
+}
+
+wait_jsonl_count_gt() {
+	local file="$1" needle="$2" before="$3" timeout_s="$4" i count
+	for i in $(seq 1 "$timeout_s"); do
+		count=$(count_jsonl_fixed "$file" "$needle")
+		if [ "$count" -gt "$before" ]; then
+			return 0
+		fi
+		sleep 1
+	done
+	return 1
+}
+
 record() {
 	local name="$1" status="$2" evidence="$3"
 	evidence=${evidence//\"/\\\"}
@@ -141,12 +167,15 @@ case_a_for_backend() {
 		return
 	fi
 
-	local pre new_sid
+	local pre new_sid launch_sid
 	pre=$(snapshot_sockets)
+	launch_sid=$(bash "$REPO/run.sh" new-session-id) || { record "$case_name" "FAIL" "new-session-id failed"; return; }
 	# -c "$PWD": pin the tmux session cwd to the caller's cwd (scratch project
 	# when run via release-gate). Without it, the tmux SERVER's default cwd
 	# (often the repo) leaks in and the pi session dir is created there.
-	tmux new -d -s "$tmux_name" -c "$PWD" "pi --entwurf-control --provider $provider --model $model" \
+	# --session-id: resident --entwurf-control sessions are garden-native only
+	# since 0.9.0; raw uuid launches fail-fast by design.
+	tmux new -d -s "$tmux_name" -c "$PWD" "pi --session-id $launch_sid --entwurf-control --provider $provider --model $model" \
 		|| { record "$case_name" "FAIL" "tmux new failed"; return; }
 
 	new_sid=$(wait_for_new_socket "$pre") || {
@@ -173,10 +202,10 @@ case_a_for_backend() {
 	prompt="Run this exact two-step MCP tool sequence. Pass each field literally as written; do not collapse multiple fields into one string. "
 	prompt+="Step 1: call mcp__pi-tools-bridge__entwurf with arguments "
 	prompt+="{task: 'Reply SMOKE_OK only.', mode: 'sync', provider: '$provider', model: '$model'}. "
-	prompt+="Step 2: take the returned taskId and call mcp__pi-tools-bridge__entwurf_resume "
-	prompt+="with arguments {taskId: <id>, prompt: 'Reply RESUME_OK only.', mode: 'async'}. "
+	prompt+="Step 2: take the returned Session ID and call mcp__pi-tools-bridge__entwurf_resume "
+	prompt+="with arguments {sessionId: <id>, prompt: 'Reply RESUME_OK only.', mode: 'async'}. "
 	prompt+="Both \`mode\` parameters are top-level arguments — \`mode: 'sync'\` on Step 1, \`mode: 'async'\` on Step 2 — not values inside the prompt string. "
-	prompt+="Report both taskIds verbatim from the tool results, nothing else."
+	prompt+="Report both Session IDs verbatim from the tool results, nothing else."
 
 	# Case A is a REPLYABLE pi-session: spawned with --entwurf-control above, so
 	# the MCP child receives PI_SESSION_ID + PI_AGENT_ID (verified out-of-band
@@ -191,19 +220,45 @@ case_a_for_backend() {
 	# product failure. Allow one bounded retry; if the retry also goes sync, FAIL
 	# with the classification so a real async regression is never masked.
 	#
-	# The async ack ("Resume spawned (async)" / "Resume ID") is emitted
+	# The async ack ("Resume spawned (async)" + "Session ID") is emitted
 	# immediately and never appears on a sync path, so waiting on it cannot
 	# stale-match a prior attempt. "RESUME_OK" (the resumed entwurf's reply) in
 	# the pane with NO ack means step 2 executed synchronously.
-	local attempt acked=0 pane_dump=""
+	#
+	# Gemini can emit enough thinking/tool text to scroll the ack/completion out of
+	# the visible pane between polling ticks. `wait-for-text.sh` watches the pane;
+	# this smoke's primary evidence is therefore the parent JSONL custom entries
+	# (`entwurf-task` ack, `entwurf-complete` followUp), with tmux as fallback.
+	local attempt acked=0 pane_dump="" parent_session_file complete_before=0
+	parent_session_file=$(find_parent_session_file "$new_sid")
 	for attempt in 1 2; do
+		local task_before i task_count
+		parent_session_file=${parent_session_file:-$(find_parent_session_file "$new_sid")}
+		task_before=$(count_jsonl_fixed "$parent_session_file" '"customType":"entwurf-task"')
+		complete_before=$(count_jsonl_fixed "$parent_session_file" '"customType":"entwurf-complete"')
 		tmux clear-history -t "$tmux_name" 2>/dev/null || true
 		tmux send-keys -t "$tmux_name" "$prompt" Enter
-		if "$WAIT_FOR_TEXT" -t "$tmux_name" -p "Resume spawned \(async\)|Resume ID" -T "$ACK_TIMEOUT" >/dev/null 2>&1; then
+		for i in $(seq 1 "$ACK_TIMEOUT"); do
+			parent_session_file=${parent_session_file:-$(find_parent_session_file "$new_sid")}
+			task_count=$(count_jsonl_fixed "$parent_session_file" '"customType":"entwurf-task"')
+			if [ "$task_count" -gt "$task_before" ]; then
+				acked=1
+				break
+			fi
+			if "$WAIT_FOR_TEXT" -t "$tmux_name" -p "Resume spawned \(async\)" -T 1 >/dev/null 2>&1; then
+				acked=1
+				break
+			fi
+			sleep 1
+		done
+		if [ "$acked" -eq 1 ]; then
+			break
+		fi
+		pane_dump=$(tmux capture-pane -t "$tmux_name" -p -S -2000)
+		if echo "$pane_dump" | grep -q "Resume spawned (async)"; then
 			acked=1
 			break
 		fi
-		pane_dump=$(tmux capture-pane -t "$tmux_name" -p -S -150 | tail -25)
 		if echo "$pane_dump" | grep -q "RESUME_OK"; then
 			log "  [$case_name] attempt $attempt: sync summary, no async ack — MODEL_ARG_OR_ENVELOPE_MISMATCH"
 		else
@@ -212,10 +267,12 @@ case_a_for_backend() {
 		[ "$attempt" -lt 2 ] && log "  [$case_name] bounded retry (1) …"
 	done
 	if [ "$acked" -ne 1 ]; then
+		local pane_tail
+		pane_tail=$(printf '%s' "$pane_dump" | tail -25)
 		if echo "$pane_dump" | grep -q "RESUME_OK"; then
-			record "$case_name" "FAIL" "MODEL_ARG_OR_ENVELOPE_MISMATCH after bounded retry: replyable caller (--entwurf-control; envelope verified) required async, but step-2 resume ran sync (model emitted mode:sync). pane tail: $pane_dump"
+			record "$case_name" "FAIL" "MODEL_ARG_OR_ENVELOPE_MISMATCH after bounded retry: replyable caller (--entwurf-control; envelope verified) required async, but step-2 resume ran sync (model emitted mode:sync). pane tail: $pane_tail"
 		else
-			record "$case_name" "FAIL" "no async ack within ${ACK_TIMEOUT}s (x2 attempts). pane tail: $pane_dump"
+			record "$case_name" "FAIL" "no async ack within ${ACK_TIMEOUT}s (x2 attempts). pane tail: $pane_tail"
 		fi
 		return
 	fi
@@ -227,11 +284,20 @@ case_a_for_backend() {
 	# pattern proves the followUp delivery channel reached the parent
 	# session, but the smoke must distinguish them: a delivery-succeeds-
 	# execution-fails ❌ result is NOT a release gate PASS. Fail-closed.
-	if ! "$WAIT_FOR_TEXT" -t "$tmux_name" -p "🏁 resume|❌ resume" -T "$COMPLETE_TIMEOUT" >/dev/null 2>&1; then
-		local pane_dump
-		pane_dump=$(tmux capture-pane -t "$tmux_name" -p -S -200 | tail -30)
-		record "$case_name" "FAIL" "no followUp completion within ${COMPLETE_TIMEOUT}s. pane tail: $pane_dump"
-		return
+	parent_session_file=${parent_session_file:-$(find_parent_session_file "$new_sid")}
+	if [ -n "$parent_session_file" ]; then
+		wait_jsonl_count_gt "$parent_session_file" '"customType":"entwurf-complete"' "$complete_before" "$COMPLETE_TIMEOUT" || true
+	fi
+	if ! "$WAIT_FOR_TEXT" -t "$tmux_name" -p "🏁 resume|❌ resume" -T 1 >/dev/null 2>&1; then
+		pane_dump=$(tmux capture-pane -t "$tmux_name" -p -S -2000)
+		if ! echo "$pane_dump" | grep -qE "🏁 resume|❌ resume" && {
+			[ -z "$parent_session_file" ] || ! grep -F -q '"customType":"entwurf-complete"' "$parent_session_file"
+		}; then
+			local pane_tail
+			pane_tail=$(printf '%s' "$pane_dump" | tail -30)
+			record "$case_name" "FAIL" "no followUp completion within ${COMPLETE_TIMEOUT}s. pane tail: $pane_tail"
+			return
+		fi
 	fi
 
 	# Extract the completion line. PASS only on 🏁 (success). ❌ means the
@@ -239,7 +305,10 @@ case_a_for_backend() {
 	# with the error line as evidence so a regression in the resume body
 	# does not get a green check.
 	local evidence
-	evidence=$(tmux capture-pane -t "$tmux_name" -p -S -300 | grep -E "🏁 resume|❌ resume" | head -1)
+	evidence=$(tmux capture-pane -t "$tmux_name" -p -S -2000 | grep -E "🏁 resume|❌ resume" | head -1)
+	if [ -z "$evidence" ] && [ -n "$parent_session_file" ]; then
+		evidence=$(grep -F '"customType":"entwurf-complete"' "$parent_session_file" | tail -1)
+	fi
 	[ -z "$evidence" ] && evidence="(completion line missing in capture)"
 	if echo "$evidence" | grep -q "❌ resume"; then
 		record "$case_name" "FAIL" "followUp delivered with execution failure: $evidence"
@@ -256,7 +325,7 @@ case_a_for_backend() {
 
 case_d_direct_stdio_async() {
 	local case_name="D.direct_stdio_async_handler"
-	local pre target_sid tmux_name spawn_resp resume_resp spawn_task_id resume_text
+	local pre target_sid target_launch_sid tmux_name spawn_resp resume_resp spawn_session_id resume_text
 	local err_flag parsed_resume
 
 	# Spawn a disposable tmux pi session purely to provide a replyable
@@ -269,7 +338,8 @@ case_d_direct_stdio_async() {
 	tmux_name="smars-d-$$"
 	TMUX_SESSIONS+=("$tmux_name")
 	pre=$(snapshot_sockets)
-	tmux new -d -s "$tmux_name" -c "$PWD" "pi --entwurf-control --provider pi-shell-acp --model gpt-5.4" \
+	target_launch_sid=$(bash "$REPO/run.sh" new-session-id) || { record "$case_name" "FAIL" "new-session-id failed"; return; }
+	tmux new -d -s "$tmux_name" -c "$PWD" "pi --session-id $target_launch_sid --entwurf-control --provider pi-shell-acp --model gpt-5.4" \
 		|| { record "$case_name" "FAIL" "tmux new failed"; return; }
 	target_sid=$(wait_for_new_socket "$pre") || {
 		record "$case_name" "FAIL" "target session socket did not appear in ${BOOT_TIMEOUT}s"
@@ -288,21 +358,21 @@ case_d_direct_stdio_async() {
 	    PI_AGENT_ID="pi-shell-acp/smars-d" \
 	    timeout 90 "$BRIDGE" 2>/dev/null | grep '"id":2')
 
-	spawn_task_id=$(printf '%s' "$spawn_resp" | python3 -c '
+	spawn_session_id=$(printf '%s' "$spawn_resp" | python3 -c '
 import json, sys, re
 try:
   d=json.loads(sys.stdin.read())
   text=d["result"]["content"][0]["text"]
-  m=re.search(r"Task ID:\s*([a-f0-9]+)", text)
+  m=re.search(r"Session ID:\s*(\d{8}T\d{6}-[0-9a-f]{6})", text)
   print(m.group(1) if m else "")
 except Exception as e:
   print("", file=sys.stderr)' 2>/dev/null)
 
-	if [ -z "$spawn_task_id" ]; then
-		record "$case_name" "FAIL" "could not parse spawn taskId from spawn_resp"
+	if [ -z "$spawn_session_id" ]; then
+		record "$case_name" "FAIL" "could not parse spawn sessionId from spawn_resp"
 		return
 	fi
-	log "  [$case_name] spawned taskId=$spawn_task_id"
+	log "  [$case_name] spawned sessionId=$spawn_session_id"
 
 	# Step 2: stdio call entwurf_resume with mode='async', SAME env. The
 	# MCP handler resolves replyable=true, runs the async branch, delegates
@@ -310,7 +380,7 @@ except Exception as e:
 	resume_resp=$({
 		printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smars-d","version":"0"}}}'
 		printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-		printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_resume\",\"arguments\":{\"taskId\":\"$spawn_task_id\",\"prompt\":\"Reply RESUME_D only\",\"mode\":\"async\"}}}"
+		printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_resume\",\"arguments\":{\"sessionId\":\"$spawn_session_id\",\"prompt\":\"Reply RESUME_D only\",\"mode\":\"async\"}}}"
 		sleep 2
 	} | PI_SESSION_ID="$target_sid" \
 	    PI_AGENT_ID="pi-shell-acp/smars-d" \
@@ -351,7 +421,7 @@ case_b_external_reject() {
 	raw=$({
 		printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smars","version":"0"}}}'
 		printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-		printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"taskId":"deadbeef","prompt":"never runs","mode":"async"}}}'
+		printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"sessionId":"deadbeef","prompt":"never runs","mode":"async"}}}'
 		sleep 1
 	} | env -u PI_SESSION_ID -u PI_AGENT_ID timeout 15 "$BRIDGE" 2>/dev/null | grep '"id":2')
 
@@ -380,10 +450,10 @@ except Exception as e:
 
 # ─── Case C — external + mode omitted + valid stdio shape (smoke for
 #           the auto-sync fallback path's reachability; we don't run a
-#           full sync resume here since that needs a real taskId, but
+#           full sync resume here since that needs a real sessionId, but
 #           we verify the tool accepts the shape without erroring on
 #           mode and surfaces the expected "session not found" error
-#           on the missing taskId.) ──────────────────────────────────────
+#           on the missing sessionId.) ──────────────────────────────────────
 
 case_c_external_autosync_shape() {
 	local case_name="C.external_autosync_shape"
@@ -391,7 +461,7 @@ case_c_external_autosync_shape() {
 	raw=$({
 		printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smars","version":"0"}}}'
 		printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-		printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"taskId":"deadbeef","prompt":"smoke"}}}'
+		printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"entwurf_resume","arguments":{"sessionId":"deadbeef","prompt":"smoke"}}}'
 		sleep 1
 	} | env -u PI_SESSION_ID -u PI_AGENT_ID timeout 15 "$BRIDGE" 2>/dev/null | grep '"id":2')
 
@@ -410,7 +480,7 @@ except Exception as e:
 	evidence="${parsed#*|}"
 
 	# Auto-resolution picks sync for external, then runEntwurfResumeSync
-	# tries to find taskId=deadbeef and fails with "session not found" or
+	# tries to find sessionId=deadbeef and fails with "session not found" or
 	# similar. The point of this case is to confirm the auto-sync path is
 	# REACHED (no mode parameter rejection, no schema validation failure).
 	# Anything that mentions "deadbeef" or "session" or "not found" is

@@ -17,7 +17,7 @@ Publish-facing demo, referenced from the top-level `README.md` and
    information, and admits unknowns instead of fabricating.
 2. **Entwurf surface** — the same pane spawns a sibling via the
    `entwurf` tool (`mode=sync`, cross-model — driver `claude-sonnet-4-6`,
-   sibling `gpt-5.4`), prints the Task ID, and quotes the sibling's
+   sibling `gpt-5.4`), prints the Session ID, and quotes the sibling's
    one-line reply verbatim.
 
 Run from the repo root (or `demo/`):
@@ -151,7 +151,7 @@ would collide with the driver.
 ## Why pre-baked prompts
 
 Each scene's prompt asks the inner agent to discover state itself
-(`entwurf_peers`, prior Task ID from this conversation). So the driver
+(`entwurf_peers`, prior Session ID from this conversation). So the driver
 script types static strings only — no sessionId injection, no
 output parsing. That's what makes it reproducible.
 

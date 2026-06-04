@@ -29,7 +29,7 @@ or knob shapes.
 | # | What it proves | Mode |
 |---|---|---|
 | 02 | `session_before_compact` message honestly tells the operator: pi-side compact does **not** reduce the backend transcript, and points at the backend-native compaction path. | deterministic |
-| 03 | **Live**: Claude ACP session survives a backend `/compact`. Spawns a real ACP child via `runEntwurfSync`, plants a unique sentinel + asserts READY, sends literal `/compact` as a backend prompt, then asserts the sentinel survives a recall prompt. Same `taskId` across all three prompts. | LIVE=1 |
+| 03 | **Live**: Claude ACP session survives a backend `/compact`. Spawns a real ACP child via `runEntwurfSync`, plants a unique sentinel + asserts READY, sends literal `/compact` as a backend prompt, then asserts the sentinel survives a recall prompt. Same `sessionId` across all three prompts. | LIVE=1 |
 | 04 | **Live**: same 3-prompt driver against the Codex adapter, routed through pi-shell-acp ACP via `PI_ENTWURF_ACP_FOR_CODEX=1`. | LIVE=1 |
 | 05 | Legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` is rejected at spawn intent with a next-action message pointing at `PI_SHELL_ACP_ALLOW_PI_COMPACTION`. | deterministic |
 | 06 | **Live (exploratory)**: same 3-prompt driver against Gemini. Gemini ACP does not advertise `/compact`; the probe records the actual observation, not a release claim. | LIVE=1 |

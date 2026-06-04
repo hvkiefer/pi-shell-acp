@@ -29,7 +29,7 @@
  *               /compact — entwurf delivers the string as a normal
  *               user message into the ACP child),
  *           (c) send a recall prompt and assert the sentinel survives.
- *         The same `taskId` is used across (a)→(b)→(c), so reuse of the
+ *         The same `sessionId` is used across (a)→(b)→(c), so reuse of the
  *         persisted `pi:<sessionId>` → `acpSessionId` mapping is part of
  *         what is being verified.
  *
@@ -356,7 +356,7 @@ function classifyCompactResponse(text: string, sentinel: string): { signal: Comp
 /**
  * Live driver — survives-backend-compact probe for one ACP backend.
  *
- * Three prompts, same taskId throughout:
+ * Three prompts, same sessionId throughout:
  *   (a) plant a unique sentinel and ask for READY.
  *   (b) literal `/compact` as a backend prompt (entwurf sends this as
  *       a normal user message into the ACP child — pi-host slash-command
@@ -460,7 +460,7 @@ async function runLiveCompactSurvival(opts: {
 		const plantAnalysis = analyzeSessionFileLike(plant.sessionFile);
 		const plantText = plantAnalysis.lastAssistantText ?? "";
 		console.log(
-			`  (a) plant ok — taskId=${plant.taskId} turns=${plant.turns} reply=${plantText.slice(0, 80).replace(/\s+/g, " ")}…`,
+			`  (a) plant ok — sessionId=${plant.sessionId} turns=${plant.turns} reply=${plantText.slice(0, 80).replace(/\s+/g, " ")}…`,
 		);
 		if (!plantText) {
 			return { id, title, outcome: "fail", detail: "plant prompt returned no assistant text" };
@@ -473,7 +473,7 @@ async function runLiveCompactSurvival(opts: {
 		const plantLastUsed = plantUsageSamples.length > 0 ? plantUsageSamples[plantUsageSamples.length - 1]!.used : -1;
 
 		// (b) Literal /compact as a backend prompt.
-		const compact = await runEntwurfResumeSync(plant.taskId, "/compact", { host: "local" });
+		const compact = await runEntwurfResumeSync(plant.sessionId, "/compact", { host: "local" });
 		if (compact.exitCode !== 0) {
 			return {
 				id,
@@ -505,7 +505,7 @@ async function runLiveCompactSurvival(opts: {
 		// arrives as tool-output text rather than the sentinel echo;
 		// that would falsely fail the recall check.
 		const recall = await runEntwurfResumeSync(
-			plant.taskId,
+			plant.sessionId,
 			`Are you still in the same working session? No tool calls. No exploration. ` +
 				`Reply with the exact one-line: token=<value>, where <value> is the token I asked you to remember.`,
 			{ host: "local" },
@@ -539,7 +539,7 @@ async function runLiveCompactSurvival(opts: {
 				id,
 				title,
 				outcome: "pass",
-				detail: `compact evidence + sentinel "${sentinel}" recalled after /compact (taskId=${plant.taskId}); ${evidenceSummary}`,
+				detail: `compact evidence + sentinel "${sentinel}" recalled after /compact (sessionId=${plant.sessionId}); ${evidenceSummary}`,
 			};
 		}
 		if (hasCompactEvidence && !sentinelRecalled) {

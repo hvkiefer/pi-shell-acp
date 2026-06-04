@@ -35,9 +35,6 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
@@ -51,15 +48,19 @@ import {
 	ENTWURF_ENTRY_TYPE,
 	isProcessAlive,
 	makeBestEffortDeliverCompletion,
+	resolveSessionFileForInfo,
 	spawnEntwurfResumeAsync,
 } from "./lib/entwurf-async.js";
 import {
 	analyzeSessionFileLike,
-	cwdToSessionDir,
+	assertLocalOnlyEntwurf,
+	assertSessionIdAvailableForSpawn,
+	buildSessionName,
 	DEFAULT_ENTWURF_MODEL,
 	enrichTaskWithProjectContext,
 	ensureEntwurfOncePerTarget,
 	formatSyncSummary,
+	generateSessionId,
 	getRegistryRouting,
 	markEntwurfTargetUsed,
 	mirrorChildStderr,
@@ -74,6 +75,10 @@ function getParentSessionId(pi: ExtensionAPI): string {
 	return sm?.getSessionId?.() ?? "__no_session__";
 }
 
+// Currently unused: remote/SSH entwurf is fail-fast in 0.9.0 (garden-native
+// identity is local-FS only). Retained for #11 remote revival; parity-gated by
+// scripts/check-shell-quote.ts across entwurf.ts / entwurf-core.ts / entwurf-async.ts.
+// biome-ignore lint/correctness/noUnusedVariables: retained for #11 remote revival; parity-gated.
 function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -100,10 +105,11 @@ async function runEntwurfAsync(
 		provider?: string;
 		model?: string;
 	},
-): Promise<{ taskId: string; sessionFile: string; pid: number }> {
+): Promise<{ sessionId: string; pid: number }> {
 	const host = options.host ?? "local";
-	const isRemote = host !== "local";
-	const taskId = crypto.randomUUID().slice(0, 8);
+	// Scope lock (0.9.0 / NEXT.md Phase 3b): garden-native identity is local-FS
+	// only; remote/SSH spawn is parked under #11.
+	assertLocalOnlyEntwurf(host);
 	const cwd = options.cwd ?? process.cwd();
 	const enrichedTask = enrichTaskWithProjectContext(task, cwd);
 
@@ -114,12 +120,19 @@ async function runEntwurfAsync(
 	const target = resolveEntwurfTarget({ provider: options.provider, model: fallbackModel });
 	const effectiveModel = target.model;
 
-	const sessionDir = cwdToSessionDir(cwd);
-	fs.mkdirSync(sessionDir, { recursive: true });
-
-	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-	const sessionFile = path.join(sessionDir, `${timestamp}_entwurf-${taskId}.jsonl`);
-	const routing = getRegistryRouting(target, isRemote);
+	// Parent generates the durable sessionId before spawn (the detached child
+	// cannot self-report it back) and pre-checks for collision. The name is a
+	// display/search/integrity mirror — assembled only via buildSessionName.
+	const sessionId = generateSessionId();
+	assertSessionIdAvailableForSpawn(sessionId);
+	const sessionName = buildSessionName({
+		sessionId,
+		provider: target.provider,
+		model: target.model,
+		rawTitle: task.slice(0, 80),
+		tags: ["entwurf", "async"],
+	});
+	const routing = getRegistryRouting(target, false);
 
 	// --no-extensions: global extensions would hold the event loop and block
 	//                  `pi -p` from exiting after the task completes.
@@ -130,8 +143,10 @@ async function runEntwurfAsync(
 		"-p",
 		"--no-extensions",
 		...routing.args,
-		"--session",
-		sessionFile,
+		"--session-id",
+		sessionId,
+		"--name",
+		sessionName,
 		"--provider",
 		routing.provider,
 		"--model",
@@ -141,20 +156,8 @@ async function runEntwurfAsync(
 
 	const parentSessionId = process.env.PI_SESSION_ID;
 
-	let command: string;
-	let args: string[];
-	if (isRemote) {
-		command = "ssh";
-		const envPrefix = parentSessionId ? `PARENT_SESSION_ID=${shellQuote(parentSessionId)} ` : "";
-		const remoteCmd = `cd ${shellQuote(cwd)} && ${envPrefix}pi ${piArgs.map(shellQuote).join(" ")}`;
-		args = [host, remoteCmd];
-	} else {
-		command = "pi";
-		args = piArgs;
-	}
-
-	const proc = spawn(command, args, {
-		cwd: isRemote ? undefined : cwd,
+	const proc = spawn("pi", piArgs, {
+		cwd,
 		shell: false,
 		detached: true,
 		stdio: ["ignore", "ignore", "pipe"],
@@ -175,8 +178,9 @@ async function runEntwurfAsync(
 	const pid = proc.pid ?? 0;
 
 	const info: AsyncEntwurfInfo & { proc?: ChildProcess } = {
-		taskId,
-		sessionFile: isRemote ? `${host}:${sessionFile}` : sessionFile,
+		sessionId,
+		// Diagnostic only — resolved lazily by header scan once Pi writes it.
+		sessionFile: undefined,
 		pid,
 		host,
 		task,
@@ -188,17 +192,17 @@ async function runEntwurfAsync(
 		warnings: [...routing.warnings],
 		proc,
 	};
-	activeEntwurfs.set(taskId, info);
+	activeEntwurfs.set(sessionId, info);
 
 	pi.appendEntry(ENTWURF_ENTRY_TYPE, {
-		taskId,
-		sessionFile: info.sessionFile,
+		sessionId,
 		pid,
 		host,
 		task,
 		cwd,
 		model: effectiveModel,
 		startTime: info.startTime,
+		status: "running",
 		explicitExtensions: info.explicitExtensions,
 		warnings: info.warnings,
 	});
@@ -213,8 +217,8 @@ async function runEntwurfAsync(
 		info.status = code === 0 ? "completed" : "failed";
 		delete info.proc;
 
-		const localSessionFile = isRemote ? null : info.sessionFile;
-		if (localSessionFile && fs.existsSync(localSessionFile)) {
+		const localSessionFile = resolveSessionFileForInfo(info);
+		if (localSessionFile) {
 			const analysis = analyzeSessionFile(localSessionFile);
 			if (analysis.lastModel) info.model = analysis.lastModel;
 			info.stopReason = analysis.lastStopReason ?? undefined;
@@ -242,7 +246,7 @@ async function runEntwurfAsync(
 				{
 					customType: "entwurf-complete",
 					content: [
-						`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${taskId}\` ${info.status} (${host}, ${analysis.turns} turns, $${analysis.cost.toFixed(4)})`,
+						`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${sessionId}\` ${info.status} (${host}, ${analysis.turns} turns, $${analysis.cost.toFixed(4)})`,
 						meta || null,
 						summary,
 					]
@@ -250,45 +254,13 @@ async function runEntwurfAsync(
 						.join("\n\n"),
 					display: true,
 					details: {
-						taskId,
+						sessionId,
 						host,
 						status: info.status,
 						turns: analysis.turns,
 						cost: analysis.cost,
 						error: info.error,
 						stopReason: info.stopReason,
-						explicitExtensions: info.explicitExtensions,
-						warnings: info.warnings,
-					},
-				},
-				{ triggerTurn: true, deliverAs: "followUp" },
-			);
-		} else if (isRemote) {
-			// Remote async sessions live on the SSH host, so the caller cannot analyze
-			// the JSONL directly. Completion must still be delivered; stderr is a
-			// diagnostic stream, not by itself a failure signal. The process exit code
-			// remains the transport-level authority here.
-			info.status = info.exitCode === 0 ? "completed" : "failed";
-			info.error = info.exitCode === 0 ? undefined : stderr.slice(0, 500) || `exit code ${info.exitCode}`;
-			info.output = info.error ?? `Remote session: ${info.sessionFile}`;
-			const stderrNote = stderr ? `stderr:\n${stderr.slice(0, 1000)}` : null;
-			pi.sendMessage(
-				{
-					customType: "entwurf-complete",
-					content: [
-						`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${taskId}\` ${info.status} (${host}, remote)`,
-						`Session: ${info.sessionFile}`,
-						stderrNote,
-					]
-						.filter(Boolean)
-						.join("\n\n"),
-					display: true,
-					details: {
-						taskId,
-						host,
-						status: info.status,
-						exitCode: info.exitCode,
-						error: info.error,
 						explicitExtensions: info.explicitExtensions,
 						warnings: info.warnings,
 					},
@@ -302,10 +274,10 @@ async function runEntwurfAsync(
 			pi.sendMessage(
 				{
 					customType: "entwurf-complete",
-					content: `❌ entwurf \`${taskId}\` failed (${host}, no session file): ${info.error}`,
+					content: `❌ entwurf \`${sessionId}\` failed (${host}, no session file): ${info.error}`,
 					display: true,
 					details: {
-						taskId,
+						sessionId,
 						host,
 						status: "failed",
 						exitCode: info.exitCode,
@@ -325,7 +297,7 @@ async function runEntwurfAsync(
 		delete info.proc;
 	});
 
-	return { taskId, sessionFile: info.sessionFile, pid };
+	return { sessionId, pid };
 }
 
 // ============================================================================
@@ -338,13 +310,13 @@ export default function (pi: ExtensionAPI) {
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type === "custom" && (entry as { customType?: string }).customType === ENTWURF_ENTRY_TYPE) {
 				const data = (entry as { data?: AsyncEntwurfInfo }).data;
-				if (!data?.taskId) continue;
+				if (!data?.sessionId) continue;
 
-				if (activeEntwurfs.has(data.taskId)) continue;
+				if (activeEntwurfs.has(data.sessionId)) continue;
 
 				const alive = data.pid > 0 && isProcessAlive(data.pid);
 
-				activeEntwurfs.set(data.taskId, {
+				activeEntwurfs.set(data.sessionId, {
 					...data,
 					status: alive ? "running" : "completed",
 				});
@@ -358,7 +330,7 @@ export default function (pi: ExtensionAPI) {
 	// registerTool generic inference. Extraction flattens one recursion level.
 	const entwurfModeSchema = Type.Union([Type.Literal("sync"), Type.Literal("async")], {
 		description:
-			"async (default since 0.7.0): spawn and return immediately with taskId; the parent turn is not blocked. sync: wait for completion and block the parent turn — opt in only for short status checks (<5s).",
+			"async (default since 0.7.0): spawn and return immediately with a Session ID; the parent turn is not blocked. sync: wait for completion and block the parent turn — opt in only for short status checks (<5s).",
 		default: "async",
 	});
 	const entwurfParameters = Type.Object({
@@ -406,12 +378,12 @@ export default function (pi: ExtensionAPI) {
 		name: "entwurf",
 		label: "Entwurf",
 		description:
-			"Entwurf a task to an independent agent process. Spawns a separate pi instance (local or remote via SSH) and returns the result. Use when a task needs isolated execution or should run on a different machine.\n\nModes:\n- async (default): Spawn and return immediately with a Task ID — the parent turn is not blocked. Get notified on completion. Use entwurf_status to check progress. Suitable for review, research, build, anything that takes more than a few seconds.\n- sync: Wait for completion, return result. Blocks the parent turn until the child finishes — use only for short status checks (<5s).",
-		promptSnippet: "Spawn independent agent for isolated task execution (local or SSH remote)",
+			"Entwurf a task to an independent agent process. Spawns a separate local pi instance and returns the result. Use when a task needs isolated execution.\n\nModes:\n- async (default): Spawn and return immediately with a Session ID — the parent turn is not blocked. Get notified on completion. Use entwurf_status to check progress. Suitable for review, research, build, anything that takes more than a few seconds.\n- sync: Wait for completion, return result. Blocks the parent turn until the child finishes — use only for short status checks (<5s).\n\nLocal only: remote/SSH entwurf is out of scope in the garden-native session identity (0.9.0, #11) and fails fast.",
+		promptSnippet: "Spawn independent local agent for isolated task execution",
 		promptGuidelines: [
-			"Use entwurf for tasks that should run in isolation — different cwd, different machine, or resource-intensive work.",
-			"For SSH remote: set host to SSH config name (e.g., 'gpu1i'). The remote must have pi installed.",
-			"mode='async' (default): Spawn and return immediately. Get notified on completion. Use entwurf_status to check progress. Default since 0.7.0 because review/research/build calls dominate spawn usage and blocking the parent turn for >30s reads as 'stuck' to the operator.",
+			"Use entwurf for tasks that should run in isolation — different cwd or resource-intensive work.",
+			"Local only: a non-'local' host fails fast (remote/SSH garden-native identity is parked under #11).",
+			"mode='async' (default): Spawn and return immediately with a Session ID. Get notified on completion. Use entwurf_status to check progress. Default since 0.7.0 because review/research/build calls dominate spawn usage and blocking the parent turn for >30s reads as 'stuck' to the operator.",
 			"Spawn routing comes from the Entwurf Target Registry (~/.pi/agent/entwurf-targets.json). Caller passes provider+model (or qualified 'provider/model'); unregistered tuples are refused with a list of allowed targets. Default when omitted: openai-codex/gpt-5.4.",
 			"Bare model auto-resolves only when the registry has exactly one non-explicitOnly match. Example: 'gpt-5.4' resolves to native openai-codex; for ACP gpt-5.4, pass provider='pi-shell-acp' explicitly.",
 			"mode='sync': Wait for completion, return result. Blocks the parent turn — opt in only for short status checks (<5s) or one-line queries where blocking is acceptable.",
@@ -456,18 +428,17 @@ export default function (pi: ExtensionAPI) {
 							type: "text",
 							text: [
 								`🚀 Async entwurf spawned`,
-								`Task ID: ${result.taskId}`,
-								`Session: ${result.sessionFile}`,
+								`Session ID: ${result.sessionId}`,
 								`PID: ${result.pid}`,
 								`Host: ${params.host ?? "local"}`,
 								"",
 								"Use entwurf_status to check progress. You'll be notified on completion.",
+								"Resume later with entwurf_resume using this Session ID.",
 							].join("\n"),
 						},
 					],
 					details: {
-						taskId: result.taskId,
-						sessionFile: result.sessionFile,
+						sessionId: result.sessionId,
 						pid: result.pid,
 						host: params.host ?? "local",
 						mode: "async",
@@ -514,6 +485,7 @@ export default function (pi: ExtensionAPI) {
 					turns: result.turns,
 					cost: result.cost,
 					model: result.model,
+					sessionId: result.sessionId,
 					sessionFile: result.sessionFile,
 					error: result.error,
 					stopReason: result.stopReason,
@@ -529,29 +501,29 @@ export default function (pi: ExtensionAPI) {
 		name: "entwurf_status",
 		label: "Entwurf Status",
 		description:
-			"Check status of async entwurf tasks. Without taskId, lists all tracked entwurfs. With taskId, shows detailed status including last message.",
+			"Check status of async entwurf tasks. Without sessionId, lists all tracked entwurfs. With sessionId, shows detailed status including last message.",
 		parameters: Type.Object({
-			taskId: Type.Optional(Type.String({ description: "Specific entwurf task ID. Omit to list all." })),
+			sessionId: Type.Optional(Type.String({ description: "Specific entwurf Session ID. Omit to list all." })),
 		}),
 
 		async execute(
 			_toolCallId: string,
-			params: { taskId?: string },
+			params: { sessionId?: string },
 			_signal: AbortSignal | undefined,
 			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			_ctx: ExtensionContext,
 		): Promise<AgentToolResult<unknown>> {
-			if (params.taskId) {
-				const info = activeEntwurfs.get(params.taskId);
+			if (params.sessionId) {
+				const info = activeEntwurfs.get(params.sessionId);
 				if (!info) {
-					// Fail-fast under pi 0.70: explicit unknown taskId is a caller
+					// Fail-fast under pi 0.70: explicit unknown sessionId is a caller
 					// mistake (or a stale reference). Throw rather than return a
 					// content-only "not found" message that the model might paper over.
 					throw new Error(
-						`Unknown entwurf task: ${params.taskId}. ` +
-							`The taskId is not tracked by this session — it may belong to a different pi session, ` +
+						`Unknown entwurf session: ${params.sessionId}. ` +
+							`The sessionId is not tracked by this session — it may belong to a different pi session, ` +
 							`have completed and been cleaned up, or never existed. ` +
-							`Call entwurf_status without taskId to list active entwurfs.`,
+							`Call entwurf_status without sessionId to list active entwurfs.`,
 					);
 				}
 
@@ -562,8 +534,9 @@ export default function (pi: ExtensionAPI) {
 
 				let lastMessage: string | null = null;
 				let stats = { turns: 0, cost: 0 };
-				if (info.host === "local" && fs.existsSync(info.sessionFile)) {
-					const analysis = analyzeSessionFile(info.sessionFile);
+				const sessionFile = resolveSessionFileForInfo(info);
+				if (sessionFile) {
+					const analysis = analyzeSessionFile(sessionFile);
 					lastMessage = analysis.lastAssistantText;
 					stats = { turns: analysis.turns, cost: analysis.cost };
 					if (analysis.lastModel) info.model = analysis.lastModel;
@@ -583,13 +556,14 @@ export default function (pi: ExtensionAPI) {
 						{
 							type: "text",
 							text: [
-								`Task: ${info.taskId}`,
+								`Session: ${info.sessionId}`,
+								info.runId ? `Run: ${info.runId}` : null,
 								`Status: ${info.status}`,
 								`Host: ${info.host}`,
 								`Elapsed: ${elapsed}s`,
 								`Turns: ${stats.turns}`,
 								`Cost: $${stats.cost.toFixed(4)}`,
-								`Session: ${info.sessionFile}`,
+								sessionFile ? `File: ${sessionFile}` : null,
 								info.model ? `Model: ${info.model}` : null,
 								info.exitCode !== undefined ? `Exit: ${info.exitCode}` : null,
 								info.stopReason ? `Stop reason: ${info.stopReason}` : null,
@@ -603,7 +577,8 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: {
-						taskId: info.taskId,
+						sessionId: info.sessionId,
+						runId: info.runId,
 						status: info.status,
 						host: info.host,
 						elapsed,
@@ -632,8 +607,9 @@ export default function (pi: ExtensionAPI) {
 				if (info.status === "running" && !alive) {
 					info.status = "completed";
 				}
-				if (info.host === "local" && fs.existsSync(info.sessionFile)) {
-					const analysis = analyzeSessionFile(info.sessionFile);
+				const sessionFile = resolveSessionFileForInfo(info);
+				if (sessionFile) {
+					const analysis = analyzeSessionFile(sessionFile);
 					if (analysis.lastModel) info.model = analysis.lastModel;
 					info.stopReason = analysis.lastStopReason ?? info.stopReason;
 					info.error = analysis.lastError ?? info.error;
@@ -665,9 +641,9 @@ export default function (pi: ExtensionAPI) {
 					"Usage: /entwurf [sync|async] [host:] task\n" +
 						"Examples:\n" +
 						"  /entwurf review NEXT.md            (async, default since 0.7.0)\n" +
-						"  /entwurf gpu1i: train model        (async, remote)\n" +
 						"  /entwurf sync git rev-parse HEAD   (sync, short status check)\n" +
-						"  /entwurf async build project       (async explicit — same as default)",
+						"  /entwurf async build project       (async explicit — same as default)\n" +
+						"  (local only — remote/SSH is parked under #11 and fails fast)",
 					"warning",
 				);
 				return;
@@ -703,7 +679,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`🚀 Async delegating to ${host}...`, "info");
 				const result = await runEntwurfAsync(pi, task, { host });
 				markEntwurfTargetUsed(guardSessionId, guardTargetKey);
-				ctx.ui.notify(`✅ Spawned: ${result.taskId} (pid ${result.pid})\nSession: ${result.sessionFile}`, "info");
+				ctx.ui.notify(`✅ Spawned: ${result.sessionId} (pid ${result.pid})`, "info");
 			} else {
 				ctx.ui.notify(`🚀 Delegating to ${host}...`, "info");
 				const result = await runEntwurfSync(task, { host });
@@ -740,7 +716,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Same TS2589 schema-vs-type-source rationale as EntwurfParams above.
 	type EntwurfResumeParams = {
-		taskId: string;
+		sessionId: string;
 		prompt: string;
 		host?: string;
 		mode?: "sync" | "async";
@@ -750,20 +726,20 @@ export default function (pi: ExtensionAPI) {
 		name: "entwurf_resume",
 		label: "Resume Entwurf",
 		description:
-			"Resume a completed entwurf session. Runs the entwurf's saved session with an additional prompt.\n\n" +
+			"Resume a saved entwurf session by Session ID. Appends an additional prompt to the SAME session (via pi --session-id) — it does not mint a new handle.\n\n" +
 			"Modes:\n" +
 			"- async (default since 0.7.x): spawn detached, deliver completion as followUp message to this session. The parent turn is not blocked. Long-running resume (review / research / build) is the dominant case — async matches that expectation and restores the pre-Phase-0.5 native pattern.\n" +
 			"- sync: wait for completion, return result inline. Blocks the parent turn — opt in only for short status-check resumes (<5s).\n\n" +
 			"Identity Preservation Rule: model is locked to the saved session — this tool does NOT accept a model override. " +
-			"host may change (a session can be resumed from a different machine). " +
-			"cwd does NOT change at will — cold resume uses the saved session header cwd as authority. " +
+			"cwd is bound to the saved session header cwd (the resume authority); `--session-id` resolves the file relative to it, so the wrong cwd would create a new session — the resume forces the child cwd to the header cwd. " +
 			"An explicit cwd override is a debug/migration escape hatch and may forfeit backend continuity (see #9). " +
 			"Model may not change. " +
-			"If the session has no recorded model the resume is refused rather than falling back to a default.",
+			"If the session has no recorded model the resume is refused rather than falling back to a default.\n\n" +
+			"Local only: remote/SSH resume is out of scope in the garden-native session identity (0.9.0, #11) and fails fast.",
 		parameters: Type.Object({
-			taskId: Type.String({ description: "Entwurf task ID to resume" }),
+			sessionId: Type.String({ description: "Entwurf Session ID to resume (YYYYMMDDTHHMMSS-xxxxxx)" }),
 			prompt: Type.String({ description: "Additional prompt to continue the work" }),
-			host: Type.Optional(Type.String({ description: "SSH host override (for remote entwurfs)" })),
+			host: Type.Optional(Type.String({ description: "Host (local only; non-'local' fails fast — #11)" })),
 			mode: Type.Optional(
 				Type.Union([Type.Literal("sync"), Type.Literal("async")], {
 					description:
@@ -793,10 +769,10 @@ export default function (pi: ExtensionAPI) {
 			// Sync branch — entwurf to core, return inline (mirrors the MCP bridge
 			// surface which uses runEntwurfResumeSync directly for sync resumes).
 			if (mode === "sync") {
-				const info = activeEntwurfs.get(params.taskId);
+				const info = activeEntwurfs.get(params.sessionId);
 				const syncHost = params.host ?? info?.host;
 				const syncCwd = info?.cwd;
-				const result = await runEntwurfResumeSync(params.taskId, params.prompt, {
+				const result = await runEntwurfResumeSync(params.sessionId, params.prompt, {
 					host: syncHost,
 					cwd: syncCwd,
 					signal: signal ?? undefined,
@@ -816,7 +792,7 @@ export default function (pi: ExtensionAPI) {
 					const reason = result.error ? `: ${result.error}` : "";
 					throw new Error(
 						`entwurf_resume sync failed (exitCode=${result.exitCode}${reason}). ` +
-							`originalTaskId=${params.taskId} resumedTaskId=${result.taskId} ` +
+							`sessionId=${result.sessionId} ` +
 							`host=${result.host} model=${result.model} turns=${result.turns}.\n\n${summary}`,
 					);
 				}
@@ -831,8 +807,7 @@ export default function (pi: ExtensionAPI) {
 						cost: result.cost,
 						model: result.model,
 						sessionFile: result.sessionFile,
-						taskId: result.taskId,
-						originalTaskId: params.taskId,
+						sessionId: result.sessionId,
 						error: result.error,
 						stopReason: result.stopReason,
 						explicitExtensions: result.explicitExtensions,
@@ -848,7 +823,7 @@ export default function (pi: ExtensionAPI) {
 			// which surface spawned it. ExtensionAPI touchpoints (entry append +
 			// completion delivery) are wired through callbacks at this callsite.
 			const ack = await spawnEntwurfResumeAsync(
-				{ taskId: params.taskId, prompt: params.prompt, host: params.host },
+				{ sessionId: params.sessionId, prompt: params.prompt, host: params.host },
 				{
 					appendActiveEntry: (data) => pi.appendEntry(ENTWURF_ENTRY_TYPE, data),
 					// Best-effort: if the parent ctx went stale before this async completion
@@ -880,8 +855,9 @@ export default function (pi: ExtensionAPI) {
 				if (info.status === "running" && !alive) {
 					info.status = "completed";
 				}
-				if (info.host === "local" && fs.existsSync(info.sessionFile)) {
-					const analysis = analyzeSessionFile(info.sessionFile);
+				const sessionFile = resolveSessionFileForInfo(info);
+				if (sessionFile) {
+					const analysis = analyzeSessionFile(sessionFile);
 					if (analysis.lastModel) info.model = analysis.lastModel;
 					info.stopReason = analysis.lastStopReason ?? info.stopReason;
 					info.error = analysis.lastError ?? info.error;

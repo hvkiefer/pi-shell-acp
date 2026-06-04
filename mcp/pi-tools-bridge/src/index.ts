@@ -14,7 +14,7 @@
  *   - entwurf_peers   — active pi control sockets only (see control.ts getLiveSessions)
  *   - entwurf_self    — own session identity envelope (sessionId, agentId, cwd, timestamp)
  *   - entwurf         → pi-extensions/lib/entwurf-core (sync mode only on the MCP surface)
- *   - entwurf_resume  — saved entwurf session revival by taskId; conditional-default
+ *   - entwurf_resume  — saved entwurf session revival by sessionId; conditional-default
  *                       mode since 0.7.6: replyable pi-session callers (PI_SESSION_ID +
  *                       PI_AGENT_ID present) default to async via `spawn_async_resume`
  *                       control RPC delegation; external non-replyable MCP hosts default
@@ -30,7 +30,7 @@
  *
  * Still deferred to a separate design round (NOT closed by 0.7.6):
  *   - entwurf spawn + mode=async — same followUp-channel question as resume had,
- *     but spawn has no taskId continuity yet (the saved-session-after-spawn pattern
+ *     but spawn has no sessionId continuity yet (the saved-session-after-spawn pattern
  *     differs from saved-session-revival). Resume async on MCP was the higher-
  *     pressure UX path; spawn async on MCP can be evaluated after resume async
  *     settles in use.
@@ -432,7 +432,7 @@ server.tool(
 		"Pair with entwurf_send to address a specific peer. " +
 		"Note: this is the *active* session world. It is NOT the way to discover saved entwurf " +
 		"sessions — those live as JSONL files under ~/.pi/agent/sessions and are addressed by " +
-		"taskId via entwurf_resume; their original processes may already have exited.",
+		"sessionId via entwurf_resume; their original processes may already have exited.",
 	{},
 	async () => {
 		try {
@@ -459,9 +459,9 @@ server.tool(
 	"entwurf",
 	"Entwurf a task to an independent pi agent process (sync mode). " +
 		"Spawns a fresh pi -p run, waits for completion, returns stdout + turns + cost. Use for " +
-		"isolated work (different cwd, different machine via SSH, or resource-intensive jobs) " +
-		"where you want the result inline. " +
-		"The result includes a Task ID — pass it to entwurf_resume to continue this entwurf's " +
+		"isolated work (different cwd or resource-intensive jobs) " +
+		"where you want the result inline. Local only — remote/SSH is out of scope (#11) and fails fast. " +
+		"The result includes a Session ID — pass it to entwurf_resume to continue this entwurf's " +
 		"saved session with a follow-up prompt. " +
 		"Entwurf Target Registry (narrow door, see pi-shell-acp/AGENTS.md §Entwurf Orchestration): every spawn must " +
 		"resolve to an exact (provider, model) pair listed in ~/.pi/agent/entwurf-targets.json. " +
@@ -476,7 +476,7 @@ server.tool(
 		`Default model when omitted: ${DEFAULT_ENTWURF_MODEL}.`,
 	{
 		task: z.string().min(1).describe("The task to entwurf (plain text prompt)"),
-		host: z.string().min(1).optional().describe("SSH host name (omit or 'local' for local)"),
+		host: z.string().min(1).optional().describe("Host (local only; non-'local' fails fast — #11)"),
 		cwd: z.string().min(1).optional().describe("Working directory for the entwurf"),
 		provider: z
 			.string()
@@ -513,22 +513,23 @@ server.tool(
 
 server.tool(
 	"entwurf_resume",
-	"Resume a saved entwurf session by taskId, with a follow-up prompt. " +
-		"The taskId comes from a prior entwurf call's output (look for 'Task ID: <id>' in the " +
-		"summary). The bridge looks up the saved session JSONL under ~/.pi/agent/sessions and " +
-		"spawns `pi --session <file>` with the new prompt; pi appends to the same file. " +
-		"Important: this works on the saved session file. The original entwurf process may have " +
+	"Resume a saved entwurf session by Session ID, with a follow-up prompt. " +
+		"The Session ID comes from a prior entwurf call's output (look for 'Session ID: <id>' in the " +
+		"summary). The bridge resolves the saved session JSONL under ~/.pi/agent/sessions by header " +
+		"scan and spawns `pi --session-id <id>` with the new prompt; pi appends to the same session. " +
+		"Important: this works on the saved session. The original entwurf process may have " +
 		"exited and is NOT required to be alive — entwurf_resume does NOT consult control sockets " +
 		"or entwurf_peers when running sync. The two surfaces are separate by design (active " +
 		"sessions vs saved entwurf sessions). " +
+		"Local only: remote/SSH resume is out of scope in the garden-native session identity (#11) and fails fast. " +
 		"Routing on resume comes entirely from the saved session JSONL (provider + model " +
 		"as recorded). The Entwurf Target Registry that gates spawn is NOT consulted here. " +
 		"Identity Preservation Rule: this tool intentionally does NOT accept a `model` " +
 		"parameter. The model is locked to whatever the saved session recorded at first " +
 		"spawn — resuming under a different model is treated as splicing a new identity " +
-		"onto someone else's transcript and is refused at the API layer. host may change " +
-		"(a session can be resumed from a different machine). cwd does NOT change at will — " +
-		"cold resume uses the saved session header cwd as authority. An explicit cwd " +
+		"onto someone else's transcript and is refused at the API layer. cwd is bound to the " +
+		"saved session header cwd — `--session-id` resolves the file relative to it, so the resume " +
+		"forces the child cwd to the header cwd (the wrong cwd would create a new session). An explicit cwd " +
 		"override is a debug/migration escape hatch and may forfeit backend continuity " +
 		"(see pi-shell-acp#9). Model may not. " +
 		"`mode` follows the asymmetric-mitsein discriminator: when omitted, this MCP child " +
@@ -542,17 +543,13 @@ server.tool(
 		"`spawn_async_resume` RPC, so completion lands as a followUp message in the same " +
 		"session — preserves the `this bridge is not a second harness` invariant.",
 	{
-		taskId: z.string().min(1).describe("Task ID from a prior entwurf result (e.g. '3f9a8c1b')"),
+		sessionId: z.string().min(1).describe("Session ID from a prior entwurf result (e.g. '20260603T191245-a3f09c')"),
 		prompt: z.string().min(1).describe("Follow-up prompt to send into the resumed session"),
 		host: z
 			.string()
 			.min(1)
 			.optional()
-			.describe(
-				"SSH host name if the original entwurf ran remote (default: 'local'). " +
-					"NOTE: remote SSH path is implemented but not yet end-to-end verified — " +
-					"use with care until the remote rollout phase.",
-			),
+			.describe("Host (local only; non-'local' fails fast — remote/SSH resume is parked under #11)."),
 		cwd: z
 			.string()
 			.min(1)
@@ -574,7 +571,7 @@ server.tool(
 					"a replyable caller; external hosts get reject.",
 			),
 	},
-	async ({ taskId, prompt, host, cwd, mode }) => {
+	async ({ sessionId, prompt, host, cwd, mode }) => {
 		try {
 			// Phase B Step 3 — asymmetric-mitsein discriminator. The mode
 			// resolution is in `resolveEntwurfResumeMode` so the deterministic
@@ -597,20 +594,22 @@ server.tool(
 				const sock = await resolveControlSocket(sender.sessionId);
 				const resp = await rpcCall(sock, {
 					type: "spawn_async_resume",
-					taskId,
+					sessionId,
 					prompt,
 					host,
 				});
 				if (!resp.success) {
 					return textErr(`entwurf_resume async error: ${resp.error ?? "unknown"}`);
 				}
-				const data = (resp.data as { text?: string; taskId?: string; pid?: number; sessionFile?: string }) ?? {};
+				const data =
+					(resp.data as { text?: string; sessionId?: string; runId?: string; pid?: number; sessionFile?: string }) ??
+					{};
 				const ackText =
 					data.text ??
 					[
 						"🔄 Resume spawned (async, via MCP → control RPC)",
-						`Resume ID: ${data.taskId ?? "(unknown)"}`,
-						`Original: ${taskId}`,
+						`Session ID: ${data.sessionId ?? sessionId}`,
+						`Run: ${data.runId ?? "(unknown)"}`,
 						`Session: ${data.sessionFile ?? "(unknown)"}`,
 						`PID: ${data.pid ?? "(unknown)"}`,
 						"",
@@ -619,8 +618,8 @@ server.tool(
 				return textOk(ackText);
 			}
 
-			// Sync branch — unchanged. Direct call to the existing sync core.
-			const result = await runEntwurfResumeSync(taskId, prompt, { host, cwd });
+			// Sync branch — direct call to the existing sync core.
+			const result = await runEntwurfResumeSync(sessionId, prompt, { host, cwd });
 			const text = formatSyncSummary(result);
 			return result.exitCode === 0 ? textOk(text) : textErr(text);
 		} catch (err) {

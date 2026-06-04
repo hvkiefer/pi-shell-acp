@@ -40,10 +40,10 @@
  * the AI to communicate with other pi sessions programmatically.
  *
  * Usage:
- *   pi --entwurf-control
+ *   pi --session-id <garden-id> --entwurf-control
  *
  * One-shot startup send:
- *   pi -p --entwurf-control --entwurf-session <session-id> --entwurf-send-message <text>
+ *   pi -p --session-id <garden-id> --entwurf-control --entwurf-session <session-id> --entwurf-send-message <text>
  *     [--entwurf-send-mode steer|follow_up] [--entwurf-send-include-sender-info]
  *   (startup send is fire-and-forget; the legacy --entwurf-send-wait turn_end
  *    flag is refused at startup with an error report — the pi session itself
@@ -68,7 +68,7 @@
  *   - { type: "get_info" }
  *   - { type: "clear", summarize?: boolean }
  *   - { type: "abort" }
- *   - { type: "spawn_async_resume", taskId: "...", prompt: "...", host?: "..." }
+ *   - { type: "spawn_async_resume", sessionId: "...", prompt: "...", host?: "..." }
  *     — Phase B Step 2 of the async-resume regression repair. Calls the
  *     `spawnEntwurfResumeAsync` launcher (from lib/entwurf-async.ts) with the
  *     control extension's own pi ExtensionAPI, so completion lands in the
@@ -82,7 +82,7 @@
  *    Send-is-throw cleanup; see note above.)
  */
 
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -104,6 +104,14 @@ import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { ENTWURF_SENT_MESSAGE_TYPE } from "../protocol.js";
 import { ENTWURF_ENTRY_TYPE, makeBestEffortDeliverCompletion, spawnEntwurfResumeAsync } from "./lib/entwurf-async.js";
+import {
+	assertGardenNativeSessionId,
+	buildGardenSessionName,
+	computeResidentStatusLabel,
+	isValidSessionId,
+	parseSessionName,
+	RESIDENT_SESSION_TAG,
+} from "./lib/entwurf-core.js";
 
 const ENTWURF_FLAG = "entwurf-control";
 const ENTWURF_SESSION_FLAG = "entwurf-session";
@@ -190,7 +198,7 @@ interface RpcGetInfoCommand {
 
 interface RpcSpawnAsyncResumeCommand {
 	type: "spawn_async_resume";
-	taskId: string;
+	sessionId: string;
 	prompt: string;
 	host?: string;
 	id?: string;
@@ -975,10 +983,10 @@ async function handleCommand(
 	// second harness" invariant: the launcher stays in one place; both
 	// surfaces (native tool + MCP-via-RPC) reach the same code path.
 	if (command.type === "spawn_async_resume") {
-		const taskId = command.taskId;
+		const sessionId = command.sessionId;
 		const prompt = command.prompt;
-		if (typeof taskId !== "string" || taskId.trim().length === 0) {
-			respond(false, "spawn_async_resume", undefined, "Missing taskId");
+		if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+			respond(false, "spawn_async_resume", undefined, "Missing sessionId");
 			return;
 		}
 		if (typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -987,7 +995,7 @@ async function handleCommand(
 		}
 		try {
 			const ack = await spawnEntwurfResumeAsync(
-				{ taskId, prompt, host: command.host },
+				{ sessionId, prompt, host: command.host },
 				{
 					appendActiveEntry: (data) => pi.appendEntry(ENTWURF_ENTRY_TYPE, data),
 					// Best-effort: the RPC-driven async resume (ACP parents) delivers its
@@ -1000,8 +1008,8 @@ async function handleCommand(
 				},
 			);
 			respond(true, "spawn_async_resume", {
-				taskId: ack.details.taskId,
-				originalTaskId: ack.details.originalTaskId,
+				sessionId: ack.details.sessionId,
+				runId: ack.details.runId,
 				sessionFile: ack.details.sessionFile,
 				pid: ack.details.pid,
 				text: ack.text,
@@ -1215,8 +1223,61 @@ function updateStatus(ctx: ExtensionContext | null, enabled: boolean): void {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		return;
 	}
+	// Screwdriver (🪛) label, NOT the word "entwurf" — the status label is a UI
+	// affordance for the resident session and must not be confused with the
+	// `entwurf` session-name tag (the entwurf_resume marker). The garden id shows
+	// only once the session file exists (= first assistant turn = model locked);
+	// before that it reads `🪛 ready` (model still changeable). See
+	// computeResidentStatusLabel.
 	const sessionId = ctx.sessionManager.getSessionId();
-	ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", `entwurf ${sessionId}`));
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	const sessionFileExists = !!sessionFile && existsSync(sessionFile);
+	ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", computeResidentStatusLabel({ sessionId, sessionFileExists })));
+}
+
+/**
+ * Set the resident session's garden name ONCE, on the first turn that has
+ * written the session file. Spawn-only-name rule: a session already carrying a
+ * canonical garden name (resume) is left untouched. The name uses the live
+ * `ctx.model` (registry-free via buildGardenSessionName) with the `control` tag
+ * — never `entwurf`, so the resident session is not resumable as an Entwurf
+ * child. Title slug is the cwd basename (home → `home`); a Korean first message
+ * would ASCII-slugify to `untitled`, so cwd is the stable choice.
+ */
+function maybeSetResidentName(pi: ExtensionAPI, ctx: ExtensionContext): void {
+	const sessionId = ctx.sessionManager.getSessionId();
+	if (!isValidSessionId(sessionId)) return; // non-garden id is handled (shutdown) by the guard
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	if (!sessionFile || !existsSync(sessionFile)) return; // file not written yet (pre first assistant turn)
+	const existing = ctx.sessionManager.getSessionName();
+	const parsedExisting = existing ? parseSessionName(existing) : null;
+	if (parsedExisting) {
+		// A resident session must never carry the `entwurf` tag: that tag is the
+		// entwurf_resume marker. Also refuse a canonical name whose id mirror
+		// disagrees with the header id. These are invariant breaches, not cosmetic
+		// naming choices.
+		if (parsedExisting.sessionId !== sessionId || parsedExisting.tags.includes("entwurf")) {
+			process.stderr.write(`[entwurf-control] corrupt resident session name: ${existing}\n`);
+			process.exit(1);
+		}
+		return; // already garden-named (resume) — do not re-set
+	}
+	const provider = ctx.model?.provider;
+	const model = ctx.model?.id;
+	if (!provider || !model) return; // model not resolved yet — a later turn will catch it
+	const cwd = ctx.cwd || process.cwd();
+	const cwdSlug = cwd === os.homedir() ? "home" : path.basename(cwd) || "home";
+	try {
+		pi.setSessionName(
+			buildGardenSessionName({ sessionId, provider, model, rawTitle: cwdSlug, tags: [RESIDENT_SESSION_TAG] }),
+		);
+	} catch (err) {
+		// Odd ctx.model chars (slash/`--`) would throw — log, never crash the
+		// resident session over a display name.
+		process.stderr.write(
+			`[entwurf-control] resident garden name not set: ${err instanceof Error ? err.message : String(err)}\n`,
+		);
+	}
 }
 
 function updateSessionEnv(ctx: ExtensionContext | null, enabled: boolean): void {
@@ -1309,9 +1370,37 @@ export default function (pi: ExtensionAPI) {
 			updateSessionEnv(ctx, false);
 			return;
 		}
+		// Garden-native enforcement (0.9.0): a resident --entwurf-control session
+		// MUST have a garden header id. pi assigns a uuidv7 when the launcher did
+		// not pass --session-id, which means this session was not born through the
+		// garden launcher. No back-compat path. A bare throw in this session_start
+		// handler is swallowed by the extension runner (runner.ts try/catch →
+		// emitError), so escalate explicitly: refuse the control server, do not
+		// leak a uuid into PI_SESSION_ID, loud-notify, and shut pi down.
+		const sessionId = ctx.sessionManager.getSessionId();
+		try {
+			assertGardenNativeSessionId(sessionId);
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			// stderr ALWAYS: process.exit truncates TUI rendering, so this is the
+			// durable record of why the session refused to start.
+			process.stderr.write(`[entwurf-control] ${reason}\n`);
+			if (ctx.hasUI) ctx.ui.notify(`🪛 ${reason}`, "error");
+			// ctx.shutdown() alone does NOT stop the in-flight startup — verified
+			// live: the model turn still ran (26k tokens) after a session_start
+			// guard that only called shutdown. Hard-exit so a non-garden
+			// --entwurf-control session cannot proceed at all: no turn, no socket
+			// (the guard returns before startControlServer), no PI_SESSION_ID leak.
+			// "보이면 바로 터진다." The guard runs before agent_start, so exiting
+			// here means the model is never invoked.
+			process.exit(1);
+		}
 		await startControlServer(pi, state, ctx);
 		updateStatus(ctx, true);
 		updateSessionEnv(ctx, true);
+		// On a warm start (reload/resume) the file may already exist — set the
+		// garden name now; on a fresh start it's a no-op until the first turn_end.
+		maybeSetResidentName(pi, ctx);
 	};
 
 	// session_start is the unified post-event for the whole session lifecycle
@@ -1336,9 +1425,17 @@ export default function (pi: ExtensionAPI) {
 		await stopControlServer(state);
 	});
 
-	// No turn_end subscription / event channel. Send-is-throw: the send RPC ack
-	// is the entire delivery contract. See Send-is-throw note in the header
-	// docblock and AGENTS.md.
+	// turn_end is subscribed ONLY for the resident-session garden lifecycle (0.9.0):
+	// the first assistant turn writes the session file, which (a) flips the status
+	// label from `🪛 ready` to `🪛 <gardenId>` (file-exists = model-locked signal)
+	// and (b) is when the now-locked model lets us set the resident garden name.
+	// This is NOT a send/delivery channel — send-is-throw still holds (the send RPC
+	// ack remains the entire delivery contract); this handler never sends.
+	pi.on("turn_end", async (_event, ctx) => {
+		if (pi.getFlag(ENTWURF_FLAG) !== true) return;
+		maybeSetResidentName(pi, ctx);
+		updateStatus(ctx, true);
+	});
 }
 
 // ============================================================================
