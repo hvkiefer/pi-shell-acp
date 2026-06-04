@@ -1376,9 +1376,13 @@ export default function (pi: ExtensionAPI) {
 	// guard and hard-exits the WHOLE pi process — a terrible UX for a routine
 	// /new. So cancel the mint at the pre-event and point at the garden launcher.
 	const refuseInProcessMint = (ctx: ExtensionContext, what: string, why: string) => {
+		// Lead with the remedy: a TUI notify can truncate a long line, so the
+		// actionable alternative (/gnew) must come BEFORE the technical why and the
+		// shell-launcher fallback — otherwise a blocked /new looks like a dead end.
 		const msg =
-			`[entwurf-control] ${what} is blocked under --entwurf-control — ${why} ` +
+			`[entwurf-control] ${what} is blocked under --entwurf-control. ` +
 			`Use /gnew (or /garden-new) for a same-terminal fresh garden session. ` +
+			`(${why}) ` +
 			`To launch/resume from a shell, use the garden launcher (pia / pit / pihome — they pass --session-id), ` +
 			`or run pi --session-id "$(run.sh new-session-id)" --entwurf-control ...`;
 		// stderr ALWAYS — the durable record even if the TUI swallows the notify.
