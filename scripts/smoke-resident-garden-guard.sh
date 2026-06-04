@@ -93,6 +93,58 @@ else
 	ok "no uuid session file written"
 fi
 
+# ─── REPLACEMENT — in-process new/clone must be CANCELLED, not hard-exit ─────
+# Under --entwurf-control, /new and /fork|/clone mint a non-garden uuid in-process
+# (no --session-id reaches an in-process switch, and the pre-switch hook result
+# carries only { cancel } — it cannot inject a garden id). Before 0.9.0's pre-event
+# guard these reached the session_start hard guard and process.exit(1) the WHOLE
+# pi process — a routine /new killed the session. Now session_before_switch /
+# session_before_fork cancel the mint: the session survives on its garden id at
+# zero tokens. (GPT zero-token RPC repro, 2026-06-04.)
+echo "[smoke-resident-garden-guard] REPLACEMENT: in-process new/clone cancelled (RPC, 0 tokens)"
+rep_sid=$(bash "$REPO/run.sh" new-session-id)
+rep_err=$(mktemp)
+rep_out=$(printf '%s\n' '{"type":"get_state"}' '{"type":"new_session"}' '{"type":"clone"}' '{"type":"get_state"}' |
+	timeout "$TIMEOUT" pi --session-id "$rep_sid" --entwurf-control --provider "$PROVIDER" \
+		--model "$MODEL" --mode rpc 2>"$rep_err") || true
+
+if printf '%s\n' "$rep_out" | grep -q '"command":"new_session","success":true,"data":{"cancelled":true}'; then
+	ok "/new (new_session) cancelled in-process"
+else
+	bad "/new was NOT cancelled — in-process uuid mint reached the hard guard"
+fi
+
+if printf '%s\n' "$rep_out" | grep -q '"command":"clone","success":true,"data":{"cancelled":true}'; then
+	ok "/clone (fork) cancelled in-process"
+else
+	bad "/clone was NOT cancelled — fork mint reached the hard guard"
+fi
+
+# Both get_state calls must report the original garden id (process survived, the
+# session was never replaced by a uuid).
+rep_ids=$(printf '%s\n' "$rep_out" | grep -o '"sessionId":"[^"]*"' | sort -u)
+if [ "$rep_ids" = "\"sessionId\":\"$rep_sid\"" ]; then
+	ok "session stayed on the garden id ($rep_sid) — process survived, not replaced"
+else
+	bad "sessionId drifted from $rep_sid — got: ${rep_ids:-<none>}"
+fi
+
+# The hard guard's "Non-garden session id" must NOT appear — the pre-switch cancel
+# caught it first (our friendly "blocked under --entwurf-control" guidance is fine).
+if grep -q "Non-garden session id" "$rep_err"; then
+	bad "hard guard fired (Non-garden session id) — pre-switch cancel missed a path"
+else
+	ok "hard guard never fired (pre-switch cancel caught it; no process exit)"
+fi
+
+# No control socket may exist for any uuid (the cancelled mints never booted).
+if find "$ENTWURF_DIR" -name '*-*-*-*-*.sock' 2>/dev/null | grep -q .; then
+	bad "a uuid-shaped control socket exists — a cancelled mint leaked a server"
+else
+	ok "no uuid control socket leaked"
+fi
+rm -f "$rep_err"
+
 # ─── POSITIVE — garden session passes + control name (opt-in, costs a turn) ──
 if [ "${SMOKE_RGG_POSITIVE:-0}" = "1" ]; then
 	echo "[smoke-resident-garden-guard] POSITIVE: garden --session-id (SMOKE_RGG_POSITIVE=1)"

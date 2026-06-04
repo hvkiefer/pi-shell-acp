@@ -112,6 +112,7 @@ import {
 	isValidSessionId,
 	parseSessionName,
 	RESIDENT_SESSION_TAG,
+	readSessionHeader,
 } from "./lib/entwurf-core.js";
 
 const ENTWURF_FLAG = "entwurf-control";
@@ -1363,6 +1364,25 @@ export default function (pi: ExtensionAPI) {
 	});
 	registerEntwurfSendCommand(pi, state, () => lastDisplayedSessions);
 
+	// Session-replacement identity invariant (0.9.0): under --entwurf-control you
+	// cannot birth or enter a non-garden resident session IN-PROCESS. /new, /fork,
+	// /clone, RPC new_session, ctx.newSession and keybindings all mint a pi
+	// uuidv7 (no --session-id reaches an in-process switch, and the pre-switch
+	// hook result carries only { cancel } — it cannot inject an id, which is
+	// launch-fixed). Without this, such a mint reaches the session_start garden
+	// guard and hard-exits the WHOLE pi process — a terrible UX for a routine
+	// /new. So cancel the mint at the pre-event and point at the garden launcher.
+	const refuseInProcessMint = (ctx: ExtensionContext, what: string, why: string) => {
+		const msg =
+			`[entwurf-control] ${what} is blocked under --entwurf-control — ${why} ` +
+			`Start/resume a garden session from the launcher (pia / pit / pihome — they ` +
+			`pass --session-id) in a new shell, or run ` +
+			`pi --session-id "$(run.sh new-session-id)" --entwurf-control ...`;
+		// stderr ALWAYS — the durable record even if the TUI swallows the notify.
+		process.stderr.write(`${msg}\n`);
+		if (ctx.hasUI) ctx.ui.notify(`🪛 ${msg}`, "error");
+	};
+
 	const refreshServer = async (ctx: ExtensionContext) => {
 		const enabled = pi.getFlag(ENTWURF_FLAG) === true;
 		if (!enabled) {
@@ -1418,6 +1438,56 @@ export default function (pi: ExtensionAPI) {
 			cliSendHandled = true;
 			await maybeHandleStartupControlSend(pi, ctx);
 		}
+	});
+
+	// Pre-switch guard — cancel an in-process resident mint BEFORE session_start
+	// fires, so the hard guard never has to hard-exit the process. Covers every
+	// entry point (slash, RPC, keybinding, ctx.newSession) because pi routes them
+	// all through AgentSessionRuntime.{newSession,switchSession} → emitBeforeSwitch.
+	// Only active under --entwurf-control; plain sessions keep /new and /resume
+	// unrestricted.
+	pi.on("session_before_switch", async (event, ctx) => {
+		if (pi.getFlag(ENTWURF_FLAG) !== true) return {};
+		if (event.reason === "new") {
+			refuseInProcessMint(
+				ctx,
+				"/new (in-process new session)",
+				"an in-process new session gets a non-garden uuid the garden guard rejects.",
+			);
+			return { cancel: true };
+		}
+		if (event.reason === "resume" && event.targetSessionFile) {
+			// Pre-cancel a resume INTO a non-garden (legacy uuid) session so it fails
+			// friendly here rather than hard-exiting at the session_start guard. A
+			// garden target passes through; an unreadable header is left to the
+			// session_start backstop.
+			let targetId: string | null = null;
+			try {
+				targetId = readSessionHeader(event.targetSessionFile)?.id ?? null;
+			} catch {
+				targetId = null;
+			}
+			if (targetId) {
+				try {
+					assertGardenNativeSessionId(targetId);
+				} catch {
+					refuseInProcessMint(ctx, "resume", `the target session id "${targetId}" is not garden-native.`);
+					return { cancel: true };
+				}
+			}
+		}
+		return {};
+	});
+
+	// Fork/clone always mints a fresh uuid child — never garden-native in-process.
+	pi.on("session_before_fork", async (_event, ctx) => {
+		if (pi.getFlag(ENTWURF_FLAG) !== true) return {};
+		refuseInProcessMint(
+			ctx,
+			"/fork (session fork/clone)",
+			"a forked session gets a non-garden uuid the garden guard rejects.",
+		);
+		return { cancel: true };
 	});
 
 	pi.on("session_shutdown", async () => {
