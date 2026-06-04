@@ -50,7 +50,8 @@
  *    continues, the startup send is simply not attempted; --entwurf-send-wait
  *    message_processed is accepted as a no-op for backward compatibility.)
  *
- * Addressing is sessionId-only. The UUIDv7 sessionId is the only stable
+ * Addressing is sessionId-only. The sessionId (a garden id for
+ * garden-native sessions, or a pi-assigned uuidv7 otherwise) is the only stable
  * identity a peer needs; alias / sessionName surfaces are deliberately not
  * exposed. Use entwurf_peers (or /entwurf-sessions) to discover live
  * sessions; pass the sessionId to entwurf_send. Note that this is independent
@@ -1310,7 +1311,7 @@ export default function (pi: ExtensionAPI) {
 		type: "boolean",
 	});
 	pi.registerFlag(ENTWURF_SESSION_FLAG, {
-		description: "Target session id (UUID) for startup control send",
+		description: "Target session id (garden id or pi-assigned uuid) for startup control send",
 		type: "string",
 	});
 	pi.registerFlag(ENTWURF_SEND_MESSAGE_FLAG, {
@@ -1464,7 +1465,7 @@ function registerSessionTool(pi: ExtensionAPI, state: SocketState): void {
 	// any-cast below in one step so the schema regains single-source
 	// status for both runtime and types.
 	const entwurfSendParameters = Type.Object({
-		sessionId: Type.String({ description: "Target session id (UUID)" }),
+		sessionId: Type.String({ description: "Target session id (garden id or pi-assigned uuid)" }),
 		action: Type.Optional(
 			StringEnum(["send", "get_message", "clear"] as const, {
 				description: "Action to perform (default: send)",
@@ -1500,7 +1501,7 @@ Actions:
 - clear: Rewind the target session.
 
 Target:
-- sessionId: UUID of the session (required). Use entwurf_peers to discover live sessions.
+- sessionId: id of the session — a garden id or a pi-assigned uuid (required). Use entwurf_peers to discover live sessions.
 
 For action=send:
 - mode: steer (immediate) or follow_up (after task).

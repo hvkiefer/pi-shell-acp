@@ -54,6 +54,7 @@ const {
 	readSessionHeader,
 	readSessionIdentity,
 	analyzeSessionFileLike,
+	assertLocalOnlyEntwurf,
 } = await import("../pi-extensions/lib/entwurf-core.ts");
 
 let n = 0;
@@ -597,6 +598,53 @@ try {
 		!computeResidentStatusLabel({ sessionId: residentSid, sessionFileExists: true }).includes("entwurf"),
 		"status label never contains the word 'entwurf'",
 	);
+
+	// ---- T-local-only: remote/SSH entwurf is fail-fast in 0.9.0 (#11) ----
+	// CHANGELOG/BASELINE classify remote fail-fast as a 0.9.0 breaking change.
+	// Lock it so a later remote revival cannot silently re-enable a non-local host
+	// (header scan + collision pre-check are local-filesystem only).
+	noThrow(() => assertLocalOnlyEntwurf("local"), "local host passes");
+	noThrow(() => assertLocalOnlyEntwurf(undefined), "undefined host (defaults local) passes");
+	throws(() => assertLocalOnlyEntwurf("oracle"), "non-local host 'oracle' fails fast");
+	throws(() => assertLocalOnlyEntwurf("user@host"), "ssh-style host 'user@host' fails fast");
+
+	// ---- T-async-completion-guard (source): stale-parent best-effort delivery.
+	// Async completion fires from proc.on("close") long after the spawn ack; a
+	// stale parent ctx must DROP the notification, never crash the parent turn.
+	// The guard's runtime behavior is live-exercised by sentinel R1; here we lock
+	// the source contract, because entwurf-async pulls entwurf-core.js and so
+	// can't be import-loaded in this no-build, pure-string gate.
+	{
+		const asyncSrc = fs.readFileSync(path.join(REPO_ROOT, "pi-extensions", "lib", "entwurf-async.ts"), "utf8");
+		const guardStart = asyncSrc.indexOf("export function makeBestEffortDeliverCompletion");
+		ok(guardStart >= 0, "entwurf-async exports makeBestEffortDeliverCompletion");
+		const guardBody = asyncSrc.slice(guardStart);
+		ok(/\.includes\(STALE_CTX_MARKER\)/.test(guardBody), "guard matches stale-ctx marker as a substring");
+		ok(
+			/\breturn;/.test(guardBody) && /\bthrow err;/.test(guardBody),
+			"guard DROPS stale-ctx (return) and RE-THROWS other errors (throw err)",
+		);
+	}
+
+	// ---- T-async-spawn-wrapped (source guard): every pi.sendMessage in
+	// entwurf.ts sits inside a makeBestEffortDeliverCompletion arrow wrapper, so a
+	// raw proc.on("close") send can't regress the stale-parent guard (the exact
+	// gap that left async spawn completion unguarded before 0.9.0 cut).
+	{
+		const entwurfSrc = fs.readFileSync(path.join(REPO_ROOT, "pi-extensions", "entwurf.ts"), "utf8");
+		const totalSends = (entwurfSrc.match(/pi\.sendMessage\(/g) ?? []).length;
+		const wrappedSends = (entwurfSrc.match(/=>\s*pi\.sendMessage\(/g) ?? []).length;
+		ok(totalSends > 0, "entwurf.ts has at least one pi.sendMessage (sanity)");
+		eq(
+			wrappedSends,
+			totalSends,
+			"every pi.sendMessage in entwurf.ts is inside a best-effort arrow wrapper (no raw send)",
+		);
+		ok(
+			entwurfSrc.includes("makeBestEffortDeliverCompletion"),
+			"entwurf.ts imports/uses makeBestEffortDeliverCompletion",
+		);
+	}
 
 	console.log(`[check-entwurf-session-identity] ${n} assertions ok`);
 } finally {

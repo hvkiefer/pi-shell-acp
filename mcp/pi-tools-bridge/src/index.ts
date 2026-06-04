@@ -28,12 +28,13 @@
  * embedding CLI). Keeping them out of the MCP bridge is what lets pi-shell-acp
  * be a generic public package rather than a reflection of one operator's setup.
  *
- * Still deferred to a separate design round (NOT closed by 0.7.6):
- *   - entwurf spawn + mode=async — same followUp-channel question as resume had,
- *     but spawn has no sessionId continuity yet (the saved-session-after-spawn pattern
- *     differs from saved-session-revival). Resume async on MCP was the higher-
- *     pressure UX path; spawn async on MCP can be evaluated after resume async
- *     settles in use.
+ * Still deferred to a separate design round (NOT closed by 0.7.6 / 0.9.0):
+ *   - entwurf spawn + mode=async — same followUp-channel question as resume had.
+ *     As of 0.9.0 spawn does have sessionId continuity (the parent mints the
+ *     sessionId before spawn), so the blocker is no longer continuity but the
+ *     external-host followUp-delivery contract — the saved-session-after-spawn
+ *     UX still differs from saved-session-revival. Resume async on MCP was the
+ *     higher-pressure path; spawn async on MCP can be evaluated after it settles.
  *   - entwurf_status on MCP — needs a corresponding completion-notification contract
  *     that external hosts can subscribe to; not yet designed.
  *
@@ -338,7 +339,7 @@ server.tool(
 		"marked external/non-replyable; wants_reply=true is rejected because there is no pi " +
 		"session address to reply to.",
 	{
-		sessionId: z.string().min(1).describe("Target session id (UUID)"),
+		sessionId: z.string().min(1).describe("Target session id (garden id or pi-assigned uuid)"),
 		message: z.string().min(1).describe("Message text to deliver"),
 		mode: z.enum(["steer", "follow_up"]).optional().describe("Default follow_up"),
 		wants_reply: z

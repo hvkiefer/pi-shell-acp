@@ -185,13 +185,16 @@ const STALE_CTX_MARKER = "is stale after session replacement or reload";
  * Any other sendMessage error is a real wiring break and re-throws (crash-loud,
  * per the entwurf-control fail-loud contract).
  *
- * Shared by both async-completion deliverers: the native `entwurf_resume` tool
- * (pi-extensions/entwurf.ts) and the entwurf-control `spawn_async_resume` RPC
- * (pi-extensions/entwurf-control.ts) — same race, one guard.
+ * Shared by every async-completion deliverer that fires from a child
+ * `proc.on("close")` after the parent already moved on:
+ *   - async spawn completion — the native `entwurf` tool (pi-extensions/entwurf.ts)
+ *   - async `entwurf_resume` completion — the native tool (pi-extensions/entwurf.ts)
+ *   - async resume via the entwurf-control `spawn_async_resume` RPC
+ *     (pi-extensions/entwurf-control.ts)
+ * — same race, one guard. Generic over the message payload because spawn and
+ * resume completions carry different `details` shapes (spawn has no `runId`).
  */
-export function makeBestEffortDeliverCompletion(
-	send: (message: AsyncResumeCompletionMessage) => void,
-): (message: AsyncResumeCompletionMessage) => void {
+export function makeBestEffortDeliverCompletion<T>(send: (message: T) => void): (message: T) => void {
 	return (message) => {
 		try {
 			send(message);

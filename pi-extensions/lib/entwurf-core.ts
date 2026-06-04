@@ -12,7 +12,11 @@
  *
  * Scope:
  *   - sync execution (spawn pi, collect message_end events, return summary)
- *   - local and SSH-remote hosts
+ *   - local hosts only in 0.9.0. SSH-remote spawn/resume is fail-fast
+ *     (garden-native session identity is local-FS — header scan / collision
+ *     precheck cannot see a remote filesystem). The remote roots/isRemote
+ *     plumbing is retained, parity-gated, for #11 revival (see RemoteSpec note
+ *     below) — it is NOT a live path in this release.
  *   - project-context injection (cwd/AGENTS.md)
  *   - explicit compat extension resolution for Claude models + opt-in Codex ACP routing
  *
@@ -1606,8 +1610,9 @@ function collectPiRun({ command, args, cwd, signal, onUpdate, result }: CollectI
 //   - Input: sessionId (YYYYMMDDTHHMMSS-[0-9a-f]{6} = JSONL header id) + prompt
 //   - Resolves the saved session file via findSessionFileById (header scan;
 //     throws on the wrong-cwd duplicate footgun, never guesses)
-//   - Reads model + provider from the session's last assistant turn
-//     (analyzeSessionFileLike) and reuses BOTH verbatim
+//   - Reads model + provider from the session's FIRST model_change
+//     (readSessionIdentity) — NOT the last assistant turn — and reuses BOTH
+//     verbatim; a later differing model_change is treated as corrupt drift
 //   - Forces the child cwd to the saved header cwd, then spawns sync
 //     `pi --session-id <sessionId> ... <prompt>` so Pi appends to the SAME
 //     session file (the wrong-cwd footgun would otherwise create a new one)
@@ -1619,8 +1624,8 @@ function collectPiRun({ command, args, cwd, signal, onUpdate, result }: CollectI
 //     locked to whatever the session recorded at first spawn.
 //   - cwd is bound to the saved header (the resume authority); model MAY NOT
 //     change. An explicit options.cwd is a debug/migration escape hatch only.
-//   - If the session has no recorded model (empty / corrupted / never had an
-//     assistant turn) we refuse the resume rather than fall back to a default.
+//   - If the session has no recorded model (empty / corrupted / never reached a
+//     model_change) we refuse the resume rather than fall back to a default.
 //
 // Scope lock (0.9.0 / NEXT.md Phase 3b): local only. Remote/SSH resume is
 // parked under #11 and fails fast at the top (header scan is local-FS).

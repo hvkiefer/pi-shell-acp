@@ -3,7 +3,8 @@
  *
  * Spawns a dedicated pi process to run a task rather than using a sub-agent
  * inside the caller. It's inter-process coordination, not recursion inside
- * one session. Local and SSH-remote spawns follow the same pattern.
+ * one session. 0.9.0 spawns are local only; SSH-remote spawn/resume is
+ * fail-fast (garden-native session identity is local-FS) and parked under #11.
  *
  * Modes:
  *   async — spawn and return immediately; notify the caller session on
@@ -212,6 +213,15 @@ async function runEntwurfAsync(
 		stderr += data.toString();
 	});
 
+	// Completion fires from proc.on("close") long after the async spawn returned
+	// its ack; by then the parent ctx may be stale (session replaced/reloaded/
+	// disposed). Same race the async-resume path already guards — wrap both spawn
+	// completion sends so a stale parent drops the notification instead of crashing
+	// the parent turn. See makeBestEffortDeliverCompletion (entwurf-async.ts, R1).
+	const deliverComplete = makeBestEffortDeliverCompletion((message: Parameters<typeof pi.sendMessage>[0]) =>
+		pi.sendMessage(message, { triggerTurn: true, deliverAs: "followUp" }),
+	);
+
 	proc.on("close", (code) => {
 		info.exitCode = code ?? 0;
 		info.status = code === 0 ? "completed" : "failed";
@@ -242,52 +252,46 @@ async function runEntwurfAsync(
 				.filter(Boolean)
 				.join("\n");
 
-			pi.sendMessage(
-				{
-					customType: "entwurf-complete",
-					content: [
-						`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${sessionId}\` ${info.status} (${host}, ${analysis.turns} turns, $${analysis.cost.toFixed(4)})`,
-						meta || null,
-						summary,
-					]
-						.filter(Boolean)
-						.join("\n\n"),
-					display: true,
-					details: {
-						sessionId,
-						host,
-						status: info.status,
-						turns: analysis.turns,
-						cost: analysis.cost,
-						error: info.error,
-						stopReason: info.stopReason,
-						explicitExtensions: info.explicitExtensions,
-						warnings: info.warnings,
-					},
+			deliverComplete({
+				customType: "entwurf-complete",
+				content: [
+					`${info.status === "failed" ? "❌" : "🏁"} entwurf \`${sessionId}\` ${info.status} (${host}, ${analysis.turns} turns, $${analysis.cost.toFixed(4)})`,
+					meta || null,
+					summary,
+				]
+					.filter(Boolean)
+					.join("\n\n"),
+				display: true,
+				details: {
+					sessionId,
+					host,
+					status: info.status,
+					turns: analysis.turns,
+					cost: analysis.cost,
+					error: info.error,
+					stopReason: info.stopReason,
+					explicitExtensions: info.explicitExtensions,
+					warnings: info.warnings,
 				},
-				{ triggerTurn: true, deliverAs: "followUp" },
-			);
+			});
 		} else if (stderr || info.exitCode !== 0) {
 			info.status = "failed";
 			info.error = stderr.slice(0, 500) || `exit code ${info.exitCode} (no session file)`;
 			info.output = info.error;
-			pi.sendMessage(
-				{
-					customType: "entwurf-complete",
-					content: `❌ entwurf \`${sessionId}\` failed (${host}, no session file): ${info.error}`,
-					display: true,
-					details: {
-						sessionId,
-						host,
-						status: "failed",
-						exitCode: info.exitCode,
-						error: info.error,
-						explicitExtensions: info.explicitExtensions,
-						warnings: info.warnings,
-					},
+			deliverComplete({
+				customType: "entwurf-complete",
+				content: `❌ entwurf \`${sessionId}\` failed (${host}, no session file): ${info.error}`,
+				display: true,
+				details: {
+					sessionId,
+					host,
+					status: "failed",
+					exitCode: info.exitCode,
+					error: info.error,
+					explicitExtensions: info.explicitExtensions,
+					warnings: info.warnings,
 				},
-				{ triggerTurn: true, deliverAs: "followUp" },
-			);
+			});
 		}
 	});
 

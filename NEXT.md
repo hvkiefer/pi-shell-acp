@@ -12,9 +12,17 @@ Read #28 + #30 + #31 as one set:
 - **#30 / 1.0.0**: external native sessions become garden citizens through opaque meta-session records, not fake Pi transcripts. The top-level concept is **garden session id**; Pi sessions are the first backend that can use it directly.
 - **#31 field proof**: current 0.8.2 sustained 5 parallel Opus vision workers with repeated async resume. 0.9.0 must preserve this worker-team pattern while replacing `taskId` with `sessionId`.
 
-### Current mode — sweep DONE (release-gate 17/0 green on 0.9.0); cut-ready, awaiting GLG commit → GPT authoritative gate → publish
+### Current mode — cut-ready: GPT authoritative release-gate 17/0 green (after a hardening cycle); awaiting GLG commit → one more review → publish
 
 The FULL LIVE TEST SWEEP is complete (2026-06-04, from Claude Code with pi all off — no self-test interference). `./run.sh release-gate` is **17 PASS / 0 FAIL / 0 SKIP** on version `0.9.0`, including the two newly-wired identity gates. Evidence + axis table: BASELINE.md (0.9.0 entry). Breaking-change log: CHANGELOG.md (`## 0.9.0`).
+
+**Post-sweep hardening cycle (2026-06-04, GPT coverage review → Claude fix → GPT authoritative re-run; commit/push GLG's).** GPT found one product gap + two release-gate blind spots + active stale text; all closed in this working tree (8 files, +139/-71):
+- **async spawn completion best-effort (product fix).** `runEntwurfAsync`'s `proc.on("close")` sent its completion via raw `pi.sendMessage`, unguarded against a stale parent ctx — the exact STALE_CTX race async *resume* already fixed via `makeBestEffortDeliverCompletion` (sentinel R1). Wrapped both spawn sends; the helper is now generic over the payload (spawn details have no `runId`). This is the #31 worker-team lifecycle, so it had to close before cut.
+- **deterministic gate +10** (`check-entwurf-session-identity` 125→135): `assertLocalOnlyEntwurf` non-local throw (remote fail-fast lock, #11); every `pi.sendMessage` in `entwurf.ts` must sit inside a best-effort arrow wrapper (raw close-handler regression guard); guard drop/rethrow source contract.
+- **resident positive folded into the resident gate step**: that step now runs `SMOKE_RGG_POSITIVE=1` (negative 6/6 + positive 10/10 in ONE step — step count stays **17**, coverage added). Garden-id resident actually boots + control-tagged + non-entwurf-resumable, proven live in-gate.
+- **stale text**: `setup-clean-host.md` raw `--entwurf-control` → garden launcher; tool schema descs `(UUID)` → `(garden id or pi uuid)` (messaging addresses non-resident sessions too). Deliberately KEPT "pi assigns uuidv7" (accurate) and VERIFY.md historical `taskId` logs (history, not active surface).
+
+GPT re-ran the authoritative `release-gate` from pi after these: **17/0/0 green, positive resident path passing inside the gate** (scratch `/tmp/psa-rg-090-gpt.mfDS5t`, log `/tmp/psa-release-gate-090-gpt.log`).
 
 Two false-negatives the sweep nailed — both **test-harness only, product proven correct**:
 - **smoke-async-resume** — completion detection missed the lazily-persisted parent `entwurf-complete` (🏁) for slow orchestrators (sonnet/gpt) because it resolved the parent file only once at check time. Now re-resolves + polls the parent JSONL every tick; fail-closed preserved; removed the dead `wait_jsonl_count_gt`. (This WAS the "last grep -F edit never re-run to green" flagged here.) Product was already correct: RESUME_OK in every resume child + 🏁 persisted in every parent across all 3 backends.
@@ -27,7 +35,13 @@ Cut decisions (a)(b)(c) — **ALL DONE this sweep:**
 
 > **Remaining to cut (GLG-owned):** GLG reviews the committed sweep → GPT re-runs the authoritative `release-gate` from a pi session at cut time → `pnpm publish --access public` → tag `v0.9.0` + push → agenda stamp (`pi:release:`). The Claude Code sweep is the necessary-condition green; the pre-publish gate is re-run from pi at cut.
 
-**Future release-gate scenarios to wire (GLG: "5 more gate runs, each adds missing coverage, not a repeat"):** positive resident-guard variant (1-turn) as an opt-in row; cross-cwd resume authority (T5) as a dedicated live gate; remote/SSH fail-fast assertion once #11 reopens. Host hygiene done: `~/sync/org/setup/update-claude.sh` now pins `claude-agent-acp@0.39.0` (bump in lockstep with the release pin).
+**Future release-gate scenarios (GLG: "5 more gate runs, each adds missing coverage, not a repeat"):**
+- ✅ positive resident-guard — now wired into the resident gate step (in-gate live, 10/10).
+- ✅ remote/SSH fail-fast — now a deterministic assertion (`assertLocalOnlyEntwurf`, in `check-entwurf-session-identity`); the real remote path stays parked under #11.
+- ⏳ STILL TODO: cross-cwd resume authority (T5) as a dedicated live gate.
+- NEW follow-up: the `entwurf.ts` source guard is fail-closed (every `pi.sendMessage` must be best-effort-wrapped). Correct for 0.9.0 cut (entwurf.ts is completion-send only). If a plain UI send is ever added there, refine the guard to close-handler scope / allowlist — do NOT loosen the equality check.
+
+Host hygiene done: `~/sync/org/setup/update-claude.sh` now pins `claude-agent-acp@0.39.0` (bump in lockstep with the release pin).
 
 **Deferred — dep bump (claude-agent-acp 0.40.0 / @agentclientprotocol/sdk 0.24.0) — SEPARATE track, NOT in 0.9.0.** sdk 0.24 removed `unstable_setSessionModel` (the model-set RPC) entirely (type + runtime), replacing it with `session/set_config_option` (configId="model"). Claude model selection survives via `_meta.claudeCode.options.model` at newSession, but **codex/gemini model-forcing has no other path** — `resolveCodex/GeminiAcpLaunch` pass no `--model`, so the RPC was their sole mechanism; an `as any` cast over the removed method would silently regress them (the exact 0.4.5 anti-pattern `check-sdk-surface` exists to block). Forward fix: migrate `enforceRequestedSessionModel` to `setSessionConfigOption({configId:"model", value})` with config-value discovery + a per-backend resolved-model release-gate assertion + live codex/gemini verification (codex-acp 0.15.0 is a bundled binary — set_config_option support is unverifiable statically). The critical Opus 4.8 thinking-blocks fix is ALREADY in 0.39.0, so 0.9.0 needs nothing from 0.40.0.
 

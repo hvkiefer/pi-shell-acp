@@ -3907,12 +3907,14 @@ release_gate() {
   #
   #    Foundational garden-native identity gates run first (0.9.0, #28): the
   #    substrate proof (Pi --session-id/--name through the bridge) and the
-  #    resident --entwurf-control guard (non-garden id → 0-token fail-fast).
-  #    If the identity foundation is broken, every Entwurf live gate below is
-  #    meaningless, so fail fast here. The guard's negative path is 0-token;
+  #    resident --entwurf-control guard (non-garden id → 0-token fail-fast,
+  #    PLUS the positive path: a garden id resident actually boots, gets a
+  #    control-tagged name, and is never entwurf-resumable). If the identity
+  #    foundation is broken, every Entwurf live gate below is meaningless, so
+  #    fail fast here. Negative path is 0-token; positive path is ~1 cheap turn;
   #    the substrate smoke is a few cheap turns.
   run_step "smoke-session-id-name (3a substrate)" gate bash "$self" smoke-session-id-name
-  run_step "smoke-resident-garden-guard (3c guard, 0-token)" gate bash "$self" smoke-resident-garden-guard
+  run_step "smoke-resident-garden-guard (3c guard: negative 0-token + positive 1-turn)" gate env SMOKE_RGG_POSITIVE=1 bash "$self" smoke-resident-garden-guard
   run_step "smoke-installed-entwurf-acp (#29)" gate bash "$self" smoke-installed-entwurf-acp
   run_step "smoke-all (3-backend runtime)"  gate bash "$self" smoke-all "$project_dir"
   run_step "smoke-async-resume"             gate bash "$self" smoke-async-resume

@@ -848,12 +848,16 @@ and the release gate. Run this whenever you intend to delegate to a
 
 If the host runs a long-lived pi session you want to address from another
 session (or from an external MCP host like Claude Code), open it with
-`--entwurf-control`:
+`--entwurf-control`. As of 0.9.0 a `--entwurf-control` session MUST carry a
+garden-native `--session-id`; a raw `pi --entwurf-control` (pi-assigned
+`uuidv7`) hard-exits at `session_start` before any model turn. Mint the id from
+the `generateSessionId` SSOT:
 
 ```bash
-pi --entwurf-control --provider pi-shell-acp --model claude-sonnet-4-6
-# the session prints its sessionId; the control socket is at
-# ~/.pi/entwurf-control/<sessionId>.sock
+pi --session-id "$(/path/to/pi-shell-acp/run.sh new-session-id)" \
+  --entwurf-control --provider pi-shell-acp --model claude-sonnet-4-6
+# the session's garden sessionId is the one you just minted; the control
+# socket is at ~/.pi/entwurf-control/<sessionId>.sock
 ```
 
 From any other pi session on the same host:
