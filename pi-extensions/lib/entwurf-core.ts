@@ -34,12 +34,12 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ENTWURF_PROJECT_CONTEXT_OPEN_TAG } from "../../protocol.js";
+import { formatSessionTimestamp, generateSessionId, isValidSessionId, SESSION_ID_RE } from "./session-id.js";
 
 // ============================================================================
 // Constants
@@ -1156,37 +1156,15 @@ export class SessionIdentityError extends Error {
 	}
 }
 
-/** `YYYYMMDDTHHMMSS-[0-9a-f]{6}`. Anchored; no surrounding slop. */
-export const SESSION_ID_RE = /^\d{8}T\d{6}-[0-9a-f]{6}$/;
+// Garden session-id grammar SSOT now lives in ./session-id.js (a real `.js`
+// leaf, resolvable from both the tsc-emit and `node --experimental-strip-types`
+// runtimes — same rationale as protocol.js). Imported above for internal use and
+// re-exported here so every existing `entwurf-core` importer keeps working.
+export { formatSessionTimestamp, generateSessionId, isValidSessionId, SESSION_ID_RE };
 
 const SESSION_TAG_RE = /^[a-z0-9]+$/;
 /** Canonical titleSlug: lowercase-alnum words joined by single hyphens, no edges. */
 const TITLE_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-export function isValidSessionId(value: unknown): value is string {
-	return typeof value === "string" && SESSION_ID_RE.test(value);
-}
-
-/**
- * Local (KST on operator machines) denote-style timestamp `YYYYMMDDTHHMMSS`.
- * Garden sort sense. Local components on purpose — the denote corpus is local.
- */
-export function formatSessionTimestamp(now: Date = new Date()): string {
-	const p = (n: number, w = 2) => String(n).padStart(w, "0");
-	return (
-		`${p(now.getFullYear(), 4)}${p(now.getMonth() + 1)}${p(now.getDate())}` +
-		`T${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
-	);
-}
-
-/**
- * Parent generates the durable sessionId before spawn (async spawn means the
- * child cannot self-report it back). 6 hex suffix defeats same-second parallel
- * spawn collision; the parent still header-scan pre-checks (assertSessionIdAvailableForSpawn).
- */
-export function generateSessionId(now: Date = new Date()): string {
-	return `${formatSessionTimestamp(now)}-${crypto.randomBytes(3).toString("hex")}`;
-}
 
 /**
  * Canonicalize a human/agent raw title into an ascii slug. lowercase; every

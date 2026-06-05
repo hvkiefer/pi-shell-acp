@@ -53,6 +53,7 @@ Usage:
   ./run.sh check-model-lock           # deterministic unit test for pi-extensions/model-lock.ts (4-quadrant + edge cases, no API)
   ./run.sh check-shell-quote          # POSIX-safety gate for shellQuote (remote SSH arg quoting in entwurf paths) — source parity + behavior matrix, no SSH
   ./run.sh check-entwurf-session-identity # deterministic gate for locked garden session identity & name grammar (sessionId/buildSessionName/parse/collision), no API
+  ./run.sh check-meta-session          # deterministic gate (#30 step 2): meta-record mint/serialize/parse + scanByNativeId body-authority + idempotent decideUpsert, no API
   ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
   ./run.sh check-plugin-prompt-format          # deterministic shape gate for buildConversationPrompt + stripChatCompletionTail (issue #20 follow-up leak)
   ./run.sh check-async-resume-gate    # deterministic gate for MCP entwurf_resume mode resolution + replyable gate + cwd silent-ignore (0.7.6, 16 assertions)
@@ -1143,6 +1144,16 @@ check_entwurf_session_identity() {
   # info-only invariants, and header-scan collision pre-check. Isolates registry
   # + sessions base to a temp dir. No backend, no API, no spawn.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-session-identity.ts)
+}
+
+check_meta_session() {
+  # Deterministic gate for the 1.0.0 meta-bridge record authority (#30 step 2):
+  # mint/serialize/parse round-trip + crash-on-malformed, scanByNativeId lookup
+  # authority BY RECORD BODY (not filename, proven with a decoy filename in a
+  # real temp dir), idempotent existence-keyed decideUpsert + identity-drift
+  # refusal, and the pre-drilled read-receipt mutators. Pure functions; no
+  # backend, no hook, no API.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-meta-session.ts)
 }
 
 check_plugin_empty_final_recovery() {
@@ -4016,6 +4027,9 @@ case "$cmd" in
     ;;
   check-entwurf-session-identity)
     check_entwurf_session_identity
+    ;;
+  check-meta-session)
+    check_meta_session
     ;;
   new-session-id)
     # Garden launcher helper: print one fresh garden sessionId (SSOT:

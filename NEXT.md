@@ -14,14 +14,16 @@ do NOT re-derive here:
   delivery code (idle-wake = `FileChanged` not `Stop`; plugin-not-bare-skill; stderr-only doorbell;
   infinite-loop guard; cost line; liveness SSOT = `pid.json` not WAL; …).
 
-**Targets — 3 native backends, prove in order.** Claude Code = #1 (MVP). Antigravity/agy = #2.
-Codex = #3. Each has a *different* native layout — that difference is exactly what forces the thin
-per-backend adapter seam (uniform garden layer + thin adapter). Capability today (see DELIVERY.md):
+**Target policy — 1.0.0 ships Claude Code only; the 3-backend work is evidence + seam, not scope.**
+Morning raw probes opened the async doors for all three and made them reproducible (see DELIVERY.md):
 Claude `D6` (D7/D8 partial), agy `D6+` native push, Codex embedded-TUI `D0` partial /
-app-server-backed `D6+D7`; pi-native Entwurf is the reference.
+app-server-backed `D6+D7`; pi-native Entwurf is the reference. That evidence is load-bearing because it
+forces the thin per-backend adapter seam (uniform garden layer + thin adapter). **But the 1.0.0 MVP
+implementation/installer/doctor is Claude Code only.** agy/Codex stay proven future adapters; do not
+let their install surfaces expand this release.
 
 **Entry model — just open the native backend (pi-entry handoff DROPPED 2026-06-05).** No pi launcher
-step, no self-transform `exec`. The operator opens Claude Code (or agy / Codex) directly; the session
+step, no self-transform `exec`. For 1.0.0 the operator opens Claude Code directly; the session
 becomes a garden citizen entirely through its own `SessionStart` hook. Thinner, and it honors the
 North Star — the bridge does not compete with pi's session picker / resume UX (forcing handoff into
 the pi picker is "build a second harness"). The pi-entry handoff scenario (pi pre-mints garden-id +
@@ -35,11 +37,22 @@ GLG asks. It leaves exactly one consequence — the load-bearing concern below.
 > entwurf = the async-delivery address simply does not exist. This is the **success criterion of step
 > 4**, not an afterthought. Open question to resolve there: what happens when the hook fails / the
 > plugin isn't loaded — fail-loud, or best-effort + backfill on next turn?
+>
+> **⚠ LOAD-BEARING — install/doctor, not tribal setup knowledge.** Opening the native async door is
+> useless if users must hand-edit Claude hook/plugin settings. A friend already bounced off
+> `pi-shell-acp` setup; meta-bridge adds *more* native wiring, so 1.0.0 must ship an operator-grade
+> **Claude installer + doctor**. Supported platforms are **Linux + macOS only**; Windows is unsupported
+> and must fail fast (no "untested but maybe works" posture). The installer should make the exact
+> settings changes required for meta-bridge (or move that responsibility from `agent-config` into this
+> repo if needed); user memory/manual `--plugin-dir` is not a setup strategy. The success criterion is:
+> after install, a normal user can open Claude Code and `doctor-meta-bridge` can prove the meta-record
+> path, hook/plugin auto-load, delivery surface, and silent-miss failure policy. This is core UX, not a
+> consumer afterthought.
 
 **Async delivery to a registered meta-session (the addressee path):** Registering an external session as a
    meta-session promotes it from external/non-addressable to **addressable + wakeable** (garden-id =
-   address, mailbox = inbox). Full "replyable" semantics require the later outbox/read-receipt path;
-   do not hide that last-1cm distinction. `entwurf_send` → mailbox enqueue (append-only, delivery
+   address, mailbox = inbox). Full "replyable" semantics require an outbox; the read-receipt half is
+   in the Claude MVP through inbox-read. Do not hide that last-1cm distinction. `entwurf_send` → mailbox enqueue (append-only, delivery
    marker). Delivery is **turn-boundary only** (never
    mid-turn — structurally guaranteed: every event is edge-bound), via a per-backend **trusted data
    line**:
@@ -62,17 +75,24 @@ GLG asks. It leaves exactly one consequence — the load-bearing concern below.
 - garden-id = reuse `generateSessionId` (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`), minted at true birth.
 - meta-record = opaque `.meta.json` pointer at `~/.pi/meta-sessions/<garden-id>.meta.json`
   (proposed); `backend` field discriminates. body = SSOT. **lookup authority = top-level record
-  scan by `native_session_id`** (symmetric with 0.9.0 `findSessionFileById`; `.meta.json` is single
+  scan by `nativeSessionId`** (symmetric with 0.9.0 `findSessionFileById`; `.meta.json` is single
   JSON, so "scan record bodies by top-level field", not "header-scan"). Any native→garden index is a
   derived cache, NEVER authority — "needs a DB" = the denote-instinct tripwire.
 - liveness = best-effort hint (per-backend mechanism differs; Claude `pid.json` SSOT, NOT db-wal —
   WAL drops on checkpoint = false dead/alive). Authority for alive/recent = `last_seen` + native
   presence. No backend reliability assumption imported.
+- install/doctor = first-class 1.0.0 surface, not docs-only. Linux/macOS supported; Windows
+  fail-fast. **Claude only for 1.0.0.** The installer owns the required Claude native wiring
+  (plugin/global auto-load + settings changes) rather than delegating it to tribal knowledge; it may
+  coordinate with `agent-config`, but core must be able to make/verify the exact required config. The
+  doctor proves the actual working state and screams on silent-miss risks.
 - entwurf-fronting = extend `entwurf_*` to a meta-session peer *kind* (addressable/wakeable, not yet
-  fully replyable). ACP demoted to one transport. `entwurf_send` → mailbox is the delivery axis;
-  `entwurf_resume` launch-pointer / pi-picker handoff is **out of 1.0.0 unless GLG reopens it** — do
-  not let the dropped scenario re-enter through a resume abstraction. Mailbox delivery itself is
-  **post-MVP** — **BUT the read-receipt aspect is pulled into MVP** (bbot review #4). The Claude doorbell self-fetches, so
+  fully replyable). ACP demoted to one transport. `entwurf_send` → mailbox is the delivery axis and
+  is **in the 1.0.0 MVP for Claude**; it was only marked post-MVP when we still thought native async
+  delivery might be impossible. Now that the async doors are open and reproducible, a meta-bridge
+  without `entwurf_send` would be a registry demo, not a bridge. `entwurf_resume` launch-pointer /
+  pi-picker handoff remains **out of 1.0.0 unless GLG reopens it** — do not let the dropped scenario
+  re-enter through a resume abstraction. The Claude doorbell self-fetches, so
   a model that ignores the notice never reads the body, and `.delivered` marks "doorbell rang", not
   "model read". Fix: **the inbox-read MCP call IS the read-receipt** — it closes the doorbell
   observability gap and makes `D7` real. Sender contract: uniform on garden-id + queue; honest on
@@ -83,9 +103,10 @@ GLG asks. It leaves exactly one consequence — the load-bearing concern below.
 
 **Evidence grade (stay honest at commit time):** capability is **LIVE-verified** (separate
 Claude/agy/Codex probe sessions + binary cross-validation) and **repro scripts exist**
-(`scripts/raw-async-delivery/repro-*.sh`, `DELIVERY.md` D-levels). It is **NOT** yet promoted to a
-repo `run.sh smoke-*` regression gate — that promotion is implementation step 1. Do not collapse
-"L-evidence quality" into "D-delivery capability" (VERIFY.md namespace note).
+(`scripts/raw-async-delivery/repro-*.sh`, `DELIVERY.md` D-levels). Step 1 promoted the Claude drift
+sentinel into a repo smoke (`./run.sh smoke-meta-async-drift`); it is still **not** in `release-gate`
+because it depends on the host's installed Claude binary. Do not collapse "L-evidence quality" into
+"D-delivery capability" (VERIFY.md namespace note).
 
 **MVP implementation order (Claude Code only; record authority FIRST, hook LAST):**
 1. **DONE — drift sentinel + capability gate.** `./run.sh smoke-meta-async-drift`
@@ -98,11 +119,27 @@ repo `run.sh smoke-*` regression gate — that promotion is implementation step 
    Negative-tested (moved pin / vanished marker → `DRIFT DETECTED` + exit 1). NOT in `release-gate`
    yet (asserts on host's installed Claude binary → not hermetic for `pnpm check`); promote at 1.0.0
    cut. Lineage: 0.8.x fail-fast tool-surface gates (bbot review #4).
-2. meta-record schema + pure functions (mint / build / parse / scan-by-native-id) + temp-dir
-   deterministic test. **Pre-drill a read-receipt field now** — adding it later (when inbox-read
-   lands) touches the schema twice (bbot review #4). Cut the per-backend adapter seam — do not bake
-   "hook = Claude Code" in.
+2. **DONE — meta-record schema + pure functions.** `pi-extensions/lib/meta-session.ts` +
+   `./run.sh check-meta-session` (`scripts/check-meta-session.ts`, 33 assertions, in `pnpm check`).
+   `mintMetaRecord` / `serializeMetaRecord` (deterministic, stable key order) / `parseMetaRecord`
+   (crash-not-warn on every malformed shape, incl. **backend↔wakeMode contradiction** — a Claude
+   record claiming direct-inject is corrupt) / `scanByNativeId` (THE lookup authority, by record
+   **body** — proven against a decoy filename in a real temp dir, never a filename/index; **scans to
+   completion and throws on a duplicate `nativeSessionId`** — authority ambiguity is fail-fast, never
+   silently pick one) / `decideUpsert` (existence-keyed, idempotent, refuses backend/identity drift).
+   Read-receipt field
+   **pre-drilled** (`delivery.lastEnqueuedAt/lastDeliveredAt/lastReadAt` + `markEnqueued/Delivered/Read`
+   mutators) so the later mailbox/send step never touches the schema twice. Per-backend adapter seam cut at
+   the data level (`META_BACKENDS` 3-way + `META_BACKEND_DESCRIPTORS` honest `wakeMode`/`deliveryLevel`)
+   — no "hook = Claude Code" baked in; behavioral half (liveness, hook deploy) is step 4.
+   **SSOT side-effect:** the garden-id grammar (`SESSION_ID_RE` / `formatSessionTimestamp` /
+   `generateSessionId` / `isValidSessionId`) moved to a real `.js` leaf `pi-extensions/lib/session-id.js`
+   (protocol.js pattern — resolvable from both tsc-emit and strip-types). entwurf-core re-exports them,
+   so it is now a true single source instead of one-copy-per-importer. `check-entwurf-session-identity`
+   158/158 unchanged (no regression).
 3. idempotent `pi-shell-acp meta-session upsert` CLI (scan → attach | create). No `source` branching.
+   Wraps the step-2 pure core (`scanByNativeId` → `decideUpsert` → write) with the real fs; the
+   garden-id is minted here (or by the hook) at true birth, then passed into the record.
 4. **Claude `SessionStart` create/attach hook — THE load-bearing step (see ⚠ above).** Fires the
    idempotent `upsert` at startup so "open Claude Code → meta-record exists" is guaranteed; arms the
    idle-wake `watchPath` in the same hook. Shipped as a **plugin bundle** (a bare skill cannot arm the
@@ -110,15 +147,32 @@ repo `run.sh smoke-*` regression gate — that promotion is implementation step 
    native Claude Code session deterministically lands a `~/.pi/meta-sessions/<garden-id>.meta.json` —
    no silent miss — and decides the failure policy (plugin not loaded / hook errored → fail-loud vs
    best-effort + next-turn backfill). Plugin must auto-load on *every* session (global install /
-   settings.json hooks), not depend on a manual `--plugin-dir`. agent-config owns the wiring; core
-   owns the CLI + the creation-guarantee smoke.
-5. `entwurf_peers(includeMeta)` surfaces the meta-session kind with an honest backend glyph (no
+   settings.json hooks), not depend on a manual `--plugin-dir`. Core owns the required meta-bridge
+   wiring/CLI/creation-guarantee smoke; `agent-config` may integrate preferences around it, but it is
+   not the authority for whether meta-bridge works.
+5. **Claude installer + doctor — make the native wiring survivable for real users.** Add a core
+   command surface such as `./run.sh install-meta-bridge claude` and `./run.sh doctor-meta-bridge`.
+   Platform policy: Linux + macOS only; Windows fail-fast. The installer must not rely on tribal
+   memory or a manual `--plugin-dir`: it makes the exact Claude plugin/global auto-load + settings
+   changes needed by this repo. If `agent-config` currently owns part of that wiring, either
+   coordinate with it or move the required meta-bridge setting here — core owns the guarantee. The
+   doctor checks OS, Claude binary/version, config paths, plugin/hook auto-load, meta-record dir
+   writability, SessionStart upsert evidence, wake/delivery capability, and the chosen failure policy;
+   it must fail loud on silent-miss risk. This is what makes the morning's raw async breakthrough
+   usable instead of a lab demo.
+6. **Claude `entwurf_send` mailbox delivery + inbox-read receipt.** Implement the actual bridge path:
+   sender enqueues by garden-id, pokes the addressed Claude signal, the hook emits a notice-only
+   doorbell, the model self-fetches through its MCP inbox-read tool, and that read call marks
+   `delivery.lastReadAt` (the real D7 read-receipt). This is MVP, not post-MVP. Keep the contract
+   honest: `.delivered`/doorbell means wake attempt; inbox-read means read.
+7. `entwurf_peers(includeMeta)` surfaces the meta-session kind with an honest backend glyph (no
    conflation with socket-peers). Dogfood subject: this Claude Code session.
 
 **Consumer track (agent-config, NOT this repo):** statusline `garden-id · backend · status`,
-theme/config parity across pi / Claude / agy / Codex. Both Claude and agy already expose a custom
-`statusLine` command. The honest knot core↔consumer is the shared garden-id; do NOT pull theming into
-core (re-bloats the screwdriver).
+theme/config parity across pi / Claude now, agy / Codex later. Both Claude and agy already expose a
+custom `statusLine` command. The honest knot core↔consumer is the shared garden-id; do NOT pull
+**theming** into core. Do pull the required meta-bridge setup/doctor into core — that is not theming,
+it is the bridge working.
 
 **Scope guard:** do NOT build a generic worker-pool orchestrator out of #31 — document the
 parallel-team pattern, keep the bridge thin. Doorbell delivery is notice-only + self-fetch; never
