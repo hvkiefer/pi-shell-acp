@@ -48,6 +48,7 @@
  * `MetaRecordError`. A broken meta-record must surface as a broken meta-record.
  */
 
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -545,8 +546,170 @@ export function upsertMetaSession(opts: UpsertMetaSessionOptions): UpsertMetaSes
 	);
 	const decision = decideUpsert(existing, opts.input, opts.now);
 	const file = path.join(dir, metaRecordFilename(decision.record));
-	const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-	fs.writeFileSync(tmp, serializeMetaRecord(decision.record), { mode: 0o600 });
-	fs.renameSync(tmp, file);
+	atomicWriteRecord(file, decision.record);
 	return { action: decision.action, record: decision.record, dir, path: file };
+}
+
+/** tmp-file + rename so a crash never leaves a half-written record. */
+function atomicWriteRecord(file: string, record: MetaRecord): void {
+	const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+	fs.writeFileSync(tmp, serializeMetaRecord(record), { mode: 0o600 });
+	fs.renameSync(tmp, file);
+}
+
+// ---------------------------------------------------------------------------
+// Mailbox delivery (step 6) — addressed by GARDEN ID. The record store is the
+// authority (a sender may only deliver to a known garden citizen); the mailbox
+// under defaultMetaMailboxDir() carries the volatile signal + message bodies.
+//
+// The honest delivery contract (do not blur these):
+//   - enqueue        : a sender wrote a `.msg` body + poked `inbox.signal`
+//                      (markEnqueued). The poke is what the plugin's FileChanged
+//                      doorbell watches — it wakes an idle session.
+//   - `.msg.delivered`: the doorbell rang (FileChanged moved `.msg` ->
+//                      `.msg.delivered` and announced it). A FILESYSTEM marker =
+//                      WAKE ATTEMPT, NOT a read.
+//   - lastReadAt     : the model called readMetaInbox (the inbox-read tool) and
+//                      the body actually reached model-visible context. THIS is
+//                      the real D7 read-receipt. For Claude self-fetch, delivered
+//                      != read; readMetaInbox is the only thing that sets it.
+// ---------------------------------------------------------------------------
+
+/** Resolve + validate a garden id and return its record file path under a store dir. */
+function recordFileFor(sessionsDir: string, gardenId: string): string {
+	const id = requireGardenId(gardenId);
+	return path.join(path.resolve(expandTilde(sessionsDir)), `${id}.meta.json`);
+}
+
+/** Read + parse the meta-record for a garden id, or throw if that citizen is unknown. */
+export function readMetaRecordByGardenId(gardenId: string, sessionsDir: string = defaultMetaSessionsDir()): MetaRecord {
+	const id = requireGardenId(gardenId);
+	const file = recordFileFor(sessionsDir, id);
+	if (!fs.existsSync(file)) {
+		throw new MetaRecordError(
+			`no meta-record for garden id "${id}" under ${path.dirname(file)} — not a garden citizen, cannot deliver.`,
+		);
+	}
+	const record = parseMetaRecord(fs.readFileSync(file, "utf8"));
+	// The record BODY is the SSOT; the filename is only a denote-sortable surface.
+	// A `<id>.meta.json` whose body carries a DIFFERENT gardenId is corrupt (a
+	// renamed/clobbered file) and would misroute delivery — fail-fast, never trust
+	// the filename over the body.
+	if (record.gardenId !== id) {
+		throw new MetaRecordError(
+			`meta-record body/filename drift: ${id}.meta.json contains gardenId "${record.gardenId}". ` +
+				`The body is the authority; this file is corrupt. Remove or fix it.`,
+		);
+	}
+	return record;
+}
+
+export interface EnqueueMetaMessageOptions {
+	gardenId: string;
+	body: string;
+	sessionsDir?: string;
+	mailboxDir?: string;
+	now?: Date;
+}
+
+export interface EnqueueMetaMessageResult {
+	gardenId: string;
+	recordPath: string;
+	messagePath: string;
+	signalPath: string;
+}
+
+/**
+ * Deliver a message body to a garden citizen's mailbox: validate the record
+ * exists, write the `.msg` body FIRST, stamp `lastEnqueuedAt`, then poke
+ * `inbox.signal` LAST so the doorbell that fires on the poke always finds the
+ * body already on disk (no wake-with-empty-mailbox race). Returns the paths so a
+ * sender can show exactly what was queued.
+ */
+export function enqueueMetaMessage(opts: EnqueueMetaMessageOptions): EnqueueMetaMessageResult {
+	const now = opts.now ?? new Date();
+	const sessionsDir = opts.sessionsDir ?? defaultMetaSessionsDir();
+	const recordFile = recordFileFor(sessionsDir, opts.gardenId);
+	const record = readMetaRecordByGardenId(opts.gardenId, sessionsDir);
+	if (typeof opts.body !== "string" || opts.body.length === 0) {
+		throw new MetaRecordError("enqueueMetaMessage: body must be a non-empty string.");
+	}
+
+	const dir = path.join(path.resolve(expandTilde(opts.mailboxDir ?? defaultMetaMailboxDir())), record.gardenId);
+	fs.mkdirSync(dir, { recursive: true });
+	// Sortable + unique: ISO stamp (colons/dots flattened for a clean filename) +
+	// a short random tag so two sends in the same millisecond never collide.
+	const stamp = `${isoNow(now).replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
+	const messagePath = path.join(dir, `${stamp}.msg`);
+	fs.writeFileSync(messagePath, opts.body, { mode: 0o600 });
+
+	atomicWriteRecord(recordFile, markEnqueued(record, now));
+
+	// Poke LAST. Writing the timestamp changes the file's content+mtime, which is
+	// what the plugin's FileChanged watch fires on.
+	const signalPath = path.join(dir, "inbox.signal");
+	fs.writeFileSync(signalPath, `${isoNow(now)}\n`, { mode: 0o600 });
+
+	return { gardenId: record.gardenId, recordPath: recordFile, messagePath, signalPath };
+}
+
+export interface MetaInboxMessage {
+	file: string;
+	body: string;
+}
+
+export interface ReadMetaInboxOptions {
+	gardenId: string;
+	sessionsDir?: string;
+	mailboxDir?: string;
+	now?: Date;
+}
+
+export interface ReadMetaInboxResult {
+	gardenId: string;
+	messages: MetaInboxMessage[];
+	/** The D7 read-receipt timestamp stamped on this read, or null if nothing was unread. */
+	readAt: string | null;
+	recordPath: string;
+}
+
+/**
+ * Drain a garden citizen's mailbox: read every unread message (a fresh `.msg`
+ * read before its doorbell, or a doorbell-rung `.msg.delivered`), archive each to
+ * `*.read` so a re-read never double-returns, and — only if at least one message
+ * was read — stamp `lastReadAt` (and backfill `lastDeliveredAt` if the doorbell
+ * never got to). An empty inbox mutates nothing: reading nothing is not a receipt.
+ */
+export function readMetaInbox(opts: ReadMetaInboxOptions): ReadMetaInboxResult {
+	const now = opts.now ?? new Date();
+	const sessionsDir = opts.sessionsDir ?? defaultMetaSessionsDir();
+	const recordFile = recordFileFor(sessionsDir, opts.gardenId);
+	const record = readMetaRecordByGardenId(opts.gardenId, sessionsDir);
+
+	const dir = path.join(path.resolve(expandTilde(opts.mailboxDir ?? defaultMetaMailboxDir())), record.gardenId);
+	const entries = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+	// Unread = a body still ending in .msg or .msg.delivered (NOT yet .read).
+	const unread = entries.filter((f) => f.endsWith(".msg") || f.endsWith(".msg.delivered")).sort();
+
+	const messages: MetaInboxMessage[] = [];
+	for (const f of unread) {
+		const full = path.join(dir, f);
+		messages.push({ file: f, body: fs.readFileSync(full, "utf8") });
+		fs.renameSync(full, `${full}.read`); // archive; .read no longer matches the doorbell's *.msg glob
+	}
+
+	if (messages.length === 0) {
+		return { gardenId: record.gardenId, messages, readAt: null, recordPath: recordFile };
+	}
+
+	// Stamp ONLY lastReadAt — the one receipt this layer can stamp honestly: it
+	// KNOWS the body reached the reader. lastDeliveredAt is the doorbell's to own
+	// (the moment the FileChanged hook rang); recording it here would report a
+	// delivered-time of "read-time", later than the truth. So it is left as the
+	// doorbell left it — null in the MVP, where the `.msg.delivered` FILE (not a
+	// record field) is the delivery marker. lastDeliveredAt null + lastReadAt set
+	// therefore means "delivery-time not recorded", NOT "read before delivered".
+	const updated = markRead(record, now);
+	atomicWriteRecord(recordFile, updated);
+	return { gardenId: record.gardenId, messages, readAt: updated.delivery.lastReadAt, recordPath: recordFile };
 }

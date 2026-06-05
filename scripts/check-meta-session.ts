@@ -18,7 +18,9 @@ import os from "node:os";
 import path from "node:path";
 import {
 	decideUpsert,
+	defaultMetaMailboxDir,
 	defaultMetaSessionsDir,
+	enqueueMetaMessage,
 	META_BACKEND_DESCRIPTORS,
 	META_SCHEMA_VERSION,
 	type MetaMintInput,
@@ -29,6 +31,8 @@ import {
 	metaRecordFilename,
 	mintMetaRecord,
 	parseMetaRecord,
+	readMetaInbox,
+	readMetaRecordByGardenId,
 	scanByNativeId,
 	serializeMetaRecord,
 	upsertMetaSession,
@@ -378,6 +382,195 @@ check("defaultMetaSessionsDir: honors PI_META_SESSIONS_DIR then PI_CODING_AGENT_
 	} finally {
 		if (saved.m === undefined) delete process.env.PI_META_SESSIONS_DIR;
 		else process.env.PI_META_SESSIONS_DIR = saved.m;
+		if (saved.a === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = saved.a;
+	}
+});
+
+// ---------------------------------------------------------------- mailbox delivery (step 6)
+// A self-contained store+mailbox fixture: mint one citizen, return its dirs + garden id.
+function mailboxFixture(): { sessionsDir: string; mailboxDir: string; gardenId: string; cleanup: () => void } {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "meta-mailbox-"));
+	const sessionsDir = path.join(root, "meta-sessions");
+	const mailboxDir = path.join(root, "meta-mailbox");
+	const up = upsertMetaSession({ dir: sessionsDir, input: claudeInput({ nativeSessionId: "mbx-native" }), now: T0 });
+	return {
+		sessionsDir,
+		mailboxDir,
+		gardenId: up.record.gardenId,
+		cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+	};
+}
+
+check("enqueueMetaMessage: writes a .msg, pokes inbox.signal, stamps lastEnqueuedAt", () => {
+	const fx = mailboxFixture();
+	try {
+		const r = enqueueMetaMessage({
+			gardenId: fx.gardenId,
+			body: "hello",
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		assert.ok(fs.existsSync(r.messagePath) && r.messagePath.endsWith(".msg"), "a .msg body is written");
+		assert.ok(fs.existsSync(r.signalPath) && r.signalPath.endsWith("inbox.signal"), "inbox.signal is poked");
+		const rec = readMetaRecordByGardenId(fx.gardenId, fx.sessionsDir);
+		assert.equal(rec.delivery.lastEnqueuedAt, T1.toISOString(), "lastEnqueuedAt stamped at enqueue time");
+		assert.equal(rec.delivery.lastReadAt, null, "not read yet");
+	} finally {
+		fx.cleanup();
+	}
+});
+
+check("readMetaInbox: drains a fresh .msg, returns the body, stamps lastReadAt (D7 receipt)", () => {
+	const fx = mailboxFixture();
+	try {
+		enqueueMetaMessage({
+			gardenId: fx.gardenId,
+			body: "drain me",
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		const read = readMetaInbox({
+			gardenId: fx.gardenId,
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		assert.equal(read.messages.length, 1, "one message read");
+		assert.equal(read.messages[0]?.body, "drain me", "body intact");
+		assert.equal(read.readAt, T1.toISOString(), "readAt returned");
+		const rec = readMetaRecordByGardenId(fx.gardenId, fx.sessionsDir);
+		assert.equal(rec.delivery.lastReadAt, T1.toISOString(), "lastReadAt stamped = the honest read receipt");
+		// #5 honesty: lastDeliveredAt is the doorbell's to stamp; readMetaInbox must NOT invent it.
+		assert.equal(
+			rec.delivery.lastDeliveredAt,
+			null,
+			"lastDeliveredAt left null (read does not record a delivery time)",
+		);
+	} finally {
+		fx.cleanup();
+	}
+});
+
+check("readMetaInbox: drains a doorbell-rung .msg.delivered too", () => {
+	const fx = mailboxFixture();
+	try {
+		const dir = path.join(fx.mailboxDir, fx.gardenId);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, "x.msg.delivered"), "via doorbell");
+		const read = readMetaInbox({
+			gardenId: fx.gardenId,
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		assert.equal(read.messages.length, 1, "the .msg.delivered is read");
+		assert.equal(read.messages[0]?.body, "via doorbell");
+	} finally {
+		fx.cleanup();
+	}
+});
+
+check("readMetaInbox: empty inbox returns nothing AND mutates no receipt; re-read after drain is empty", () => {
+	const fx = mailboxFixture();
+	try {
+		// empty read: no message, no receipt
+		const empty = readMetaInbox({
+			gardenId: fx.gardenId,
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		assert.equal(empty.messages.length, 0, "empty inbox: no messages");
+		assert.equal(empty.readAt, null, "empty inbox: no receipt stamped");
+		assert.equal(
+			readMetaRecordByGardenId(fx.gardenId, fx.sessionsDir).delivery.lastReadAt,
+			null,
+			"empty read leaves lastReadAt null",
+		);
+		// enqueue + drain, then re-read must be empty (archived to .read, not double-returned)
+		enqueueMetaMessage({
+			gardenId: fx.gardenId,
+			body: "once",
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+		assert.equal(
+			readMetaInbox({ gardenId: fx.gardenId, sessionsDir: fx.sessionsDir, mailboxDir: fx.mailboxDir, now: T1 }).messages
+				.length,
+			1,
+			"first drain returns it",
+		);
+		assert.equal(
+			readMetaInbox({ gardenId: fx.gardenId, sessionsDir: fx.sessionsDir, mailboxDir: fx.mailboxDir, now: T1 }).messages
+				.length,
+			0,
+			"re-read is empty",
+		);
+	} finally {
+		fx.cleanup();
+	}
+});
+
+expectThrows("enqueueMetaMessage: unknown garden id fails loud (not a citizen)", () => {
+	const fx = mailboxFixture();
+	try {
+		enqueueMetaMessage({
+			gardenId: "20200101T000000-aaaaaa",
+			body: "x",
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+	} finally {
+		fx.cleanup();
+	}
+});
+
+expectThrows("enqueueMetaMessage: empty body fails loud", () => {
+	const fx = mailboxFixture();
+	try {
+		enqueueMetaMessage({
+			gardenId: fx.gardenId,
+			body: "",
+			sessionsDir: fx.sessionsDir,
+			mailboxDir: fx.mailboxDir,
+			now: T1,
+		});
+	} finally {
+		fx.cleanup();
+	}
+});
+
+expectThrows("readMetaRecordByGardenId: body/filename gardenId drift is corruption (body is SSOT)", () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "meta-drift-"));
+	try {
+		const sessionsDir = path.join(root, "meta-sessions");
+		fs.mkdirSync(sessionsDir, { recursive: true });
+		// A record whose BODY gardenId differs from the <id>.meta.json filename it lives in.
+		const rec = mintMetaRecord(claudeInput({ nativeSessionId: "drift" }), T0);
+		const wrongName = "20200101T000000-bbbbbb.meta.json"; // filename id != rec.gardenId
+		fs.writeFileSync(path.join(sessionsDir, wrongName), serializeMetaRecord(rec));
+		readMetaRecordByGardenId("20200101T000000-bbbbbb", sessionsDir);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
+check("defaultMetaMailboxDir: sibling of meta-sessions under the pi agent dir", () => {
+	const saved = { m: process.env.PI_META_MAILBOX_DIR, a: process.env.PI_CODING_AGENT_DIR };
+	try {
+		process.env.PI_META_MAILBOX_DIR = "/explicit/mbx";
+		assert.equal(defaultMetaMailboxDir(), "/explicit/mbx");
+		delete process.env.PI_META_MAILBOX_DIR;
+		process.env.PI_CODING_AGENT_DIR = "/iso/agent";
+		assert.equal(defaultMetaMailboxDir(), path.join("/iso/agent", "meta-mailbox"));
+	} finally {
+		if (saved.m === undefined) delete process.env.PI_META_MAILBOX_DIR;
+		else process.env.PI_META_MAILBOX_DIR = saved.m;
 		if (saved.a === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = saved.a;
 	}

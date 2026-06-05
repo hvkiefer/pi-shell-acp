@@ -40,9 +40,10 @@ GLG asks. It left exactly one consequence — the load-bearing concern below —
 >
 > **✅ CLOSED — install/doctor, not tribal setup knowledge.** 1.0.0 now has the operator-grade Claude
 > global installer + doctor surface: `./run.sh install-meta-bridge` assembles a repo-stable local
-> marketplace, bakes the home/profile `node` path, and installs `entwurf-meta-receive@meta-bridge-local`
-> with `--scope user`; `./run.sh doctor-meta-bridge` fails loud on toolchain/plugin/node-path/store/
-> SessionStart evidence gaps. Supported platforms stay **Linux + macOS only**; Windows fails fast.
+> marketplace, bakes the home/profile `node` path, installs `entwurf-meta-receive@meta-bridge-local`
+> with `--scope user`, and installs/refreshes the canonical USER-scope `pi-tools-bridge` MCP entry;
+> `./run.sh doctor-meta-bridge` fails loud on toolchain/plugin/node-path/user-MCP/store/SessionStart
+> evidence gaps. Supported platforms stay **Linux + macOS only**; Windows fails fast.
 > Global install is intentionally left live on GLG's machine for dogfooding; uninstall with
 > `claude plugin uninstall entwurf-meta-receive@meta-bridge-local` if needed.
 
@@ -107,7 +108,7 @@ sentinel into a repo smoke (`./run.sh smoke-meta-async-drift`); it is still **no
 because it depends on the host's installed Claude binary. Do not collapse "L-evidence quality" into
 "D-delivery capability" (VERIFY.md namespace note).
 
-**MVP implementation order (Claude Code only; current restart point = step 6):**
+**MVP implementation order (Claude Code only; current restart point = step 7):**
 1. **DONE — drift sentinel + capability gate.** `./run.sh smoke-meta-async-drift`
    (`scripts/smoke-meta-async-drift.sh`). Deterministic default: **major.minor** version pins
    (**Claude 2.1.x / codex-cli 0.136.x / agy 1.0.x** — patch NOT pinned: Claude ships ~weekly
@@ -161,24 +162,32 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
    `./run.sh install-meta-bridge` assembles `pi/meta-bridge/.assembled/` (entry + lib bundled,
    node path baked), validates the repo-stable marketplace, then installs
    `entwurf-meta-receive@meta-bridge-local --scope user` so every native Claude Code session auto-loads
-   the plugin. `./run.sh doctor-meta-bridge` checks Linux/macOS policy, Claude/node toolchain, global
-   plugin enabled, baked-node path survival (NixOS churn guard), meta-record store writability, hook
-   log, and at least one Claude meta-record. Live result: doctor PASS. The global install is
-   intentionally left in place for dogfooding; uninstall only if GLG chooses to stop the experiment.
-6. **Claude `entwurf_send` mailbox delivery + inbox-read receipt.** Implement the actual bridge path:
-   sender enqueues by garden-id, pokes the addressed Claude signal, the hook emits a notice-only
-   doorbell, the model self-fetches through its MCP inbox-read tool, and that read call marks
-   `delivery.lastReadAt` (the real D7 read-receipt). This is MVP, not post-MVP. Keep the contract
-   honest: `.delivered`/doorbell means wake attempt; inbox-read means read.
+   the wake/record plugin. It also installs/refreshes the canonical **USER-scope** `pi-tools-bridge`
+   MCP entry (`claude mcp add -s user ... start.sh`) so every native cwd, including `/tmp`, has the
+   receiver tool. The plugin deliberately does **not** ship `.mcp.json`; MCP is one user-scope entry,
+   not a plugin duplicate or project-scoped `~/.mcp.json`. `./run.sh doctor-meta-bridge` checks
+   Linux/macOS policy, Claude/node toolchain, global plugin enabled, baked-node path survival (NixOS
+   churn guard), USER-scope MCP reach from `/tmp`, meta-record store writability, hook log, and at
+   least one Claude meta-record. Live result: doctor PASS.
+6. **DONE — Claude `entwurf_send` mailbox delivery + `entwurf_inbox_read` receipt.**
+   `entwurf_send` is now one surface with two transports: live pi control socket first, then
+   garden-id meta-mailbox fallback. The mailbox body serializes the sender envelope (`from` /
+   `session` / replyable / `wants reply`) so the native receiver knows who sent it and how to reply.
+   The addressed FileChanged hook emits a notice-only doorbell with the garden id; the woken model
+   self-fetches through `entwurf_inbox_read`, which drains unread `.msg` / `.msg.delivered` files,
+   archives them as `.read`, and stamps `delivery.lastReadAt` (the real D7 receipt). `lastDeliveredAt`
+   is not invented at read time. Live-proven 2026-06-05: plugin `.mcp.json` removed, canonical
+   user-scope MCP visible from `/tmp`, autonomous doorbell → `entwurf_inbox_read` call → `lastReadAt`
+   stamped.
 7. `entwurf_peers(includeMeta)` surfaces the meta-session kind with an honest backend glyph (no
    conflation with socket-peers). Dogfood subject: this Claude Code session.
 
-**Restart anchor:** start at **step 6**, not by re-opening the now-proven hook/install work.
-Step 4/5 are live and globally installed; only revisit them if doctor fails or the global dogfood
-surfaces a concrete bug. Next implementation is `entwurf_send` mailbox delivery + inbox-read receipt,
-then `entwurf_peers(includeMeta)`. The carried 0.9 follow-ups, dep bump, `incompatible_config`, and
-#25 bridge-hygiene tracks remain **non-cut tracks** while 1.0.0 meta-bridge is active; do not pull
-them into this release unless GLG reopens them.
+**Restart anchor:** start at **step 7**, not by re-opening the now-proven hook/install/send/read work.
+Step 4/5/6 are live and globally installed; only revisit them if doctor fails or the global dogfood
+surfaces a concrete bug. Next implementation is `entwurf_peers(includeMeta)` so the meta-session kind
+is discoverable with honest backend/delivery metadata. The carried 0.9 follow-ups, dep bump,
+`incompatible_config`, and #25 bridge-hygiene tracks remain **non-cut tracks** while 1.0.0 meta-bridge
+is active; do not pull them into this release unless GLG reopens them.
 
 **Consumer track (agent-config, NOT this repo):** statusline `garden-id · backend · status`,
 theme/config parity across pi / Claude now, agy / Codex later. Both Claude and agy already expose a

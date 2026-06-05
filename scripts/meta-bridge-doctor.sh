@@ -16,6 +16,7 @@ set -euo pipefail
 MKT_NAME="meta-bridge-local"
 PLUGIN="entwurf-meta-receive"
 CLAUDE_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fail=0
 ok()   { echo "  ok    $*"; }
@@ -65,6 +66,26 @@ if [ -n "$CACHE_HOOKS" ]; then
   else warn "could not parse baked node path from $CACHE_HOOKS"; fi
 else
   warn "no installed hooks.json in cache (plugin not installed?)"
+fi
+
+echo "[receiver MCP reach — entwurf_inbox_read in EVERY native session, NOT plugin-owned]"
+# The plugin owns ONLY the wake/record hooks. The receiver self-fetch tool
+# (entwurf_inbox_read) comes from the user's pi-tools-bridge MCP wiring — a Claude
+# Code / agent-config responsibility, never injected here (injecting from the
+# plugin duplicates the server and drops its identity env). The honest test is
+# GLOBAL REACH: a native session in an arbitrary cwd must see the tool. A
+# PROJECT-scoped ~/.mcp.json is NOT enough (it only reaches its own project; a
+# /tmp session would wake with no way to record its receipt). USER scope is.
+# So probe from a neutral non-project cwd, exactly like a real native session.
+if command -v claude >/dev/null; then
+	MCP_GET="$(cd /tmp && claude mcp get pi-tools-bridge 2>/dev/null || true)"
+	if printf '%s\n' "$MCP_GET" | grep -q "Scope: User config" && printf '%s\n' "$MCP_GET" | grep -q "Status: .*Connected"; then
+		ok "pi-tools-bridge reachable from a neutral cwd (/tmp) as USER-scope MCP — every native session can entwurf_inbox_read"
+	else
+		bad "pi-tools-bridge is not USER-scope+Connected from /tmp — a native session outside the wired project cannot entwurf_inbox_read, so a woken receipt is never recorded. A PROJECT-scoped ~/.mcp.json is not enough; wire it USER scope: claude mcp add -s user pi-tools-bridge -e PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code -- bash \"$REPO/mcp/pi-tools-bridge/start.sh\""
+	fi
+else
+	warn "claude not on PATH — cannot probe MCP reach"
 fi
 
 echo "[meta-record store]"

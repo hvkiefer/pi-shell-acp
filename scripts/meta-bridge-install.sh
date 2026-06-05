@@ -9,11 +9,16 @@
 #      ${CLAUDE_PLUGIN_ROOT} self-locates them), and BAKE the node abspath into
 #      hooks.json. The node path is the ONLY templated surface — the mailbox /
 #      meta-record dirs resolve at runtime inside entry.ts (<pi-agent-dir>, a
-#      fixed ~/ path), so nothing else is host-specific.
+#      fixed ~/ path). The plugin is wake/record hooks ONLY; the receiver-side
+#      entwurf_inbox_read tool comes from USER-scope pi-tools-bridge MCP wiring
+#      (`claude mcp add -s user ...`). Project-scoped .mcp.json is deliberately
+#      not enough: a /tmp native session would wake without a receipt tool.
 #   2. marketplace add <repo-stable .assembled>  (NOT /tmp — ephemeral source
 #      would break `claude plugin marketplace update`).
 #   3. install entwurf-meta-receive@meta-bridge-local --scope user  (= global:
 #      every native session auto-loads it; no manual --plugin-dir).
+#   4. install/update USER-scope pi-tools-bridge MCP, so every native session has
+#      entwurf_inbox_read without duplicating MCP inside the plugin.
 # Idempotent: re-running removes the prior marketplace/plugin first, so a
 # `nix rebuild` that moved node just re-bakes and re-installs cleanly.
 #
@@ -58,12 +63,16 @@ mkdir -p "$ASM/$PLUGIN/lib"
 cp "$REPO/pi-extensions/lib/meta-session.ts" "$ASM/$PLUGIN/lib/meta-session.ts"
 cp "$REPO/pi-extensions/lib/session-id.js" "$ASM/$PLUGIN/lib/session-id.js"
 chmod +x "$ASM/$PLUGIN/scripts/doorbell.sh"
-# bake the node abspath (the only templated surface).
+# Bake the node abspath into hooks.json — the ONLY templated surface. mailbox /
+# meta-record dirs resolve at runtime inside entry.ts (<pi-agent-dir>, fixed ~/).
+# The plugin owns ONLY the wake/record hooks; the receiver-side entwurf_inbox_read
+# tool is NOT the plugin's job. It comes from USER-scope pi-tools-bridge MCP
+# wiring (`claude mcp add -s user ...`), never a plugin .mcp.json duplicate.
 HOOKS="$ASM/$PLUGIN/hooks/hooks.json"
-ESC_NODE="${NODE_BIN//\\/\\\\}"; ESC_NODE="${ESC_NODE//&/\\&}"; ESC_NODE="${ESC_NODE//|/\\|}"
+ESC_NODE="$(printf '%s' "$NODE_BIN" | sed -e 's/[\\&|]/\\&/g')"
 sed -i "s|__NODE_BIN__|$ESC_NODE|g" "$HOOKS"
 grep -q "__NODE_BIN__" "$HOOKS" && die "node-path bake failed (placeholder still present in $HOOKS)."
-echo "[meta-bridge-install] assembled $ASM (node baked, entry+lib bundled)"
+echo "[meta-bridge-install] assembled $ASM (node baked, entry+lib bundled; MCP wiring is NOT plugin-owned)"
 
 # --- validate the manifests before touching user config ---------------------
 claude plugin validate "$ASM" >/dev/null || die "marketplace manifest validation failed for $ASM"
@@ -75,6 +84,19 @@ claude plugin marketplace remove "$MKT_NAME" >/dev/null 2>&1 || true
 claude plugin marketplace add "$ASM" >/dev/null
 claude plugin install "$PLUGIN@$MKT_NAME" --scope user >/dev/null
 echo "[meta-bridge-install] installed $PLUGIN@$MKT_NAME (scope: user = global)"
+
+# --- 4. ensure USER-scope receiver MCP wiring -------------------------------
+# One canonical MCP entry only: user-scope pi-tools-bridge via the repo-managed
+# start.sh. This reaches /tmp and every other native Claude Code cwd. Do not put
+# pi-tools-bridge in the plugin (.mcp.json): that duplicates the server and drops
+# the canonical external identity env.
+claude mcp remove pi-tools-bridge -s user >/dev/null 2>&1 || true
+claude mcp add -s user pi-tools-bridge \
+  -e PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code \
+  -- bash "$REPO/mcp/pi-tools-bridge/start.sh" >/dev/null
+(cd /tmp && claude mcp get pi-tools-bridge 2>/dev/null | grep -q "Scope: User config") || \
+  die "post-install: pi-tools-bridge is not reachable as USER-scope MCP from /tmp"
+echo "[meta-bridge-install] installed pi-tools-bridge MCP (scope: user = global receiver tools)"
 
 # --- evidence ---------------------------------------------------------------
 echo "--- claude plugin list ---"
