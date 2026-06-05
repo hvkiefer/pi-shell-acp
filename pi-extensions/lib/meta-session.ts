@@ -8,12 +8,25 @@
  * owns its transcript (Hard Rule #8: reference the backend transcript, never
  * hydrate or replay it).
  *
- * This module is pure functions + types only. No filesystem authority decisions,
- * no hook, no CLI, no backend probing — those are steps 3 (upsert CLI) and 4
- * (SessionStart hook + per-backend liveness adapter). Cutting the record/seam
- * FIRST is deliberate ("record authority FIRST, hook LAST"): the schema and the
- * lookup authority are backend-agnostic, so the per-backend adapter seam gets cut
- * here, before any "hook = Claude Code" assumption can ossify.
+ * Two layers, clearly sectioned:
+ *   1. PURE record functions + types (mint / serialize / parse / scanByNativeId /
+ *      decideUpsert / read-receipt mutators). No fs, no clock beyond an injected
+ *      `now`. These are the backend-agnostic authority.
+ *   2. The thin FS-BOUND STORE (step 3): `upsertMetaSession` wraps the pure core
+ *      (readdir → `scanByNativeId` → `decideUpsert` → atomic write) with the real
+ *      filesystem. It lives in this module (not a sibling `*-store.ts`) on purpose:
+ *      the typecheck fence forbids a root-config lib importing another `.ts` lib
+ *      via a `.ts` specifier (tsc-emit) while the same `.js` specifier is
+ *      unresolvable under `node --experimental-strip-types`, so a separate store
+ *      file could not be unit-tested by the deterministic strip-types gate. Only
+ *      node builtins are added here, so `check-meta-session` stays strip-types
+ *      clean. The hook deploy + the thin CLI/argv shell that invokes this is
+ *      step 4 (its stdin contract couples to the Claude `SessionStart` payload).
+ *
+ * Cutting the record/seam FIRST is deliberate ("record authority FIRST, hook
+ * LAST"): the schema and the lookup authority are backend-agnostic, so the
+ * per-backend adapter seam gets cut here, before any "hook = Claude Code"
+ * assumption can ossify.
  *
  * Authority rules imported from the 0.9.0 substrate and #30 refinements:
  *   - garden id = `generateSessionId` (the single SSOT grammar), minted at the
@@ -35,6 +48,9 @@
  * `MetaRecordError`. A broken meta-record must surface as a broken meta-record.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { generateSessionId, SESSION_ID_RE } from "./session-id.js";
 
 // ---------------------------------------------------------------------------
@@ -441,4 +457,73 @@ export function markDelivered(record: MetaRecord, now: Date = new Date()): MetaR
 /** The inbox-read MCP call — the real read-receipt (makes Claude D7 observable). */
 export function markRead(record: MetaRecord, now: Date = new Date()): MetaRecord {
 	return { ...record, delivery: { ...record.delivery, lastReadAt: isoNow(now) } };
+}
+
+// ---------------------------------------------------------------------------
+// FS-bound store (step 3) — the thin real-filesystem wrapper around the pure
+// core. Only node builtins beyond the pure layer, so the deterministic gate
+// stays strip-types clean (see module header for why this is not a sibling file).
+// ---------------------------------------------------------------------------
+
+function expandTilde(p: string): string {
+	if (p === "~") return os.homedir();
+	if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+	return p;
+}
+
+/**
+ * Where meta-records live. Under the pi agent dir (pi owns persistence), so an
+ * isolated install / test that sets `PI_CODING_AGENT_DIR` gets isolated
+ * meta-sessions too — symmetric with how pi's own sessions isolate. A direct
+ * `PI_META_SESSIONS_DIR` override wins (used by tests / unusual deployments).
+ */
+export function defaultMetaSessionsDir(): string {
+	if (process.env.PI_META_SESSIONS_DIR) return path.resolve(expandTilde(process.env.PI_META_SESSIONS_DIR));
+	const agentDir = process.env.PI_CODING_AGENT_DIR
+		? path.resolve(expandTilde(process.env.PI_CODING_AGENT_DIR))
+		: path.join(os.homedir(), ".pi", "agent");
+	return path.join(agentDir, "meta-sessions");
+}
+
+export interface UpsertMetaSessionOptions {
+	input: MetaMintInput;
+	/** Override the store directory (defaults to {@link defaultMetaSessionsDir}). */
+	dir?: string;
+	now?: Date;
+	onSkip?: (filename: string, err: Error) => void;
+}
+
+export interface UpsertMetaSessionResult {
+	action: UpsertAction;
+	record: MetaRecord;
+	dir: string;
+	/** Absolute path of the written record. */
+	path: string;
+}
+
+/**
+ * Idempotent fs upsert: scan the store by `nativeSessionId`, decide create vs
+ * attach on record EXISTENCE, and write atomically. On attach the file is the
+ * existing garden id's record (same path, rewritten in place); on create it is a
+ * fresh `<gardenId>.meta.json`. A duplicate `nativeSessionId` in the store throws
+ * (via `scanByNativeId`) rather than silently picking one. The write is
+ * tmp-file + rename so a crash never leaves a half-written record (the #30
+ * "write the record before the session takes over" crash-safety gate).
+ */
+export function upsertMetaSession(opts: UpsertMetaSessionOptions): UpsertMetaSessionResult {
+	const dir = path.resolve(expandTilde(opts.dir ?? defaultMetaSessionsDir()));
+	fs.mkdirSync(dir, { recursive: true });
+	const entries = fs.readdirSync(dir);
+	const existing = scanByNativeId(
+		entries,
+		opts.input.nativeSessionId,
+		(filename) => fs.readFileSync(path.join(dir, filename), "utf8"),
+		opts.onSkip,
+	);
+	const decision = decideUpsert(existing, opts.input, opts.now);
+	const file = path.join(dir, metaRecordFilename(decision.record));
+	const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+	fs.writeFileSync(tmp, serializeMetaRecord(decision.record), { mode: 0o600 });
+	fs.renameSync(tmp, file);
+	return { action: decision.action, record: decision.record, dir, path: file };
 }

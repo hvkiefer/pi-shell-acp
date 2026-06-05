@@ -73,8 +73,10 @@ GLG asks. It leaves exactly one consequence — the load-bearing concern below.
   Absorbs duplicate fires / re-entry; neutralizes per-backend source-field differences. Name the CLI
   `upsert` (not `create | attach`) so no one re-introduces `source` branching.
 - garden-id = reuse `generateSessionId` (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`), minted at true birth.
-- meta-record = opaque `.meta.json` pointer at `~/.pi/meta-sessions/<garden-id>.meta.json`
-  (proposed); `backend` field discriminates. body = SSOT. **lookup authority = top-level record
+- meta-record = opaque `.meta.json` pointer at `<pi-agent-dir>/meta-sessions/<garden-id>.meta.json`
+  (default `~/.pi/agent/meta-sessions`, honors `PI_CODING_AGENT_DIR`; override `PI_META_SESSIONS_DIR`
+  — chosen over a bare `~/.pi/meta-sessions` so isolated installs/tests isolate like pi's own
+  sessions); `backend` field discriminates. body = SSOT. **lookup authority = top-level record
   scan by `nativeSessionId`** (symmetric with 0.9.0 `findSessionFileById`; `.meta.json` is single
   JSON, so "scan record bodies by top-level field", not "header-scan"). Any native→garden index is a
   derived cache, NEVER authority — "needs a DB" = the denote-instinct tripwire.
@@ -110,10 +112,11 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
 
 **MVP implementation order (Claude Code only; record authority FIRST, hook LAST):**
 1. **DONE — drift sentinel + capability gate.** `./run.sh smoke-meta-async-drift`
-   (`scripts/smoke-meta-async-drift.sh`). Deterministic default: version pins (measured
-   **Claude 2.1.163 / codex-cli 0.136.0 / agy 1.0.5** — note: bbot's "agy 0.136" was a conflation
-   with codex; gate pins measured truth) + 9 undocumented-behavior marker strings cross-validated
-   against the installed Claude binary (`asyncRewake`, `stop_hook_active`, `watchPaths`,
+   (`scripts/smoke-meta-async-drift.sh`). Deterministic default: **major.minor** version pins
+   (**Claude 2.1.x / codex-cli 0.136.x / agy 1.0.x** — patch NOT pinned: Claude ships ~weekly
+   (2.1.163→2.1.165 same day, markers unchanged), so a patch pin screams every bump; minor/major move
+   is the real re-verify trigger; bbot's "agy 0.136" was a codex conflation) + 9 undocumented-behavior
+   marker strings cross-validated against the actually-installed Claude binary (`asyncRewake`, `stop_hook_active`, `watchPaths`,
    `flushPendingAsyncRewakeHooks`, `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`, `FileChanged`, `rewakeMessage`,
    `hookSpecificOutput`, `CwdChanged`). `LIVE=1` adds the plugin `SessionStart` watch-arm probe.
    Negative-tested (moved pin / vanished marker → `DRIFT DETECTED` + exit 1). NOT in `release-gate`
@@ -137,14 +140,23 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
    (protocol.js pattern — resolvable from both tsc-emit and strip-types). entwurf-core re-exports them,
    so it is now a true single source instead of one-copy-per-importer. `check-entwurf-session-identity`
    158/158 unchanged (no regression).
-3. idempotent `pi-shell-acp meta-session upsert` CLI (scan → attach | create). No `source` branching.
-   Wraps the step-2 pure core (`scanByNativeId` → `decideUpsert` → write) with the real fs; the
-   garden-id is minted here (or by the hook) at true birth, then passed into the record.
+3. **DONE (fs core) — idempotent fs upsert.** `upsertMetaSession` in
+   `pi-extensions/lib/meta-session.ts` (+ 5 real-fs temp-dir assertions in `check-meta-session`, now
+   38 total): `mkdir -p` → `readdir` → `scanByNativeId` → `decideUpsert` → **atomic** write
+   (tmp+rename, mode 0600, crash-safe). Idempotent (2nd call attaches the same file/id, lastSeen
+   refreshed, no shadow record); duplicate `nativeSessionId` on disk throws. `defaultMetaSessionsDir`
+   = `<pi-agent-dir>/meta-sessions` (honors `PI_CODING_AGENT_DIR`, override `PI_META_SESSIONS_DIR`) so
+   isolated installs/tests isolate, symmetric with pi's own sessions. It lives IN meta-session.ts (not
+   a sibling `*-store.ts`): the typecheck fence makes a separate root-config lib that imports another
+   `.ts` lib un-unit-testable under strip-types; only node builtins were added, so the gate stays
+   strip-types clean. **Deferred to step 4:** the thin CLI/argv shell that invokes this — its stdin
+   contract couples to the Claude `SessionStart` payload and its shipped runtime/entry shape is
+   resolved with the hook deploy. No `source` branching anywhere.
 4. **Claude `SessionStart` create/attach hook — THE load-bearing step (see ⚠ above).** Fires the
    idempotent `upsert` at startup so "open Claude Code → meta-record exists" is guaranteed; arms the
    idle-wake `watchPath` in the same hook. Shipped as a **plugin bundle** (a bare skill cannot arm the
    watch at startup; verified). Success criterion (NOT optional): a live smoke proves that opening a
-   native Claude Code session deterministically lands a `~/.pi/meta-sessions/<garden-id>.meta.json` —
+   native Claude Code session deterministically lands a `<pi-agent-dir>/meta-sessions/<garden-id>.meta.json` —
    no silent miss — and decides the failure policy (plugin not loaded / hook errored → fail-loud vs
    best-effort + next-turn backfill). Plugin must auto-load on *every* session (global install /
    settings.json hooks), not depend on a manual `--plugin-dir`. Core owns the required meta-bridge
@@ -167,6 +179,13 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
    honest: `.delivered`/doorbell means wake attempt; inbox-read means read.
 7. `entwurf_peers(includeMeta)` surfaces the meta-session kind with an honest backend glyph (no
    conflation with socket-peers). Dogfood subject: this Claude Code session.
+
+**Restart anchor (new Claude Code session):** start at step 4, not by re-opening the already-solved
+record work. Implement the thin CLI/argv/stdin shell together with the Claude `SessionStart` plugin
+because their contract is one shape; prove native open → meta-record creation with a live smoke.
+Then do installer/doctor, then `entwurf_send`, then peers. The carried 0.9 follow-ups, dep bump,
+`incompatible_config`, and #25 bridge-hygiene tracks below were re-reviewed and remain **non-cut
+tracks** while 1.0.0 meta-bridge is active; do not pull them into this release unless GLG reopens them.
 
 **Consumer track (agent-config, NOT this repo):** statusline `garden-id · backend · status`,
 theme/config parity across pi / Claude now, agy / Codex later. Both Claude and agy already expose a

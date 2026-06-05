@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import {
 	decideUpsert,
+	defaultMetaSessionsDir,
 	META_BACKEND_DESCRIPTORS,
 	META_SCHEMA_VERSION,
 	type MetaMintInput,
@@ -30,6 +31,7 @@ import {
 	parseMetaRecord,
 	scanByNativeId,
 	serializeMetaRecord,
+	upsertMetaSession,
 } from "../pi-extensions/lib/meta-session.ts";
 
 const SESSION_ID_RE = /^\d{8}T\d{6}-[0-9a-f]{6}$/;
@@ -299,6 +301,85 @@ check("temp-dir scan: authority is record BODY, not filename", () => {
 		assert.equal(scanByNativeId(entries, "native-Z", reader), null);
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---------------------------------------------------------------- upsertMetaSession (real fs, step 3)
+check("upsertMetaSession: first call creates a record on disk", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meta-session-store-"));
+	try {
+		const res = upsertMetaSession({ dir, input: claudeInput(), now: T0 });
+		assert.equal(res.action, "create");
+		assert.equal(res.path, path.join(dir, `${res.record.gardenId}.meta.json`));
+		assert.ok(fs.existsSync(res.path));
+		// on-disk bytes parse back to the same record
+		assert.deepEqual(parseMetaRecord(fs.readFileSync(res.path, "utf8")), res.record);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+check("upsertMetaSession: second call attaches — same file/id, lastSeen refreshed, no 2nd file", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meta-session-store-"));
+	try {
+		const first = upsertMetaSession({ dir, input: claudeInput(), now: T0 });
+		const moved = claudeInput({ transcriptPath: "/moved/path.jsonl", cwd: "/moved/cwd" });
+		const second = upsertMetaSession({ dir, input: moved, now: T1 });
+		assert.equal(second.action, "attach");
+		assert.equal(second.record.gardenId, first.record.gardenId); // same id
+		assert.equal(second.path, first.path); // same file, rewritten in place
+		assert.equal(second.record.createdAt, T0.toISOString()); // birth preserved
+		assert.equal(second.record.lastSeen, T1.toISOString()); // refreshed
+		assert.equal(second.record.transcriptPath, "/moved/path.jsonl");
+		// exactly ONE .meta.json on disk (idempotent — no shadow record)
+		const metas = fs.readdirSync(dir).filter((f) => f.endsWith(".meta.json"));
+		assert.deepEqual(metas, [`${first.record.gardenId}.meta.json`]);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+check("upsertMetaSession: creates the store dir if absent; leaves no .tmp residue", () => {
+	const base = fs.mkdtempSync(path.join(os.tmpdir(), "meta-session-store-"));
+	const dir = path.join(base, "nested", "meta-sessions"); // does not exist yet
+	try {
+		const res = upsertMetaSession({ dir, input: claudeInput(), now: T0 });
+		assert.ok(fs.existsSync(res.path));
+		const residue = fs.readdirSync(dir).filter((f) => f.includes(".tmp-"));
+		assert.deepEqual(residue, []); // atomic write cleaned up
+	} finally {
+		fs.rmSync(base, { recursive: true, force: true });
+	}
+});
+
+expectThrows("upsertMetaSession: duplicate nativeSessionId in the store throws (fail-fast)", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "meta-session-store-"));
+	try {
+		// Two records sharing a nativeSessionId already on disk → ambiguous authority.
+		const a = mintMetaRecord(claudeInput({ nativeSessionId: "dup" }), T0);
+		const b = mintMetaRecord(claudeInput({ nativeSessionId: "dup" }), T1);
+		fs.writeFileSync(path.join(dir, metaRecordFilename(a)), serializeMetaRecord(a));
+		fs.writeFileSync(path.join(dir, metaRecordFilename(b)), serializeMetaRecord(b));
+		upsertMetaSession({ dir, input: claudeInput({ nativeSessionId: "dup" }), now: T1 });
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+check("defaultMetaSessionsDir: honors PI_META_SESSIONS_DIR then PI_CODING_AGENT_DIR", () => {
+	const saved = { m: process.env.PI_META_SESSIONS_DIR, a: process.env.PI_CODING_AGENT_DIR };
+	try {
+		process.env.PI_META_SESSIONS_DIR = "/explicit/meta";
+		assert.equal(defaultMetaSessionsDir(), "/explicit/meta");
+		process.env.PI_META_SESSIONS_DIR = "";
+		delete process.env.PI_META_SESSIONS_DIR;
+		process.env.PI_CODING_AGENT_DIR = "/iso/agent";
+		assert.equal(defaultMetaSessionsDir(), path.join("/iso/agent", "meta-sessions"));
+	} finally {
+		if (saved.m === undefined) delete process.env.PI_META_SESSIONS_DIR;
+		else process.env.PI_META_SESSIONS_DIR = saved.m;
+		if (saved.a === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = saved.a;
 	}
 });
 

@@ -16,9 +16,8 @@
 #
 # TWO TIERS (mirrors smoke-compaction-policy: deterministic default + LIVE=1 add-on)
 #   DETERMINISTIC (default; free, offline, CI/pre-commit safe):
-#     A. VERSION PINS  — the three backends are measured at the pinned versions; any
-#        drift is reported loudly (the undocumented behaviors were verified at these
-#        versions, so a bump invalidates the binary-marker assumptions until re-checked).
+#     A. VERSION LINE PINS — the three backends stay on the pinned MAJOR.MINOR
+#        lines. Patch drift is tolerated; minor/major drift screams.
 #     B. BINARY MARKERS — the undocumented-behavior identifiers must still be PRESENT in
 #        the installed Claude binary (binary cross-validation). A marker dropping to
 #        zero = the behavior was renamed/removed = the delivery path is dead = SCREAM.
@@ -28,9 +27,13 @@
 #        (a bare skill cannot — structural, see README). This is the end-to-end
 #        confirmation that arming still works on this build.
 #
-# PIN DRIFT NOTE (2026-06-05): NEXT.md / #30 bbot review wrote "agy 0.136" — that was
-#   a conflation with codex-cli 0.136.0. Measured truth on this host: agy 1.0.5. The
-#   pins below are the MEASURED values, not the prose; fix the prose, trust the gate.
+# PIN POLICY (2026-06-05): pins are MAJOR.MINOR lines, not exact patches. Claude
+#   ships ~weekly (observed 2.1.163 -> 2.1.165 same day, all 9 markers unchanged),
+#   so an exact-patch pin screams on every bump and the signal is lost. The
+#   binary-marker check (B) is the real net and runs against whatever patch is
+#   installed; the version check (A) only fires on a MINOR/MAJOR move, which is the
+#   genuine "re-verify markers + Gotchas + raw/LIVE probes" trigger. (bbot's
+#   "agy 0.136" was a conflation with codex-cli 0.136.0; agy's line is 1.0.)
 #
 # USAGE: ./run.sh smoke-meta-async-drift   (LIVE=1 to add the plugin watch-arm probe)
 set -euo pipefail
@@ -38,10 +41,18 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAW_DIR="$HERE/raw-async-delivery"
 
-# --- pinned versions (MEASURED, the verification baseline) ---------------------
-PIN_CLAUDE="2.1.163"
-PIN_CODEX="0.136.0"
-PIN_AGY="1.0.5"
+# --- pinned MINOR lines (major.minor; PATCH is intentionally NOT pinned) --------
+# Claude/codex/agy ship fast. A PATCH bump (e.g. 2.1.163 -> 2.1.165) almost never
+# touches the undocumented delivery behavior — the binary-marker cross-validation
+# in section B is the real safety net and runs against whatever patch is actually
+# installed. Pinning the patch made the sentinel scream on every weekly bump =
+# signal lost (observed 2026-06-05: 2.1.163 -> 2.1.165, all 9 markers unchanged).
+# So pin the MINOR line; a MINOR/MAJOR move (2.1.x -> 2.2 / 3.x, 0.136 -> 0.137,
+# 1.0 -> 1.1) is the real "re-verify the markers + Gotchas + raw/LIVE probes"
+# trigger and DOES scream.
+PIN_CLAUDE_MINOR="2.1"
+PIN_CODEX_MINOR="0.136"
+PIN_AGY_MINOR="1.0"
 
 # --- undocumented-behavior identifiers that the delivery path rides on ---------
 # Each MUST stay present in the installed Claude binary. Zero = drift = SCREAM.
@@ -64,37 +75,50 @@ cry()    { echo "  DRIFT!: $*"; scream=$((scream+1)); }
 section(){ echo; echo "== $* =="; }
 
 # ---------------------------------------------------------------------------- A
-section "A. VERSION PINS (drift = undocumented-behavior assumptions may be stale)"
+section "A. VERSION LINE PINS (minor/major drift = undocumented-behavior assumptions may be stale)"
+
+# major.minor of an X.Y.Z token ("2.1.165" -> "2.1", "0.136.0" -> "0.136").
+minor_of() { printf '%s' "$1" | cut -d. -f1-2; }
+extract_semver() { printf '%s' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true; }
 
 check_version() {
-  local name="$1" pin="$2" raw="$3"
+  local name="$1" pin_minor="$2" raw="$3"
   if [ -z "$raw" ]; then
-    echo "  SKIP: $name not on PATH (cannot verify pin $pin)"; return
+    echo "  SKIP: $name not on PATH (cannot verify pinned minor ${pin_minor}.x)"; return
   fi
-  # extract first dotted version token (handles "2.1.163 (Claude Code)", "codex-cli 0.136.0", "1.0.5")
-  local got
-  got="$(printf '%s' "$raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "$got" = "$pin" ]; then
-    ok "$name $got == pinned $pin"
+  # extract first dotted version token (handles "2.1.165 (Claude Code)", "codex-cli 0.136.0", "1.0.5")
+  local got got_minor
+  got="$(extract_semver "$raw")"
+  if [ -z "$got" ]; then
+    cry "$name version output did not contain an X.Y.Z token (raw: $raw) — cannot verify pinned minor ${pin_minor}.x"
+    return
+  fi
+  got_minor="$(minor_of "$got")"
+  if [ "$got_minor" = "$pin_minor" ]; then
+    ok "$name $got within pinned minor ${pin_minor}.x (patch drift ignored)"
   else
-    cry "$name $got != pinned $pin — re-verify binary markers + Gotchas on the new build, then bump the pin"
+    cry "$name $got left pinned minor ${pin_minor}.x — re-verify binary markers + Gotchas + raw/LIVE probes on the new minor, then bump the pin"
   fi
 }
 
-check_version claude "$PIN_CLAUDE" "$(claude --version 2>/dev/null || true)"
-check_version codex  "$PIN_CODEX"  "$(codex  --version 2>/dev/null || true)"
-check_version agy    "$PIN_AGY"    "$(agy    --version 2>/dev/null || true)"
+CLAUDE_RAW="$(claude --version 2>/dev/null || true)"
+check_version claude "$PIN_CLAUDE_MINOR" "$CLAUDE_RAW"
+check_version codex  "$PIN_CODEX_MINOR"  "$(codex  --version 2>/dev/null || true)"
+check_version agy    "$PIN_AGY_MINOR"    "$(agy    --version 2>/dev/null || true)"
+# Full patch version drives binary resolution in section B (the marker check must
+# run against the ACTUAL installed patch, not a hardcoded one).
+CLAUDE_FULL="$(extract_semver "$CLAUDE_RAW")"
 
 # ---------------------------------------------------------------------------- B
 section "B. BINARY MARKERS (undocumented Claude delivery behavior still present?)"
 
 # Resolve the installed Claude binary. `claude` on PATH is a launcher shim; the
-# real bundle lives under ~/.local/share/claude/versions/<ver>. Prefer the pinned
-# version file; fall back to the newest if the pin moved.
+# real bundle lives under ~/.local/share/claude/versions/<ver>. Use the ACTUAL
+# installed patch (from `claude --version`); fall back to the newest on disk.
 CLAUDE_BIN=""
 CLAUDE_VER_DIR="$HOME/.local/share/claude/versions"
-if [ -f "$CLAUDE_VER_DIR/$PIN_CLAUDE" ]; then
-  CLAUDE_BIN="$CLAUDE_VER_DIR/$PIN_CLAUDE"
+if [ -n "$CLAUDE_FULL" ] && [ -f "$CLAUDE_VER_DIR/$CLAUDE_FULL" ]; then
+  CLAUDE_BIN="$CLAUDE_VER_DIR/$CLAUDE_FULL"
 elif [ -d "$CLAUDE_VER_DIR" ]; then
   CLAUDE_BIN="$(ls -1t "$CLAUDE_VER_DIR" 2>/dev/null | head -1 | sed "s#^#$CLAUDE_VER_DIR/#")"
 fi
@@ -144,4 +168,4 @@ if [ "$fail" -gt 0 ]; then
   echo "  FAIL: $fail check(s) failed."
   exit 1
 fi
-echo "  OK: meta-async drift sentinel green at pinned versions."
+echo "  OK: meta-async drift sentinel green at pinned minor lines."
