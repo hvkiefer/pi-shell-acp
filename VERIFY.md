@@ -40,6 +40,8 @@ These supersede the per-section rules they touch — the original sections are k
 
 Every claim in this document — and every History entry — implicitly sits on one of these rungs. Make the rung explicit so neither narrative nor reader overreaches.
 
+> **Namespace note.** These `L0–L5` rungs measure evidence quality for bridge verification. Native async message delivery has its own capability namespace, `D0–D8`, in [DELIVERY.md](./DELIVERY.md). Do not conflate "high-quality evidence" with "high delivery capability": a backend can have L3 evidence for only D0/D1 capability, or L2 evidence for D6 capability that still needs L3 corroboration.
+
 | Level | What it is | Closes | Does not close |
 |---|---|---|---|
 | **L0** | Narrative / self-report | Author/agent description of the system | Anything that depends on actual behaviour |

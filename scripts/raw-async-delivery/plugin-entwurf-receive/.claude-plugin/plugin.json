@@ -1,0 +1,5 @@
+{
+	"name": "entwurf-receive",
+	"version": "0.1.0",
+	"description": "Entwurf async receive mode for Claude Code — a portable, drop-in plugin that arms a PER-SESSION mailbox watch at SessionStart (watchPaths = $CC_MAILBOX_ROOT/<session_id>/inbox.signal) so an IDLE subscription session can be woken by an addressed external file-write (agy send-message parity; pair with cc-enqueue-addressed.sh). Only the targeted session wakes — siblings stay idle. This is the plugin form that a bare .claude/skills/ skill CANNOT achieve: plugin hooks register at startup, so the SessionStart hook actually fires and registers watchPaths. A bare skill's hooks register only on invocation (mid-session), after SessionStart has already passed."
+}

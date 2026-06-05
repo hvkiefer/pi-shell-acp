@@ -6,7 +6,7 @@ Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) insid
 
 [![npm](https://img.shields.io/npm/v/@junghanacs/pi-shell-acp.svg?logo=npm&label=%40junghanacs%2Fpi-shell-acp)](https://www.npmjs.com/package/@junghanacs/pi-shell-acp) · maintained by [junghanacs.com](https://junghanacs.com/)
 
-> **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md).
+> **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
 
 ![pi-shell-acp demo](docs/assets/pi-shell-acp-demo.gif)
 

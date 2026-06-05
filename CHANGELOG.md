@@ -6,6 +6,10 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 Evidence-closure work on top of 0.9.0's garden-native identity. No runtime behavior change: it strengthens two live gates so 0.9.0's guarantees are proven *directly* rather than indirectly, and trims a stale follow-up.
 
+### Added (verification docs)
+
+- **`DELIVERY.md` defines native async-delivery capability levels (`D0–D8`) for live external sessions.** This gives Claude Code, Antigravity/agy, Codex, and pi-native Entwurf a shared diagnostic coordinate system for "can an already-running session receive async work?" without collapsing transport-specific facts into a vague works/doesn't-work claim. Companion raw probes live under `scripts/raw-async-delivery/`; current evidence records Claude Code `FileChanged`/`watchPaths`/`asyncRewake` idle wake, agy native `send-message`, and Codex direct-TUI vs app-server split.
+
 ### Changed (test harness — evidence closure)
 
 - **`cross-cwd-resume-smoke` now asserts append-not-recreate at the file/id level (T5), not just by recall.** The cross-cwd resume gate (`verify-resume` Phase 2) proved the issue-#9 fix *semantically* — the sentinel was recalled across the cwd boundary — but never directly asserted that the resume **appended to the one true session file** rather than silently minting a shadow session in the resumer's cwd. Around the existing recall, the smoke now captures a structural baseline after spawn and re-checks it after resume: (a) exactly one session file carries the header id before and after (no shadow minted anywhere), (b) it is the same file, appended in place (turn count grew), (c) the header id and cwd never drifted (resume authority stays = header, never the resumer's process cwd), and (d) no session for that id exists under the resumer's (wrong) cwd session dir. Live-verified: spawn at a scratch project dir, resume from `$HOME`, same file appended (turns 1→2), header id/cwd stable, no shadow under the resumer's (`$HOME`) session dir.

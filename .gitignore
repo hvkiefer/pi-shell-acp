@@ -16,6 +16,11 @@ CHECKLIST.md
 *.html
 *.cast
 
+# Python bytecode cache — raw-async-delivery probes are run-as-script, the
+# __pycache__/*.pyc artifacts are regenerated and never tracked.
+__pycache__/
+*.pyc
+
 # Local `pnpm pack` / `npm pack` artifacts produced by `./run.sh check-pack-install`
 # and the publish-prep smoke flow. The real publish artifact is fetched from npm.
 *.tgz

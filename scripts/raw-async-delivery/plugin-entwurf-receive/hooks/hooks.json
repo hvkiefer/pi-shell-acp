@@ -1,0 +1,28 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PLUGIN_ROOT}/scripts/watch-sessionstart.sh"
+					}
+				]
+			}
+		],
+		"FileChanged": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PLUGIN_ROOT}/scripts/watch-filechanged.sh",
+						"asyncRewake": true,
+						"timeout": 20
+					}
+				]
+			}
+		]
+	}
+}

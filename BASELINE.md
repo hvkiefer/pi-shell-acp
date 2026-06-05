@@ -31,8 +31,9 @@ listed failure modes, **NOTE** = scope or interpretation hint.
 > **Layer naming.** `L1–L5` here are *surface isolation layers* on the
 > overlay matrix (carrier / memory path / tools / context discovery /
 > memory containment). VERIFY.md's `L0–L5` are *evidence quality levels*
-> (smoke → soak). Different namespaces, same letters — context
-> disambiguates.
+> (smoke → soak). DELIVERY.md's `D0–D8` are *native async-delivery
+> capability levels* (live-session identity → operational robustness).
+> Different namespaces, same letters/numbers — context disambiguates.
 
 > **Backend scope.** `Q-B0`, `Q-L1`, `Q-L5R`, `Q-L5W`, and `Q-MCP` are
 > bridge-contract checks that run identically against any backend.
