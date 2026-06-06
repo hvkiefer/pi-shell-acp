@@ -66,10 +66,17 @@ Usage:
   ./run.sh smoke-meta-async-drift     # 1.0.0 meta-bridge step 1: drift sentinel — version pins + Claude binary undocumented-behavior markers (LIVE=1 adds plugin watch-arm probe)
   ./run.sh smoke-meta-honesty         # 1.0.0 meta-bridge: honesty regression gate (#30 blockers) — doorbell counts ALL msgs honestly + hook logs failures as ERROR (best-effort, no scream). Offline/deterministic (deps: bash+node+python3)
   ./run.sh smoke-meta-install-state   # 1.0.0 meta-bridge Phase 2: stateful install/uninstall + store-doctor regression gate. Offline/deterministic (deps: bash+node+python3)
+  ./run.sh smoke-meta-prune           # 1.0.0 meta-bridge Phase 4: listing-only store janitor regression gate — classify keep/orphan/stale/ambiguous, delete nothing. Offline/deterministic (deps: bash+node)
+  ./run.sh smoke-meta-keyset-guard    # 0.10.0 meta-bridge: keyset-owner guard regression — check-keyset-overlap + managed-keys SSOT (disjoint passes, collisions fail). Offline/hermetic (deps: bash+python3)
+  ./run.sh smoke-meta-mailbox         # 0.10.0 meta-bridge defense C: mailbox messaging E2E — entwurf_send fallback → enqueue → entwurf_inbox_read + receipt (replyable/external), zero Claude turns. Offline/hermetic (deps: bash+node+python3)
+  ./run.sh smoke-meta-sender-identity # 0.10.0 meta-bridge: native SENDER identity E2E — parent-pid sender marker promotes anonymous MCP send to replyable meta-session (garden-id), REQUIRE_META_SENDER refuses anonymous. Offline/hermetic (deps: bash+node+python3)
 
   ./run.sh install-meta-bridge        # 1.0.0 meta-bridge Phase 2: stateful GLOBAL install (plugin + USER MCP + settings keyset, honest uninstall state)
   ./run.sh uninstall-meta-bridge      # 1.0.0 meta-bridge Phase 2: stateful GLOBAL uninstall (restore only keys/items captured in install-state)
   ./run.sh doctor-meta-bridge         # 1.0.0 meta-bridge Phase 2: fail-loud doctor — toolchain + state + plugin/MCP + store scan + hook errors + SessionStart evidence
+  ./run.sh meta-bridge-prune          # 1.0.0 meta-bridge Phase 4: LISTING-ONLY store hygiene — classify orphan/stale/ambiguous/keep, print manual rm commands, delete NOTHING ([dir] [--ttl-days N])
+  ./run.sh meta-bridge-managed-keys   # 0.10.0 meta-bridge: print the SSOT of settings keys pi-shell-acp OWNS (consumers read this to stay disjoint — keyset-owner invariant)
+  ./run.sh check-keyset-overlap <fragment.json...>  # 0.10.0 meta-bridge: PREVENTIVE keyset guard — fail if a consumer fragment collides with any pi-owned key (cross-repo; not in pnpm check)
   ./run.sh check-backends             # local deterministic check of backend launch resolution + backend-specific _meta shape
   ./run.sh check-registration         # local deterministic check of per-runtime provider registration semantics
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md + pi devDeps/peer pins) agree
@@ -1230,9 +1237,10 @@ check_async_resume_gate() {
   # Deterministic gate for the MCP `entwurf_resume` mode resolution (Phase B
   # Step 3 of the async-resume regression repair). The handler at mcp/pi-
   # tools-bridge/src/index.ts uses `resolveEntwurfResumeMode` (extracted into
-  # mcp/pi-tools-bridge/src/resume-mode.ts) to apply the asymmetric-mitsein
-  # discriminator: async if the caller is replyable, sync if external, reject
-  # if external + explicit async. This gate pins the resolution against the
+  # mcp/pi-tools-bridge/src/resume-mode.ts) to apply the async-followUp
+  # discriminator: async only for a pi-session caller (owns a control socket),
+  # sync for external hosts AND meta-sessions, reject on explicit async from a
+  # non-pi-session caller. This gate pins the resolution against the
   # 6 input cases plus 3 invariants so a future edit cannot silently turn the
   # discriminator back into a static default (which would invert the external
   # MCP host UX). No process spawn, no socket, no API cost.
@@ -3494,7 +3502,7 @@ function finishOk(trimmed) {
     process.exit(1);
   }
   const names = tools.map((t) => t?.name).sort();
-  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send', 'entwurf_self'];
+  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send', 'entwurf_self', 'entwurf_inbox_read'];
   for (const name of expected) {
     if (!names.includes(name)) {
       console.error(`missing MCP tool: ${name}`);
@@ -4066,6 +4074,37 @@ case "$cmd" in
     # CI/pnpm-check safe.
     (cd "$REPO_DIR" && bash scripts/smoke-meta-honesty.sh)
     ;;
+  smoke-meta-prune)
+    # 1.0.0 meta-bridge Phase 4 regression gate: synthetic store covering every
+    # class (keep/orphan/stale/duplicate/corrupt/drift) proves meta-bridge-prune
+    # classifies correctly, exits 0, and deletes NOTHING (listing-only invariant).
+    # Offline/deterministic (deps: bash+node).
+    (cd "$REPO_DIR" && bash scripts/smoke-meta-prune.sh)
+    ;;
+  smoke-meta-sender-identity)
+    # 0.10.0 meta-bridge blocker: deterministic E2E for native SENDER identity.
+    # A SessionStart-written sender marker (parent-pid keyed; PI_META_SENDER_MARKER
+    # overrides for the test) promotes an anonymous user-scope MCP send into a
+    # REPLYABLE meta-session addressed by garden-id, and REQUIRE_META_SENDER refuses
+    # anonymous sends. A↔B round-trip + reject, zero Claude turns. Offline/hermetic
+    # (deps: bash+node+python3).
+    (cd "$REPO_DIR" && bash scripts/smoke-meta-sender-identity.sh)
+    ;;
+  smoke-meta-mailbox)
+    # 0.10.0 meta-bridge defense C: deterministic E2E for the mailbox messaging
+    # axis. entwurf_send fallback (empty PI_ENTWURF_DIR forces no-socket) → meta
+    # mailbox enqueue → entwurf_inbox_read drain + lastReadAt receipt, for both a
+    # replyable and an external sender, with ZERO Claude turns. Offline/hermetic
+    # (deps: bash+node+python3).
+    (cd "$REPO_DIR" && bash scripts/smoke-meta-mailbox.sh)
+    ;;
+  smoke-meta-keyset-guard)
+    # 0.10.0 meta-bridge regression gate: the PREVENTIVE keyset guard
+    # (check-keyset-overlap) + managed-keys SSOT. Synthetic fragments prove a
+    # disjoint consumer passes and exact/array/parent-child collisions fail loud.
+    # Offline/hermetic (deps: bash+python3).
+    (cd "$REPO_DIR" && bash scripts/smoke-meta-keyset-guard.sh)
+    ;;
   smoke-meta-install-state)
     # 1.0.0 meta-bridge Phase 2 regression gate: state file captures pre-install
     # values, install/uninstall touches only the managed keyset, uninstall refuses
@@ -4094,6 +4133,32 @@ case "$cmd" in
     # no-ERROR, and actual SessionStart creation evidence. A plugin present with
     # zero claude-code meta-records is a SILENT MISS -> non-zero exit.
     (cd "$REPO_DIR" && bash scripts/meta-bridge-doctor.sh "$@")
+    ;;
+  meta-bridge-prune)
+    # 1.0.0 meta-bridge Phase 4: LISTING-ONLY janitor for the meta-session store.
+    # doctor reds on corrupt/duplicate/drift but intentionally does NOT fail on
+    # transcript-gone records, so a green store can silently bloat with abandoned
+    # records. This surface CLASSIFIES (orphan/stale/ambiguous/keep) and prints
+    # the exact manual rm commands. It deletes NOTHING — no --apply in 1.0.0;
+    # ambiguous (corrupt/duplicate/drift) stays manual-only (operator picks the
+    # surviving authority). Default store = defaultMetaSessionsDir(); pass [dir]
+    # + [--ttl-days N] to override.
+    shift || true
+    (cd "$REPO_DIR" && node --experimental-strip-types scripts/meta-bridge-prune.ts "$@")
+    ;;
+  meta-bridge-managed-keys)
+    # 0.10.0 meta-bridge: emit the SSOT of settings.json/~/.claude.json keys that
+    # pi-shell-acp's install OWNS. Consumers (agent-config fragment, future
+    # harnesses) read this to set only their OWN keys — the keyset-owner invariant.
+    (cd "$REPO_DIR" && python3 scripts/meta-bridge-state.py managed-keys)
+    ;;
+  check-keyset-overlap)
+    # 0.10.0 meta-bridge: PREVENTIVE half of the keyset guard. Fails loud if a
+    # consumer fragment sets a key pi-shell-acp owns (exact or ancestor/descendant).
+    # Cross-repo + non-hermetic (fragment path is an arg) → NOT in pnpm check;
+    # its own logic is regression-tested hermetically by smoke-meta-keyset-guard.
+    shift || true
+    (cd "$REPO_DIR" && python3 scripts/check-keyset-overlap.py "$@")
     ;;
   check-plugin-empty-final-recovery)
     check_plugin_empty_final_recovery

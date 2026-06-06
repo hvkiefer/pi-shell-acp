@@ -185,9 +185,12 @@ Reference shape lives in [`pi/settings.reference.json`](./pi/settings.reference.
 
 ### Wiring `pi-tools-bridge` into an external MCP host
 
-`pi-tools-bridge` can also be registered in a separate MCP-aware harness (Claude Code, Codex CLI, Antigravity/`agy`, …). That host does **not** become a pi session and does **not** need to be ACP-backed. This is the Asymmetric Mitsein path: the external harness calls pi tools over MCP, while outcome ownership stays honest.
+`pi-tools-bridge` can also be registered in a separate MCP-aware harness (Claude Code, Codex CLI, Antigravity/`agy`, …). That host does **not** become a pi session and does **not** need to be ACP-backed. There are now two honest cases:
 
-Observed 2026-05-28: Claude Code, Codex CLI, and Antigravity CLI all successfully called `entwurf` and then `entwurf_resume` through this MCP bridge against `gpt-5.4`. In all three external-host cases, sync result delivery was the correct baseline.
+- **plain external MCP host**: no garden meta-record / sender marker. It can call tools, but its sender envelope is external/non-replyable.
+- **garden-native meta-session**: the native `SessionStart` hook minted a garden id and wrote a trusted sender marker. It is not a pi control-socket session, but it **is replyable by garden id** for `entwurf_send`.
+
+Observed 2026-05-28: Claude Code, Codex CLI, and Antigravity CLI all successfully called `entwurf` and then `entwurf_resume` through this MCP bridge against `gpt-5.4`. In all three plain external-host cases, sync result delivery was the correct baseline. Meta-sessions keep that sync baseline for `entwurf_resume` (no pi followUp channel), but `entwurf_send` is symmetric/replyable over the mailbox once sender identity is proven.
 
 Prerequisites on the host running the external MCP client:
 
@@ -217,12 +220,13 @@ Then add it to the external MCP config:
 
 Emergency/manual workaround when the MCP server environment is wrong but an existing entwurf session must be resumed: run `pi --session /path/to/entwurf.jsonl ...` from an interactive shell whose PATH is known-good. Treat this as a debug escape hatch, not a replacement for fixing the MCP launch environment.
 
-External-host semantics:
+External/meta-session semantics:
 
 - `entwurf` works directly and returns the sync spawn result inline.
-- `entwurf_resume` defaults to sync for external non-replyable hosts; explicit `mode="async"` is rejected because completion followUp has no pi-session address.
-- `entwurf_send` delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
-- `entwurf_self` refuses to return — it requires a pi session sender envelope (`PI_SESSION_ID` + `PI_AGENT_ID`).
+- `entwurf_resume` defaults to sync for plain external hosts **and** meta-sessions; explicit `mode="async"` is rejected unless the caller is a replyable pi control-socket session, because completion followUp needs a pi session address.
+- `entwurf_send` from a plain external host delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
+- `entwurf_send` from a trusted meta-session delivers with `origin: "meta-session"` / `replyable: true`; `wants_reply: true` is allowed and the receiver can reply to the sender's garden id.
+- `entwurf_self` still refuses to return outside pi — it requires a pi session sender envelope (`PI_SESSION_ID` + `PI_AGENT_ID`). For a meta-session, read its garden id from the meta-record / statusline / inbox envelope, not `entwurf_self`.
 
 #### Claude Code
 
@@ -295,7 +299,7 @@ Use the same server entry in either file:
 
 #### External-host skills and commands
 
-MCP registration gives the external harness the tools; the host still needs workflow guidance. Put the Asymmetric Mitsein rules in that host's instruction file or, when supported, as a host-native skill. Do not assume pi slash commands are portable across external hosts — if a workflow must work across Claude Code, Codex CLI, Antigravity, and future hosts, make it a skill or MCP tool rather than a command shortcut.
+MCP registration gives the external harness the tools; the host still needs workflow guidance. Put the Mitsein-over-MCP (cross-harness collaboration) rules in that host's instruction file or, when supported, as a host-native skill. Do not assume pi slash commands are portable across external hosts — if a workflow must work across Claude Code, Codex CLI, Antigravity, and future hosts, make it a skill or MCP tool rather than a command shortcut.
 
 For the maintained multi-harness setup and skill/command packaging details, see `agent-config`. See also the MCP entry in [Concept primer](#concept-primer), the sender envelope contract in [AGENTS.md](./AGENTS.md), and [Custom skills](#custom-skills) for the in-pi ACP skill surface.
 
@@ -356,7 +360,7 @@ For a real consumer arranging many skills, see [agent-config](https://github.com
 
 **Entwurf is a pi capability with two surfaces.** Native pi exposes it directly as an extension tool; ACP-backed sessions reach the same capability through pi-shell-acp's MCP/Unix-socket bridge. The purpose is not to invent a different sub-agent system, but to preserve the same sibling-based model across backends.
 
-Spawning creates a sibling, not a worker, delegate, or sub-agent — the spawned session has its own runtime boundary and its own provider/model identity. Resume preserves model identity (no override). Native pi `entwurf` / `entwurf_resume` default to `async`; `sync` is opt-in for short status checks (<5s). On the MCP bridge, `entwurf` spawn remains sync-only, while `entwurf_resume` uses a conditional default: replyable pi-session callers get async followUp delivery, external non-replyable MCP hosts get sync and cannot request async.
+Spawning creates a sibling, not a worker, delegate, or sub-agent — the spawned session has its own runtime boundary and its own provider/model identity. Resume preserves model identity (no override). Native pi `entwurf` / `entwurf_resume` default to `async`; `sync` is opt-in for short status checks (<5s). On the MCP bridge, `entwurf` spawn remains sync-only, while `entwurf_resume` uses a conditional default: only pi-session callers with a control socket get async followUp delivery; plain external hosts and garden-native meta-sessions get sync and cannot request async.
 
 A two-pane recording covers the surface end-to-end — sibling spawn, cross-process MCP resume across a different cwd, and a live peer greeting through `entwurf_send`:
 
@@ -367,7 +371,7 @@ A two-pane recording covers the surface end-to-end — sibling spawn, cross-proc
 
 </details>
 
-Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same envelope for the current session. External MCP hosts can call `entwurf_send` with a marked non-replyable envelope, while `entwurf_self` remains pi-session-only. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected from non-replyable external senders.
+Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same envelope for the current pi session. Plain external MCP hosts can call `entwurf_send` with a marked non-replyable envelope. Garden-native meta-sessions call it with a trusted `meta-session` envelope and are replyable by garden id. `entwurf_self` remains pi-session-only. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected only from non-replyable external senders.
 
 In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
@@ -407,7 +411,7 @@ Enforcement (no uuid / back-compat path): a `--entwurf-control` session whose id
 
 The human-greeted 담당자 pattern is first-class: the operator opens a pi-shell-acp session in repo B, greets it directly, then passes that `sessionId` to another session via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics; only the creation sequence differs.
 
-**Asymmetric Mitsein** (비대칭 공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Gemini CLI used as a human terminal) without spawning it. The two channels are deliberately asymmetric: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. The pi-side sessionId travels inside the task instruction itself, so no second harness, no control daemon, and no transcript scraping are introduced. This is a workflow pattern, not a product surface — the bridge stays thin; the asymmetry is an honest acknowledgment of the limit, not a defect.
+**Mitsein over MCP** (공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Gemini CLI used as a human terminal) without spawning it. A plain external host is one-directional in shape: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. A garden-native meta-session closes that gap for `entwurf_send` — both sides are addressable by garden id through the mailbox, and `wants_reply` is allowed when the sender marker proves the native session identity, so send/inbox is symmetric. The one remaining asymmetry is the followUp channel: `entwurf_resume` async delivery still needs a pi control socket, which a meta-session does not have. This is still not a second harness — no control daemon and no transcript scraping are introduced; the bridge only fronts the mailbox/send surface.
 
 After a session is anchored, pi-shell-acp locks its model identity: switches that touch `pi-shell-acp` are reverted; native-to-native and pre-turn selection remain free. `ensureBridgeSession` refuses direct reuse-path mismatches before backend handoff.
 
@@ -445,7 +449,7 @@ Does not: reconstruct full history, hydrate backend transcripts into pi history,
 
 Only `pi:<sessionId>` mappings are persisted (`~/.pi/agent/cache/pi-shell-acp/sessions/`) — enough to re-attach pi to the same remote ACP session, never enough to act as a second harness. Backend stores (`~/.claude/`, `~/.codex/`, `~/.gemini/`) are interoperability side effects, not authority.
 
-This repo also doubles as the maintainer's working laboratory for agent-harness boundaries — new workflow patterns (e.g. Asymmetric Mitsein) land here first as low-level instruments, before crystallizing into invariants or graduating into more polished surfaces elsewhere.
+This repo also doubles as the maintainer's working laboratory for agent-harness boundaries — new workflow patterns (e.g. Mitsein over MCP) land here first as low-level instruments, before crystallizing into invariants or graduating into more polished surfaces elsewhere.
 
 ## Verification surfaces
 

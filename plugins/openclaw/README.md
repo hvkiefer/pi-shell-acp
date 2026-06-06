@@ -38,7 +38,7 @@ plugin instead of OpenClaw's native lanes:
 2. **`pi-tools-bridge` MCP surface.** You need `entwurf` /
    `entwurf_resume` / `entwurf_send` / `entwurf_peers` /
    `entwurf_self` as MCP tools from inside an OpenClaw turn — the
-   asymmetric Mitsein surface, not just a chat carrier.
+   Mitsein-over-MCP surface, not just a chat carrier.
 
 Neither is a typical chat use case. If your need is "talk to
 Claude / Codex through OpenClaw", the native lanes are the
@@ -48,7 +48,7 @@ correct answer.
 
 pi-shell-acp narrows from "general ACP multiplexer" toward its
 **pi-extension** role — entwurf orchestration (sibling spawn,
-resume, cross-session messaging, asymmetric Mitsein patterns).
+resume, cross-session messaging, Mitsein-over-MCP patterns).
 The Claude / Codex routes stay supported; they just stop being
 the recommended default surface for chat-shaped OpenClaw use.
 

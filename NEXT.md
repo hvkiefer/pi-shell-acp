@@ -3,7 +3,7 @@
 > 다음에 할 일만 남긴다. 로그가 아니다.
 > 결정 trace 와 evidence 는 commit history / CHANGELOG / VERIFY / BASELINE / README / AGENTS / 코드로 보낸다.
 
-## Active — 1.0.0: garden-native meta-bridge, entwurf-fronted (#30)
+## Active — 0.10.0: garden-native meta-bridge, entwurf-fronted (#30)
 
 Design is **grounded + pinned**, ready for an implementation session. SSOT for the full trace —
 do NOT re-derive here:
@@ -14,20 +14,20 @@ do NOT re-derive here:
   delivery code (idle-wake = `FileChanged` not `Stop`; plugin-not-bare-skill; stderr-only doorbell;
   infinite-loop guard; cost line; liveness SSOT = `pid.json` not WAL; …).
 
-**Target policy — 1.0.0 ships Claude Code only; the 3-backend work is evidence + seam, not scope.**
+**Target policy — 0.10.0 ships Claude Code only; the 3-backend work is evidence + seam, not scope.**
 Morning raw probes opened the async doors for all three and made them reproducible (see DELIVERY.md):
 Claude `D6` (D7/D8 partial), agy `D6+` native push, Codex embedded-TUI `D0` partial /
 app-server-backed `D6+D7`; pi-native Entwurf is the reference. That evidence is load-bearing because it
-forces the thin per-backend adapter seam (uniform garden layer + thin adapter). **But the 1.0.0 MVP
+forces the thin per-backend adapter seam (uniform garden layer + thin adapter). **But the 0.10.0 MVP
 implementation/installer/doctor is Claude Code only.** agy/Codex stay proven future adapters; do not
 let their install surfaces expand this release.
 
 **Entry model — just open the native backend (pi-entry handoff DROPPED 2026-06-05).** No pi launcher
-step, no self-transform `exec`. For 1.0.0 the operator opens Claude Code directly; the session
+step, no self-transform `exec`. For 0.10.0 the operator opens Claude Code directly; the session
 becomes a garden citizen entirely through its own `SessionStart` hook. Thinner, and it honors the
 North Star — the bridge does not compete with pi's session picker / resume UX (forcing handoff into
 the pi picker is "build a second harness"). The pi-entry handoff scenario (pi pre-mints garden-id +
-native UUID, then `exec`-replaces into `claude --resume`) is **removed from 1.0.0**; reopen only if
+native UUID, then `exec`-replaces into `claude --resume`) is **removed from 0.10.0**; reopen only if
 GLG asks. It left exactly one consequence — the load-bearing concern below — and that concern is now closed for Claude Code.
 
 > **✅ CLOSED — reliable meta-record creation on native open.** Dropping pi-entry removed the
@@ -38,7 +38,7 @@ GLG asks. It left exactly one consequence — the load-bearing concern below —
 > best-effort + log (no terminal scream); doctor is the fail-loud surface; `UserPromptSubmit` is only
 > degraded *record* backfill (cannot re-arm the watch).
 >
-> **✅ CLOSED — install/doctor, not tribal setup knowledge.** 1.0.0 now has the operator-grade Claude
+> **✅ CLOSED — install/doctor, not tribal setup knowledge.** 0.10.0 now has the operator-grade Claude
 > global installer + doctor surface: `./run.sh install-meta-bridge` assembles a repo-stable local
 > marketplace, bakes the home/profile `node` path, installs `entwurf-meta-receive@meta-bridge-local`
 > with `--scope user`, and installs/refreshes the canonical USER-scope `pi-tools-bridge` MCP entry;
@@ -81,17 +81,17 @@ GLG asks. It left exactly one consequence — the load-bearing concern below —
 - liveness = best-effort hint (per-backend mechanism differs; Claude `pid.json` SSOT, NOT db-wal —
   WAL drops on checkpoint = false dead/alive). Authority for alive/recent = `last_seen` + native
   presence. No backend reliability assumption imported.
-- install/doctor = first-class 1.0.0 surface, not docs-only. Linux/macOS supported; Windows
-  fail-fast. **Claude only for 1.0.0.** The installer owns the required Claude native wiring
+- install/doctor = first-class 0.10.0 surface, not docs-only. Linux/macOS supported; Windows
+  fail-fast. **Claude only for 0.10.0.** The installer owns the required Claude native wiring
   (plugin/global auto-load + settings changes) rather than delegating it to tribal knowledge; it may
   coordinate with `agent-config`, but core must be able to make/verify the exact required config. The
   doctor proves the actual working state and screams on silent-miss risks.
 - entwurf-fronting = extend `entwurf_*` to a meta-session peer *kind* (addressable/wakeable, not yet
   fully replyable). ACP demoted to one transport. `entwurf_send` → mailbox is the delivery axis and
-  is **in the 1.0.0 MVP for Claude**; it was only marked post-MVP when we still thought native async
+  is **in the 0.10.0 MVP for Claude**; it was only marked post-MVP when we still thought native async
   delivery might be impossible. Now that the async doors are open and reproducible, a meta-bridge
   without `entwurf_send` would be a registry demo, not a bridge. `entwurf_resume` launch-pointer /
-  pi-picker handoff remains **out of 1.0.0 unless GLG reopens it** — do not let the dropped scenario
+  pi-picker handoff remains **out of 0.10.0 unless GLG reopens it** — do not let the dropped scenario
   re-enter through a resume abstraction. The Claude doorbell self-fetches, so
   a model that ignores the notice never reads the body, and `.delivered` marks "doorbell rang", not
   "model read". Fix: **the inbox-read MCP call IS the read-receipt** — it closes the doorbell
@@ -110,12 +110,12 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
 
 **작업 모델 (2026-06-06 방향 전환 — 메타 쉘 브릿지 / Claude Code only):**
 
-오늘 #30 bbot 릴리즈 리뷰 + GLG·GPT힣 자문으로 1.0.0 정체성이 정리됨:
+오늘 #30 bbot 릴리즈 리뷰 + GLG·GPT힣 자문으로 0.10.0 정체성이 정리됨:
 
 - **정체성 = 메타 쉘 브릿지.** ACP/pi를 넘어선다. pi-native GPT 사용은 GLG 한정 usage라 다른
-  사용자(GPT 구독 없음)에겐 의미 없음 → pi 의존을 1.0.0의 전제로 두지 않는다. pi 철학은 계승:
+  사용자(GPT 구독 없음)에겐 의미 없음 → pi 의존을 0.10.0의 전제로 두지 않는다. pi 철학은 계승:
   **single 드라이버 하나만 건네준다** = 하네스별 도구세트 제한(`xt-tool-surface` 베이스라인 자산).
-- **Claude Code only.** 멀티하네스 이관은 1.0.0에 없다. 백엔드 추가는 추후, 그때 설정값을 추상화
+- **Claude Code only.** 멀티하네스 이관은 0.10.0에 없다. 백엔드 추가는 추후, 그때 설정값을 추상화
   (websearch on/off, codex/agy 내장 이미지툴 등 사용자별 선호). 지금 install 표면을 넓히지 말 것.
 - **agent-config 분담 재확정.** 심볼릭 링크 폐기. pi-shell-acp = Claude Code를 single-driver로 만드는
   bridge-owned 설정(install/uninstall/doctor). agent-config = 스킬세트 익스텐션만. 서로 자기 관심사
@@ -131,7 +131,7 @@ because it depends on the host's installed Claude binary. Do not collapse "L-evi
    `flushPendingAsyncRewakeHooks`, `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`, `FileChanged`, `rewakeMessage`,
    `hookSpecificOutput`, `CwdChanged`). `LIVE=1` adds the plugin `SessionStart` watch-arm probe.
    Negative-tested (moved pin / vanished marker → `DRIFT DETECTED` + exit 1). NOT in `release-gate`
-   yet (asserts on host's installed Claude binary → not hermetic for `pnpm check`); promote at 1.0.0
+   yet (asserts on host's installed Claude binary → not hermetic for `pnpm check`); promote at 0.10.0
    cut. Lineage: 0.8.x fail-fast tool-surface gates (bbot review #4).
 2. **DONE — meta-record schema + pure functions.** `pi-extensions/lib/meta-session.ts` +
    `./run.sh check-meta-session` (`scripts/check-meta-session.ts`, 33 assertions, in `pnpm check`).
@@ -245,12 +245,49 @@ install이 `statusLine` 키를 state로 관리하고 doctor/smoke가 wiring + fa
 **색/테마/개인취향은 agent-config 영역.** 지금은 통째로 pi-shell-acp가 소유하고, 나중에 풀기능에서
 agent-config로 일부 이관한다.
 
-**Phase 4 — NEXT: GC (블로커 3, post-release).** abandoned/duplicate meta-record 누적 + corrupt/duplicate가
-그 nativeId registration을 영구 차단하는 문제. 자동삭제 금지(authority ambiguity 정직성). 1.0.0은
-doctor 감지 + 수동 prune까지. 실제 GC는 **글로벌 설치 스킬로 에이전트가 뒷정리**(동작 로직 방해 금지)
-하거나 TTL/liveness 코드화 — 간단히 시작 후 코드화. 참고: `agent-config/.claude/skills/agent-config/`.
+**Phase 4 — DONE (listing-only, 2026-06-06): meta-store prune 표면.** abandoned meta-record 누적 문제
+(doctor는 corrupt/duplicate/drift만 red, transcript-gone은 일부러 통과 → green store가 조용히 비대).
+`./run.sh meta-bridge-prune`가 store를 scan해 **orphan**(transcript-gone) / **stale**(lastSeen>ttl,
+default 30d, `--ttl-days`) / **ambiguous**(corrupt·drift·duplicate, manual-only) / **keep**로 분류하고
+orphan·stale의 수동 `rm` 명령을 출력한다. **삭제는 아무것도 하지 않음 — `--apply` 없음**(자동삭제 금지,
+authority ambiguity 정직성). repo CLI가 schema 이해·transcript existence·분류·safety wording을 소유;
+스킬은 나중에 이 CLI를 부르는 얇은 wrapper로 충분. offline `smoke-meta-prune`(every-class 합성 store +
+no-deletion 검증)가 `pnpm check`에 편입. Landed: `scripts/meta-bridge-prune.ts`,
+`scripts/smoke-meta-prune.sh`.
 
-**비-cut 트랙 (1.0.0 메타브릿지 active 동안 끌어오지 말 것):** step 7 `entwurf_peers(includeMeta)`
+- **Phase 4 후속 (post-0.10.0, GLG 재오픈 시):** 실제 GC 자동화 — `--apply`(또는 `--print-rm` 게이트),
+  TTL/liveness 코드화, **글로벌 설치 스킬로 에이전트가 뒷정리**(동작 로직 방해 금지). corrupt/duplicate가
+  그 nativeId registration을 영구 차단하는 문제도 이 트랙. 참고: `agent-config/.claude/skills/agent-config/`.
+
+**Phase 5 — DONE (2026-06-06): native sender identity + addressee delivery.** 네이티브 세션이 받는
+쪽(addressable)뿐 아니라 **보내는 쪽도 신뢰**됨 — `SessionStart` 훅이 공유 부모 pid 키로 sender marker를
+쓰고, MCP(`PI_SESSION_ID` 없음)가 `process.ppid`로 그 marker를 읽어 send를 replyable
+`meta-session`(garden-id)으로 승격. marker는 `ownerPid`+boot-unique `ownerStartKey`라 pid-reuse는
+거절. `PI_TOOLS_BRIDGE_REQUIRE_META_SENDER=1`(Claude user-scope install이 설정)이 **anonymous-send 구멍**을
+막음. `entwurf_resume` async 판별자는 `replyable`이 아니라 **`origin==="pi-session"`**으로 교정 —
+meta-session은 mailbox-replyable이지만 control socket이 없어 async followUp 불가 → sync. preventive
+keyset-overlap 가드(`check-keyset-overlap`)도 추가. Landed: `smoke-meta-sender-identity`,
+`smoke-meta-mailbox`, `smoke-meta-keyset-guard`, `check-async-resume-gate`(19 assertions) — 전부 `pnpm check`.
+
+**Hardening — DONE (2026-06-06):** (1) **doctor fail-loud 복원** — `[managed config state]`가 `set -e`
+조기 종료로 drift detail 없이 죽던 버그를 `if` 조건으로 교정, `smoke-meta-install-state`에 hermetic
+regression(negative-tested). (2) **#34 D8 level-triggered body-drain 가드** — 한 번의 `readMetaInbox`가
+디렉토리 전체를 드레인(coalesced/lost signal에도 무손실)함을 `check-meta-session`이 3-message로
+assert(negative-tested). DELIVERY.md D8 문구는 GPT가 정돈 중.
+
+**다음 한 걸음 — 0.10.0 cut readiness.** 구현(Phase 0~5) + hardening 다 landed. **문서 일차 준비 완료**
+(package.json `0.10.0`, CHANGELOG `## 0.10.0 — 2026-06-06` 헤더/라벨 정렬 + Phase 5/doctor/#34 D8 항목
+추가; GPT 2차 리뷰 예정). 남은 cut 작업: (a) `smoke-meta-async-drift`를 `release-gate`로 승격(host
+Claude binary 의존이라 `pnpm check` 밖) + (b) GLG 머신에서 `install-meta-bridge` → `doctor-meta-bridge`
+live 재확인(현재 새 `desired_mcp`의 `REQUIRE_META_SENDER` 때문에 drift 상태) + (c) 커밋 + 0.10.0
+태그/push/stamp(`tag-release` skill). scope creep 주의: 여기서 `--apply`/자동 GC로 새지 말 것 — 위 Phase 4
+후속 트랙은 post-0.10.0.
+
+**#34 잔여 (post-0.10.0 트랙, doc 제외):** empirical probe 4종(FileChanged coalescing bound /
+active-turn arrival / watchPath 고갈 / compact-window) + unread-mailbox heartbeat backstop. deterministic
+절반(catalog 1–4 + level-trigger)은 닫힘. DELIVERY.md D8 문구는 이번 컷(GPT).
+
+**비-cut 트랙 (0.10.0 메타브릿지 active 동안 끌어오지 말 것):** step 7 `entwurf_peers(includeMeta)`
 (메타세션 발견성 — 가치 있으나 릴리즈는 install/doctor 우선), 0.9 follow-ups, dep bump,
 `incompatible_config`, #25 bridge-hygiene. GLG가 재오픈할 때만.
 
@@ -262,7 +299,7 @@ inject imperatives through a hook channel.
 
 Closes two 0.9.0 carried follow-ups by making indirect proofs direct, plus one stale-item trim.
 **No release** — runtime behavior is unchanged and there is no user-facing value, so this stays on
-`0.9.0` with the entry under `## Unreleased`; a tag waits for 1.0.0 or a real runtime/user-facing
+`0.9.0` with the entry under `## Unreleased`; a tag waits for 0.10.0 or a real runtime/user-facing
 patch (cutting 0.9.1 for gate hygiene would only add version noise). Code + live evidence landed.
 
 - **DONE — cross-cwd resume append-not-recreate (T5).** `cross-cwd-resume-smoke.ts` now asserts at
@@ -304,14 +341,21 @@ binary — set_config_option support is unverifiable statically). The critical O
 thinking-blocks fix is already in the pinned 0.39.0, so the entwurf identity line needs nothing
 from 0.40.0. Bump `~/sync/org/setup/update-claude.sh` pin in lockstep when this lands.
 
-## Standing focus — Asymmetric Mitsein with Claude Code
+## Standing focus — Mitsein over MCP: plain external vs garden-native meta-session
 
 상시 초점: `pi-shell-acp` 를 OpenClaw plugin 으로 더 미는 것보다, **pi session ↔ Claude Code /
 external MCP host ↔ pi-tools-bridge ↔ entwurf** 가 서로 다른 하네스 정체성을 유지하면서 함께
 일하는 시나리오를 검증한다.
 
+2026-06-06 전환: 예전 "외부 MCP host = non-replyable" 비대칭은 **plain external** 에만 맞다.
+Claude Code native 가 meta-bridge `SessionStart` 로 garden citizen 이 되고 sender marker 까지 쓰면
+그 세션은 pi control-socket 은 아니지만 `entwurf_send` 에서는 **replyable meta-session** 이다.
+즉 send/inbox는 대칭 공존으로 닫혔고, 남은 비대칭은 `entwurf_resume` async followUp 같은
+pi control-socket 전용 채널이다.
+
 핵심 질문:
-- 외부 MCP host 는 replyable 하지 않다는 비대칭을 agent 가 정확히 이해하는가?
+- agent 가 plain external(non-replyable) 과 garden-native meta-session(replyable by garden id)을
+  구분하는가?
 - `entwurf_send` 는 fire-and-forget, `entwurf` / `entwurf_resume` 는 outcome ownership 이라는
   역할 분담이 실제 워크플로에서 헷갈리지 않는가?
 - Claude Code 가 설계/리뷰하고 pi-shell-acp 세션이 실행하거나 그 반대인 시나리오가
@@ -319,7 +363,8 @@ external MCP host ↔ pi-tools-bridge ↔ entwurf** 가 서로 다른 하네스 
 
 성공 기준: 각 시나리오에서 "누가 outcome 을 소유하는가" 가 명확하고, replyable / non-replyable /
 send-is-throw / MCP `entwurf_resume` 조건부 async default(0.7.6) 경계가 agent 발화에 정확히
-반영된다. 필요하면 README / AGENTS / VERIFY 한 곳에 운영 패턴으로 정리한다.
+반영된다. 특히 native Claude meta-session 이 `external-mcp/claude-code` 로 퇴행하거나
+`wants_reply=true` 를 비대칭 논리로 거절하면 버그다 — install/doctor/sender-marker 경로를 본다.
 
 ## Active hygiene — session continuity (`incompatible_config`)
 
