@@ -90,6 +90,7 @@ import {
 	runEntwurfSync,
 } from "../../../pi-extensions/lib/entwurf-core.ts";
 import {
+	defaultMetaMailboxDir,
 	enqueueMetaMessage,
 	type MetaSenderMarker,
 	parentPid,
@@ -246,19 +247,23 @@ const server = new McpServer({ name: "pi-tools-bridge", version: "0.1.0" });
 //
 // pi-session and trusted meta-session senders carry a structured sender envelope
 // so the receiver renders WHO (agentId, sessionId), FROM WHERE (cwd), and WHEN
-// (timestamp UTC, displayed in KST). `entwurf_self` is identity-required and
-// therefore stays strict: missing PI_SESSION_ID / PI_AGENT_ID is a wiring break.
-// `entwurf_send` is identity-enhanced, not identity-required: a native Claude Code
-// meta-session with a live sender marker is replyable by garden id; an explicitly
-// wired external MCP host with no marker may still deliver (unless REQUIRE is set)
-// but is marked external/non-replyable so the receiver sees the origin honestly.
+// (timestamp UTC, displayed in KST). `entwurf_self` is authoritative-identity
+// required: it returns either a pi-session envelope or a trusted meta-session
+// envelope (garden id from the sender marker). Plain anonymous external hosts
+// still fail. `entwurf_send` is identity-enhanced, not identity-required: a native
+// Claude Code meta-session with a live sender marker is replyable by garden id; an
+// explicitly wired external MCP host with no marker may still deliver (unless
+// REQUIRE is set) but is marked external/non-replyable so the receiver sees the
+// origin honestly.
 class EntwurfEnvelopeWiringError extends Error {
 	constructor(missing: string[]) {
 		super(
-			`entwurf sender envelope wiring incomplete — missing env: ${missing.join(", ")}. ` +
-				"This MCP child should inherit PI_SESSION_ID (from entwurf-control) and PI_AGENT_ID " +
-				"(from pi-shell-acp/acp-bridge.ts). entwurf_self is only callable from a pi session " +
-				"launched with --entwurf-control through the pi-shell-acp bridge.",
+			`entwurf sender envelope wiring incomplete — missing env: ${missing.join(", ")}, ` +
+				"and no trusted meta-sender marker was found. This MCP child should either inherit " +
+				"PI_SESSION_ID (from entwurf-control) + PI_AGENT_ID (from pi-shell-acp/acp-bridge.ts), " +
+				"or run inside a garden-native meta-session whose SessionStart hook wrote a live " +
+				"sender marker. entwurf_self is only callable when one of those authoritative " +
+				"identity paths is present.",
 		);
 	}
 }
@@ -323,42 +328,63 @@ function buildStrictPiSenderEnvelope(): SenderEnvelope {
 	};
 }
 
+function buildTrustedMetaSenderEnvelope(cwd: string = process.cwd()): SenderEnvelope | null {
+	// No pi-session identity. Try the meta-sender marker: a native backend that
+	// minted a garden-id via its SessionStart hook. The marker is keyed by the
+	// shared parent pid — this MCP child's process.ppid IS the Claude Code process
+	// the hook ran under (NOT cwd inference). PI_META_SENDER_MARKER overrides the
+	// lookup for explicit wiring / tests. A trusted marker promotes this process to
+	// a REPLYABLE meta-session sender addressed by its garden-id.
+	const marker = resolveMetaSenderMarker();
+	if (!marker) return null;
+
+	// Validate the marker against its backing meta-record: a stale marker (record
+	// deleted, or backend/nativeSessionId drift) must NOT grant a replyable
+	// identity. The record store is the authority; the marker is only a pid→garden
+	// hint.
+	let backed = false;
+	try {
+		const rec = readMetaRecordByGardenId(marker.gardenId);
+		backed = rec.backend === marker.backend && rec.nativeSessionId === marker.nativeSessionId;
+	} catch {
+		backed = false;
+	}
+	if (!backed) return null;
+
+	return {
+		sessionId: marker.gardenId,
+		agentId: `meta-session/${marker.backend}`,
+		cwd: marker.cwd || cwd,
+		timestamp: new Date().toISOString(),
+		origin: "meta-session",
+		replyable: true,
+	};
+}
+
+function buildAuthoritativeSelfEnvelope(): SenderEnvelope {
+	const sessionId = process.env.PI_SESSION_ID?.trim();
+	const agentId = process.env.PI_AGENT_ID?.trim();
+	const cwd = process.cwd();
+	if (sessionId && agentId && cwd) return buildStrictPiSenderEnvelope();
+
+	const meta = buildTrustedMetaSenderEnvelope(cwd);
+	if (meta) return meta;
+
+	const missing: string[] = [];
+	if (!sessionId) missing.push("PI_SESSION_ID");
+	if (!agentId) missing.push("PI_AGENT_ID");
+	if (!cwd) missing.push("cwd");
+	throw new EntwurfEnvelopeWiringError(missing);
+}
+
 function buildSendSenderEnvelope(): SenderEnvelope {
 	const sessionId = process.env.PI_SESSION_ID?.trim();
 	const agentId = process.env.PI_AGENT_ID?.trim();
 	const cwd = process.cwd();
 	if (sessionId && agentId && cwd) return buildStrictPiSenderEnvelope();
 
-	// No pi-session identity. Try the meta-sender marker: a native backend that
-	// minted a garden-id via its SessionStart hook. The marker is keyed by the
-	// shared parent pid — this MCP child's process.ppid IS the Claude Code process
-	// the hook ran under (NOT cwd inference). PI_META_SENDER_MARKER overrides the
-	// lookup for explicit wiring / tests. A trusted marker promotes this send to a
-	// REPLYABLE meta-session sender addressed by its garden-id.
-	const marker = resolveMetaSenderMarker();
-	if (marker) {
-		// Validate the marker against its backing meta-record: a stale marker
-		// (record deleted, or backend/nativeSessionId drift) must NOT grant a
-		// replyable identity — fall through to the REQUIRE reject / external path.
-		// The record store is the authority; the marker is only a pid→garden hint.
-		let backed = false;
-		try {
-			const rec = readMetaRecordByGardenId(marker.gardenId);
-			backed = rec.backend === marker.backend && rec.nativeSessionId === marker.nativeSessionId;
-		} catch {
-			backed = false;
-		}
-		if (backed) {
-			return {
-				sessionId: marker.gardenId,
-				agentId: `meta-session/${marker.backend}`,
-				cwd: marker.cwd || cwd,
-				timestamp: new Date().toISOString(),
-				origin: "meta-session",
-				replyable: true,
-			};
-		}
-	}
+	const meta = buildTrustedMetaSenderEnvelope(cwd);
+	if (meta) return meta;
 
 	// No marker. Anonymous external is allowed ONLY when not explicitly forbidden.
 	if (process.env.PI_TOOLS_BRIDGE_REQUIRE_META_SENDER === "1") {
@@ -551,25 +577,36 @@ server.tool(
 
 server.tool(
 	"entwurf_self",
-	"Return this pi session's identity envelope — the same fields entwurf_send would " +
-		"attach as the sender. Use to confirm WHO you are (agentId, sessionId), FROM WHERE " +
-		"(cwd), and WHEN this snapshot was taken. Throws if the env wiring is incomplete " +
-		"(PI_SESSION_ID / PI_AGENT_ID), which means the MCP child is not running under a " +
-		"pi session launched with --entwurf-control through the pi-shell-acp bridge.",
+	"Return this caller's authoritative identity envelope — the same fields entwurf_send " +
+		"would attach as the sender when a replyable identity exists. Use to confirm WHO you " +
+		"are (agentId, sessionId), FROM WHERE (cwd), and WHEN this snapshot was taken. " +
+		"Works for pi sessions (PI_SESSION_ID / PI_AGENT_ID) and garden-native meta-sessions " +
+		"(trusted SessionStart sender marker → garden id). Throws for plain anonymous external " +
+		"MCP hosts because they have no authoritative reply address.",
 	{},
 	async () => {
 		try {
-			const sender = buildStrictPiSenderEnvelope();
-			const socketPath = path.join(ENTWURF_DIR, `${sender.sessionId}${SOCKET_SUFFIX}`);
+			const sender = buildAuthoritativeSelfEnvelope();
 			const kst = formatKstTimestamp(sender.timestamp);
+			const extra: Record<string, string> = {};
 			const lines = [
 				`sessionId:  ${sender.sessionId}`,
 				`agentId:    ${sender.agentId}`,
+				`origin:     ${sender.origin ?? "unknown"}`,
+				`replyable:  ${sender.replyable === true ? "true" : "false"}`,
 				`cwd:        ${abbreviateHomeMcp(sender.cwd)}`,
 				`timestamp:  ${kst}`,
-				`socketPath: ${socketPath}`,
 			];
-			return textOk(`${lines.join("\n")}\n\n${JSON.stringify({ ...sender, socketPath })}`);
+			if (sender.origin === "pi-session") {
+				const socketPath = path.join(ENTWURF_DIR, `${sender.sessionId}${SOCKET_SUFFIX}`);
+				extra.socketPath = socketPath;
+				lines.push(`socketPath: ${socketPath}`);
+			} else if (sender.origin === "meta-session") {
+				const mailboxPath = path.join(defaultMetaMailboxDir(), sender.sessionId);
+				extra.mailboxPath = mailboxPath;
+				lines.push(`mailboxPath: ${mailboxPath}`);
+			}
+			return textOk(`${lines.join("\n")}\n\n${JSON.stringify({ ...sender, ...extra })}`);
 		} catch (err) {
 			return textErr(`entwurf_self error: ${err instanceof Error ? err.message : String(err)}`);
 		}

@@ -1,6 +1,6 @@
 # pi-shell-acp
 
-Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) inside pi.
+Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) inside pi — and make native Claude Code sessions garden-addressable peers.
 
 ![pi-shell-acp — a reproducible agent harness for pi](docs/assets/pi-shell-acp-hero.jpg)
 
@@ -19,7 +19,19 @@ pi
 
 `pi-shell-acp` is a thin ACP provider for pi: no OAuth proxy, no CLI transcript scraping, no Claude Code emulation. It connects pi to locally authenticated ACP backends with no core patch and no bypass. Each backend keeps its own model, API, and tool semantics; the bridge shapes only the pi-facing operating surface.
 
-> **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends.
+**0.10.0 expands the bridge beyond ACP transport.** The same narrow surface now also fronts native Claude Code sessions: a global `SessionStart` hook registers each native Claude session as a **garden-native meta-session** with a garden id, a mailbox, and a trusted sender marker. That makes an already-running Claude Code terminal addressable through `entwurf_send`, self-identifying through `entwurf_self`, and replyable by garden id — without turning pi into a second harness or importing Claude's transcript. ACP is one transport; the durable address is the garden id.
+
+```text
+native Claude Code
+  → SessionStart hook
+    → meta-session <garden-id>
+      → pi-tools-bridge MCP
+        → entwurf_self | entwurf_send | entwurf_inbox_read
+```
+
+For 0.10.0 this meta-bridge installer/doctor is **Claude Code only**. Codex and Antigravity delivery probes are recorded in [DELIVERY.md](./DELIVERY.md) as future adapter evidence, not shipped install surfaces.
+
+> **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends — and, from 0.10.0, lets native Claude Code sessions join the same garden-id messaging surface.
 
 > **Project boundary.** `pi-shell-acp` is not a fork, plugin, dependency, or integration layer of `oh-my-pi`, and it is not developed in coordination with `oh-my-pi`. Issues in other Pi / ACP projects may be useful as general implementation references, but they are not `pi-shell-acp` integration issues unless this repository explicitly links them as such.
 
@@ -31,7 +43,7 @@ A few words that look unusual for a coding tool.
 
 - **Entwurf** (기투, projection-of-self) — sibling sessions with their own runtime boundary. Not "delegate," not "worker," not "sub-agent." Spawn, resume, and live peer messaging are first-class.
 - **Engraving** — optional short operator text delivered through each backend's native identity carrier. Not a giant hidden prompt, not a tool catalog.
-- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Gemini, …) when the operator chooses. `entwurf_self` requires a pi session sender envelope; `entwurf_send` can deliver to live pi sessions from an explicitly wired external MCP host, but only pi-session senders are replyable.
+- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Gemini, …) when the operator chooses. `entwurf_self` returns an authoritative pi-session or trusted meta-session identity envelope; `entwurf_send` can deliver from plain external MCP hosts, but only pi-session and trusted meta-session senders are replyable.
 - **Session persistence** — re-attaches pi to the same remote ACP session. Does not hydrate backend transcripts into pi history.
 
 ## Install
@@ -226,7 +238,7 @@ External/meta-session semantics:
 - `entwurf_resume` defaults to sync for plain external hosts **and** meta-sessions; explicit `mode="async"` is rejected unless the caller is a replyable pi control-socket session, because completion followUp needs a pi session address.
 - `entwurf_send` from a plain external host delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
 - `entwurf_send` from a trusted meta-session delivers with `origin: "meta-session"` / `replyable: true`; `wants_reply: true` is allowed and the receiver can reply to the sender's garden id.
-- `entwurf_self` still refuses to return outside pi — it requires a pi session sender envelope (`PI_SESSION_ID` + `PI_AGENT_ID`). For a meta-session, read its garden id from the meta-record / statusline / inbox envelope, not `entwurf_self`.
+- `entwurf_self` returns the same authoritative identity for pi sessions **and** trusted meta-sessions. A plain external host with no pi env and no trusted sender marker still fails because there is no reply address to report.
 
 #### Claude Code
 
@@ -371,7 +383,7 @@ A two-pane recording covers the surface end-to-end — sibling spawn, cross-proc
 
 </details>
 
-Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same envelope for the current pi session. Plain external MCP hosts can call `entwurf_send` with a marked non-replyable envelope. Garden-native meta-sessions call it with a trusted `meta-session` envelope and are replyable by garden id. `entwurf_self` remains pi-session-only. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected only from non-replyable external senders.
+Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same authoritative envelope for the current pi session or trusted meta-session. Plain external MCP hosts can call `entwurf_send` with a marked non-replyable envelope. Garden-native meta-sessions call it with a trusted `meta-session` envelope and are replyable by garden id. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected only from non-replyable external senders.
 
 In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
@@ -455,8 +467,9 @@ This repo also doubles as the maintainer's working laboratory for agent-harness 
 
 - **[VERIFY.md](./VERIFY.md)** — agent-driven. One ACP-bridged identity runs the script against another and records what it sees. Carries the Evidence Levels L0–L5 rung ladder and the Claims Ledger so each claim is parked at the rung it has actually reached.
 - **[BASELINE.md](./BASELINE.md)** — operator-driven. The maintainer runs the interview directly (no agent in the verifier seat) and the result is recorded.
+- **[DELIVERY.md](./DELIVERY.md)** — capability-coordinate. The cross-harness yardstick for one question: can an already-running native session receive an async message without pretending pi owns the backend transcript? Records the per-backend async-delivery level (`D0–D8`) each harness actually reaches instead of collapsing into works/doesn't.
 
-Use both. Either one alone leaves a blind spot the other closes.
+VERIFY + BASELINE are the verification pair — use both; either one alone leaves a blind spot the other closes. DELIVERY sits on the orthogonal delivery-capability axis.
 
 ## References
 

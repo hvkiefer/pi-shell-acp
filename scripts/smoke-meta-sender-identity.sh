@@ -9,6 +9,7 @@
 #
 # Here PI_META_SENDER_MARKER injects a specific marker per send so the round-trip
 # is deterministic (no real pids, no Claude turns). Verifies:
+#   entwurf_self: A's marker returns A's garden-id (not the old pi-env-only throw)
 #   A→B: B's inbox shows A's garden-id as a (meta-session, replyable) sender
 #   B→A: reply by garden-id reaches A's inbox, from B's garden-id
 #   no marker + REQUIRE_META_SENDER=1: send is refused AND enqueues nothing
@@ -84,6 +85,14 @@ srv() {
 }
 sendcall() { printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"entwurf_send","arguments":{"sessionId":"%s","message":"%s","wants_reply":%s}}}' "$1" "$2" "$3" "$4"; }
 readcall() { printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"entwurf_inbox_read","arguments":{"gardenId":"%s"}}}' "$1" "$2"; }
+selfcall() { printf '{"jsonrpc":"2.0","id":%s,"method":"tools/call","params":{"name":"entwurf_self","arguments":{}}}' "$1"; }
+
+# entwurf_self must resolve the same trusted marker identity, not remain pi-env-only.
+SELF_A=$(PI_META_SENDER_MARKER="$MARKER_A" srv 9 "$(selfcall 9)")
+if echo "$SELF_A" | grep -q '"isError":true'; then bad "entwurf_self with meta marker errored: ${SELF_A:0:200}"; else ok "entwurf_self accepts trusted meta-session identity (not pi-env-only)"; fi
+echo "$SELF_A" | grep -q "$GARDEN_A" && echo "$SELF_A" | grep -q 'meta-session/claude-code' && echo "$SELF_A" | grep -q 'replyable:' \
+  && ok "entwurf_self returns garden-id + meta-session agentId + replyable flag" \
+  || bad "entwurf_self meta envelope incomplete: ${SELF_A:0:220}"
 
 # A → B (A's marker injected). wants_reply=true allowed because meta-session is replyable.
 A_SEND=$(PI_META_SENDER_MARKER="$MARKER_A" srv 10 "$(sendcall 10 "$GARDEN_B" "SENDER_SMOKE_AtoB" true)")

@@ -104,8 +104,8 @@ fi
 #     entwurf_send is identity-enhanced, not identity-required: external MCP
 #     hosts may deliver to live pi sessions without a replyable pi sender
 #     envelope. With a synthetic missing target, the correct negative surface is
-#     therefore socket resolution, not envelope wiring. entwurf_self remains the
-#     strict identity-required tool below.
+#     therefore socket resolution, not envelope wiring. entwurf_self remains
+#     authoritative-identity-required (pi env OR trusted meta marker) below.
 # ----------------------------------------------------------------------------
 
 echo "[3a] entwurf_send external MCP path (no PI_AGENT_ID / PI_SESSION_ID)"
@@ -340,11 +340,12 @@ fi
 
 # ----------------------------------------------------------------------------
 # 5. entwurf_self envelope contract.
-#    Positive: env present → response carries sessionId / agentId / cwd /
+#    Positive: pi env present → response carries sessionId / agentId / cwd /
 #    timestamp / socketPath.
-#    Negative: env missing → EntwurfEnvelopeWiringError surfaced as isError.
-#    This strictness now belongs to entwurf_self only; entwurf_send permits an
-#    external non-replyable sender path.
+#    Negative: no pi env and no trusted meta marker → EntwurfEnvelopeWiringError.
+#    The meta-session positive path is covered by smoke-meta-sender-identity.
+#    This authoritative-identity strictness belongs to entwurf_self; entwurf_send
+#    still permits an external non-replyable sender path when REQUIRE is off.
 # ----------------------------------------------------------------------------
 
 echo "[5a] entwurf_self positive (envelope present)"
