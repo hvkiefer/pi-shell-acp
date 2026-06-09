@@ -55,6 +55,7 @@ Usage:
   ./run.sh check-entwurf-session-identity # deterministic gate for locked garden session identity & name grammar (sessionId/buildSessionName/parse/collision), no API
   ./run.sh check-meta-session          # deterministic gate (#30 step 2): meta-record mint/serialize/parse + scanByNativeId body-authority + idempotent decideUpsert, no API
   ./run.sh check-meta-record-v2        # deterministic golden gate (0.11 Stage 0 step 3A): synthetic v1 fixture → normalizeMetaIdentity v2 identity golden + dual-read version fences, no API
+  ./run.sh check-mailbox-receipt-state # deterministic gate (0.11 Stage 0 step 3B): mailbox receipt state schema + store (stamp→persist→read-back) in a temp mailbox, strict keyset, no API
   ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
   ./run.sh check-plugin-prompt-format          # deterministic shape gate for buildConversationPrompt + stripChatCompletionTail (issue #20 follow-up leak)
   ./run.sh check-async-resume-gate    # deterministic gate for MCP entwurf_resume mode resolution + replyable gate + cwd silent-ignore (0.7.6, 16 assertions)
@@ -1178,6 +1179,16 @@ check_meta_record_v2() {
   # Kept separate from check-meta-session so 3D's v1-gate rewrites leave this
   # back-compat golden untouched. Pure functions; no backend, no hook, no API.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-meta-record-v2.ts)
+}
+
+check_mailbox_receipt_state() {
+  # Deterministic gate for 0.11 Stage 0 step 3B: the mailbox receipt state
+  # schema + store — the new home for the read-receipt before v2 drops
+  # record.delivery (NEXT.md 고정순서 4). Pure schema round-trip + strict
+  # keyset, then the fs store (stamp → persist → read-back) in a temp mailbox
+  # dir. Schema/store only — no live enqueue/read dual-write (that is 3D). No
+  # backend, no hook, no API.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-mailbox-receipt-state.ts)
 }
 
 check_plugin_empty_final_recovery() {
@@ -4137,6 +4148,9 @@ case "$cmd" in
     ;;
   check-meta-record-v2)
     check_meta_record_v2
+    ;;
+  check-mailbox-receipt-state)
+    check_mailbox_receipt_state
     ;;
   new-session-id)
     # Garden launcher helper: print one fresh garden sessionId (SSOT:

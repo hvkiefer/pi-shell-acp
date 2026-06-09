@@ -208,7 +208,12 @@ trusted 전에는 cwd 아래 어떤 project-local 파일도 읽지 않는다 —
 
 > **진행 (2026-06-09):** step 1(pi 0.79 bump + import/runtime 가드) = 커밋 `be6ccde`. step 2(TS
 > preflight 모듈 `pi-extensions/lib/entwurf-preflight.ts` + `check-pi-preflight` 10 assertions) = 커밋
-> `b2c7824`. **다음 = step 3(아래 entry map).**
+> `b2c7824`. **step 3A**(v1→v2 identity normalize: `parseMetaRecordV1/V2`·`normalizeMetaIdentity` +
+> strict v2 keyset + `check-meta-record-v2` 17 assertions 골든) = 커밋 `ed58102` (GPT 끊을 지점 ① 통과).
+> **step 3B**(mailbox receipt state schema+store `MailboxReceiptState`·`stampMailboxReceipt` +
+> body/path gardenId drift fail-fast + field 런타임 검증 + `check-mailbox-receipt-state` 19 assertions)
+> = 이번 커밋 (GPT 리뷰 통과, schema/store-only — live dual-write·delivery 제거는 3D). **다음 = step 3C
+> (capability source).** (push 아직 안 함 — local 누적.)
 
 ### Stage 0 step 3 entry map — meta-record v2 (정찰 완료 2026-06-09, 구현은 다음 세션)
 

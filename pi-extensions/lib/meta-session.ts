@@ -1073,3 +1073,175 @@ export function readMetaInbox(opts: ReadMetaInboxOptions): ReadMetaInboxResult {
 	atomicWriteRecord(recordFile, updated);
 	return { gardenId: record.gardenId, messages, readAt: updated.delivery.lastReadAt, recordPath: recordFile };
 }
+
+// ---------------------------------------------------------------------------
+// mailbox receipt state — the receipt authority's new home (0.11 Stage 0 3B)
+//
+// Today the read-receipt lives at `record.delivery.lastReadAt` (stamped by
+// readMetaInbox). v2 identity (step 3A) drops `delivery{}` out of the record, so
+// the receipt timestamps need a new home BEFORE that removal (NEXT.md 고정순서
+// 4: "delivery 제거 전 mailbox receipt state schema 먼저 못박음 ... 대체 state
+// 없이 제거 금지"). That home is `<meta-mailbox>/<gardenId>/state.json` — a
+// SIBLING of the inbox.signal/.msg traffic it accounts for, so the receipt lives
+// with the mailbox (volatile delivery bookkeeping), not with identity.
+//
+// This block is the SCHEMA + STORE only. It does NOT yet re-wire the live
+// enqueue/read path (that dual-write + the eventual record.delivery removal land
+// in step 3D, behind NEXT.md 끊을 지점 ②, so the "정당한 update vs regression"
+// gate-rewrite stays in one reviewed place). wakeMode/deliveryLevel are NOT here
+// — those are capability, not receipt (step 3C).
+// ---------------------------------------------------------------------------
+
+/** Bump only on a breaking receipt-state shape change; the parser refuses other versions. */
+export const MAILBOX_RECEIPT_SCHEMA_VERSION = 1 as const;
+
+/**
+ * The per-citizen mailbox receipt state. Holds exactly the three delivery
+ * timestamps that move out of `record.delivery` (wakeMode/deliveryLevel are
+ * capability, deliberately absent). Body is SSOT; the on-disk path is derived.
+ */
+export interface MailboxReceiptState {
+	schemaVersion: typeof MAILBOX_RECEIPT_SCHEMA_VERSION;
+	gardenId: string;
+	lastEnqueuedAt: string | null;
+	lastDeliveredAt: string | null;
+	lastReadAt: string | null;
+}
+
+/** The receipt timestamp fields a mutator may stamp (runtime SSOT for validation). */
+export const MAILBOX_RECEIPT_FIELDS = ["lastEnqueuedAt", "lastDeliveredAt", "lastReadAt"] as const;
+export type MailboxReceiptField = (typeof MAILBOX_RECEIPT_FIELDS)[number];
+
+/**
+ * Validate an untrusted field name at runtime. The TS `MailboxReceiptField`
+ * type does not survive a JS call site or an `as` cast — an invalid field would
+ * otherwise create a stray key in memory that `serialize` silently drops. Crash
+ * instead, mirroring the record layer's "crash, don't warn".
+ */
+function requireMailboxReceiptField(value: unknown): MailboxReceiptField {
+	if (typeof value !== "string" || !MAILBOX_RECEIPT_FIELDS.includes(value as MailboxReceiptField)) {
+		throw new MetaRecordError(
+			`stampMailboxReceipt "field" must be one of ${MAILBOX_RECEIPT_FIELDS.join(" | ")} (got ${describe(value)}).`,
+		);
+	}
+	return value as MailboxReceiptField;
+}
+
+/** A fresh, never-touched receipt state for a citizen (all timestamps null). */
+export function emptyMailboxReceiptState(gardenId: string): MailboxReceiptState {
+	return {
+		schemaVersion: MAILBOX_RECEIPT_SCHEMA_VERSION,
+		gardenId: requireGardenId(gardenId),
+		lastEnqueuedAt: null,
+		lastDeliveredAt: null,
+		lastReadAt: null,
+	};
+}
+
+/** Canonical serialization: stable key order, 2-space indent, trailing newline. */
+export function serializeMailboxReceiptState(state: MailboxReceiptState): string {
+	const ordered = {
+		schemaVersion: state.schemaVersion,
+		gardenId: state.gardenId,
+		lastEnqueuedAt: state.lastEnqueuedAt,
+		lastDeliveredAt: state.lastDeliveredAt,
+		lastReadAt: state.lastReadAt,
+	};
+	return `${JSON.stringify(ordered, null, 2)}\n`;
+}
+
+const MAILBOX_RECEIPT_KEYS: readonly string[] = [
+	"schemaVersion",
+	"gardenId",
+	"lastEnqueuedAt",
+	"lastDeliveredAt",
+	"lastReadAt",
+];
+
+/** Parse + fully validate untrusted JSON into a MailboxReceiptState. Throws on any drift. */
+export function parseMailboxReceiptState(json: string): MailboxReceiptState {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(json);
+	} catch (err) {
+		throw new MetaRecordError(
+			`mailbox receipt state is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		throw new MetaRecordError(`mailbox receipt state must be a JSON object (got ${describe(raw)}).`);
+	}
+	const obj = raw as Record<string, unknown>;
+	if (obj.schemaVersion !== MAILBOX_RECEIPT_SCHEMA_VERSION) {
+		throw new MetaRecordError(
+			`mailbox receipt state "schemaVersion" must be ${MAILBOX_RECEIPT_SCHEMA_VERSION} (got ${describe(obj.schemaVersion)}).`,
+		);
+	}
+	const stray = Object.keys(obj).filter((k) => !MAILBOX_RECEIPT_KEYS.includes(k));
+	if (stray.length > 0) {
+		throw new MetaRecordError(
+			`mailbox receipt state carries unexpected key(s) ${stray.map((k) => `"${k}"`).join(", ")} ` +
+				`(allowed: ${MAILBOX_RECEIPT_KEYS.join(", ")}).`,
+		);
+	}
+	return {
+		schemaVersion: MAILBOX_RECEIPT_SCHEMA_VERSION,
+		gardenId: requireGardenId(obj.gardenId),
+		lastEnqueuedAt: requireNullableString(obj.lastEnqueuedAt, "lastEnqueuedAt"),
+		lastDeliveredAt: requireNullableString(obj.lastDeliveredAt, "lastDeliveredAt"),
+		lastReadAt: requireNullableString(obj.lastReadAt, "lastReadAt"),
+	};
+}
+
+/** The on-disk receipt-state path for a citizen: `<mailbox>/<gardenId>/state.json`. */
+export function mailboxReceiptStatePath(mailboxDir: string, gardenId: string): string {
+	return path.join(path.resolve(expandTilde(mailboxDir)), requireGardenId(gardenId), "state.json");
+}
+
+export interface MailboxReceiptOptions {
+	gardenId: string;
+	mailboxDir?: string;
+}
+
+/**
+ * Read a citizen's receipt state from disk, or an empty state if none exists
+ * yet. Reading-nothing is not an error — a citizen that has never had a receipt
+ * stamped simply has all-null timestamps (parallel to readMetaInbox treating an
+ * empty inbox as "no receipt", not a failure).
+ */
+export function readMailboxReceiptState(opts: MailboxReceiptOptions): MailboxReceiptState {
+	const gardenId = requireGardenId(opts.gardenId);
+	const file = mailboxReceiptStatePath(opts.mailboxDir ?? defaultMetaMailboxDir(), gardenId);
+	if (!fs.existsSync(file)) return emptyMailboxReceiptState(gardenId);
+	const state = parseMailboxReceiptState(fs.readFileSync(file, "utf8"));
+	// Body is SSOT, and the body gardenId must agree with the path it was read
+	// from — a state.json whose body claims a different citizen is corruption,
+	// fail-fast (parallel to readMetaRecordByGardenId's body/filename drift rule).
+	if (state.gardenId !== gardenId) {
+		throw new MetaRecordError(
+			`mailbox receipt state body/path gardenId drift — body gardenId=${state.gardenId}, read from <mailbox>/${gardenId}/state.json.`,
+		);
+	}
+	return state;
+}
+
+/**
+ * Stamp ONE receipt field to `now` and atomically persist the state (read-
+ * modify-write; creates the state on first stamp). Returns the updated state.
+ * The atomic tmp+rename mirrors atomicWriteRecord so a concurrent reader never
+ * observes a half-written state.json.
+ */
+export function stampMailboxReceipt(
+	opts: MailboxReceiptOptions & { field: MailboxReceiptField; now?: Date },
+): MailboxReceiptState {
+	const now = opts.now ?? new Date();
+	const field = requireMailboxReceiptField(opts.field);
+	const file = mailboxReceiptStatePath(opts.mailboxDir ?? defaultMetaMailboxDir(), opts.gardenId);
+	const current = readMailboxReceiptState(opts);
+	const updated: MailboxReceiptState = { ...current, [field]: isoNow(now) };
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+	fs.writeFileSync(tmp, serializeMailboxReceiptState(updated), { mode: 0o600 });
+	fs.renameSync(tmp, file);
+	return updated;
+}
