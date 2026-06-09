@@ -1,0 +1,161 @@
+/**
+ * check-pi-preflight — deterministic gate for 0.11 Stage 0 (2): the controlled-
+ * launch trust decision. Pure decision + a real temp agentDir; no backend, no
+ * network, no hook. Safe in the `pnpm check` static floor.
+ *
+ * Synthetic fixture = pi's OWN `ProjectTrustStore` pointed at a temp agentDir:
+ * we seed trust with `store.set(cwd, …)` and `preflight()` reads it back through
+ * the same store, so the saved-trust path is checked against pi's real function
+ * (same process — trivial, frozen ledger). `PI_CODING_AGENT_DIR` / the injected
+ * `agentDir` keep this off the operator's real `~/.pi/agent/trust.json`.
+ *
+ * Proves frozen decision 8 precedence end to end:
+ *   saved false > saved true > prefix match > no-trust-inputs > fail-fast
+ * plus decision 7's separator boundary (`/repos` ≠ `/repos-sibling`), `~`
+ * expansion of operator roots, and the rich evidence the fact surface consumes.
+ */
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
+import { preflight } from "../pi-extensions/lib/entwurf-preflight.ts";
+
+let passed = 0;
+function ok(label: string, cond: boolean): void {
+	assert.ok(cond, label);
+	console.log(`  ok    ${label}`);
+	passed++;
+}
+
+const tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "psa-preflight-")));
+const agentDir = path.join(tmpRoot, "agent");
+const prefixRoot = path.join(tmpRoot, "repos");
+fs.mkdirSync(agentDir, { recursive: true });
+fs.mkdirSync(prefixRoot, { recursive: true });
+
+// A real cwd must exist for ProjectTrustStore's realpathSync canonicalization
+// and for hasProjectTrustInputs' filesystem walk.
+function mkCwd(name: string, withAgents = false): string {
+	const dir = path.join(prefixRoot, name);
+	fs.mkdirSync(dir, { recursive: true });
+	if (withAgents) fs.writeFileSync(path.join(dir, "AGENTS.md"), "# trust input\n");
+	return dir;
+}
+
+const store = new ProjectTrustStore(agentDir);
+
+try {
+	// 1. saved false beats a prefix match (explicit distrust wins — the load-
+	//    bearing half of decision 8). Evidence carries the raw store value.
+	const cwd1 = mkCwd("saved-false", true);
+	store.set(cwd1, false);
+	const d1 = preflight({ cwd: cwd1, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"saved false → deny/saved-false (even under a prefix root)",
+		d1.kind === "deny" && d1.reason === "saved-false" && d1.trustStoreDecision === false && d1.launchArgs.length === 0,
+	);
+
+	// 2. saved true → approve, launchArgs carries the internal --approve.
+	const cwd2 = mkCwd("saved-true", true);
+	store.set(cwd2, true);
+	const d2 = preflight({ cwd: cwd2, agentDir });
+	ok(
+		"saved true → approve/saved-true + launchArgs=['--approve']",
+		d2.kind === "approve" &&
+			d2.reason === "saved-true" &&
+			d2.trustStoreDecision === true &&
+			d2.launchArgs.length === 1 &&
+			d2.launchArgs[0] === "--approve",
+	);
+
+	// 3. undecided + prefix match → approve; evidence names the matched root AND
+	//    still reports hasTrustInputs (the fact surface explains what it may load).
+	const cwd3 = mkCwd("prefix-hit", true); // has inputs, yet prefix wins over fail-fast
+	const d3 = preflight({ cwd: cwd3, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"null + prefix match → approve/prefix-match + matchedPrefixRoot + hasTrustInputs",
+		d3.kind === "approve" &&
+			d3.reason === "prefix-match" &&
+			d3.matchedPrefixRoot === prefixRoot &&
+			d3.hasTrustInputs === true &&
+			d3.launchArgs[0] === "--approve",
+	);
+
+	// 4. undecided + no trust inputs + no prefix → trusted-no-arg, no launch arg.
+	const cwd4 = path.join(tmpRoot, "no-inputs"); // OUTSIDE prefixRoot, no AGENTS.md
+	fs.mkdirSync(cwd4, { recursive: true });
+	const d4 = preflight({ cwd: cwd4, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"null + no trust inputs → trusted-no-arg + launchArgs=[] + hasTrustInputs=false",
+		d4.kind === "trusted-no-arg" &&
+			d4.reason === "no-trust-inputs" &&
+			d4.hasTrustInputs === false &&
+			d4.launchArgs.length === 0,
+	);
+
+	// 5. undecided + trust inputs + no prefix → fail-fast.
+	const cwd5 = path.join(tmpRoot, "lonely-inputs"); // OUTSIDE prefixRoot
+	fs.mkdirSync(cwd5, { recursive: true });
+	fs.writeFileSync(path.join(cwd5, "AGENTS.md"), "# trust input\n");
+	const d5 = preflight({ cwd: cwd5, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"null + trust inputs + no prefix → deny/fail-fast",
+		d5.kind === "deny" && d5.reason === "fail-fast" && d5.hasTrustInputs === true && d5.launchArgs.length === 0,
+	);
+
+	// 6. empty roots ⇒ no prefix promotion (frozen decision 7: no package default).
+	const cwd6 = mkCwd("would-match-but-no-roots", true);
+	const d6 = preflight({ cwd: cwd6, agentDir, prefixRoots: [] });
+	ok(
+		"undecided + inputs + EMPTY roots → fail-fast (no package-default prefix)",
+		d6.kind === "deny" && d6.reason === "fail-fast" && d6.matchedPrefixRoot === undefined,
+	);
+
+	// 7. separator boundary: a sibling sharing a string prefix must NOT match.
+	//    root=<tmp>/repos, cwd=<tmp>/repos-sibling — bare startsWith would wrongly
+	//    match; canonical + sep boundary must not.
+	const sibling = path.join(tmpRoot, "repos-sibling");
+	fs.mkdirSync(sibling, { recursive: true });
+	fs.writeFileSync(path.join(sibling, "AGENTS.md"), "# trust input\n");
+	const d7 = preflight({ cwd: sibling, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"prefix `/repos` does NOT match sibling `/repos-sibling` (sep boundary)",
+		d7.kind === "deny" && d7.reason === "fail-fast" && d7.matchedPrefixRoot === undefined,
+	);
+
+	// 8. the root itself (cwd === root) matches, and canonicalCwd is the realpath.
+	const dRoot = preflight({ cwd: prefixRoot, agentDir, prefixRoots: [prefixRoot] });
+	ok(
+		"cwd === prefix root matches (boundary inclusive) + canonicalCwd is realpath",
+		dRoot.kind === "approve" && dRoot.canonicalCwd === prefixRoot,
+	);
+
+	// 9. `~`-relative operator root expands and matches (frozen decision 7 GLG
+	//    default is `~/repos/gh` shaped). HOME → temp so we never touch the real
+	//    home; os.homedir() reads $HOME on Linux.
+	const origHome = process.env.HOME;
+	process.env.HOME = tmpRoot;
+	try {
+		const tildeProj = path.join(tmpRoot, "repos", "gh", "proj");
+		fs.mkdirSync(tildeProj, { recursive: true });
+		fs.writeFileSync(path.join(tildeProj, "AGENTS.md"), "# trust input\n");
+		const dTilde = preflight({ cwd: tildeProj, agentDir, prefixRoots: ["~/repos"] });
+		ok(
+			"`~/repos` operator root expands and matches cwd under it",
+			dTilde.kind === "approve" && dTilde.reason === "prefix-match" && dTilde.matchedPrefixRoot === prefixRoot,
+		);
+	} finally {
+		if (origHome === undefined) delete process.env.HOME;
+		else process.env.HOME = origHome;
+	}
+
+	// 10. isolation: every set above landed in the temp store; the real operator
+	//     trust.json was never opened.
+	ok("temp agentDir holds the trust file (real ~/.pi untouched)", fs.existsSync(path.join(agentDir, "trust.json")));
+} finally {
+	fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+console.log(`[check-pi-preflight] ${passed} assertions ok`);

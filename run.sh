@@ -2891,6 +2891,14 @@ EOF
   )
 }
 
+check_pi_preflight() {
+  # 0.11 Stage 0 (2): the controlled-launch trust decision. Proves frozen
+  # decision 8 precedence (saved false > saved true > prefix > no-inputs >
+  # fail-fast) and decision 7's separator-boundary prefix against pi's own
+  # ProjectTrustStore in a temp agentDir. Deterministic, no network/backend.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-pi-preflight.ts)
+}
+
 check_auth_boundary() {
   # #26 auth-boundary guard. pi-shell-acp is a no-auth ACP bridge at the pi
   # provider layer; the registration must NOT assign a bare-uppercase legacy-ENV
@@ -4270,6 +4278,9 @@ case "$cmd" in
     ;;
   check-pi-runtime-version)
     check_pi_runtime_version
+    ;;
+  check-pi-preflight)
+    check_pi_preflight
     ;;
   check-auth-boundary)
     check_auth_boundary
