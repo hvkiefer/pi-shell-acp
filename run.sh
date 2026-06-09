@@ -83,7 +83,7 @@ Usage:
   ./run.sh check-auth-boundary        # local deterministic guard (#26): no legacy-ENV apiKey literal (e.g. "ANTHROPIC_API_KEY") in root bridge code (index.ts/acp-bridge.ts)
   ./run.sh check-sdk-surface          # static gate: every (connection as any) cast in acp-bridge.ts is annotated SDK_CAST_OK or SDK_CAST_DEBT
   ./run.sh check-pack                 # publish gate (dry-run): npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
-  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.78.x peers
+  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.79.x peers
   ./run.sh check-models               # local deterministic check of MODELS contextWindow defaults (sonnet 200K, opus 1M) + override
   ./run.sh check-claude-sessions [project-dir]  # compare pi persisted sessions vs Claude SDK session visibility
   ./run.sh verify-resume [project-dir] # exact pi -> ACP -> Claude continuity check with visible acpSessionId diagnostics
@@ -2815,7 +2815,78 @@ assert.equal(peerCoding, piAi,
 assert.equal(peerTui, piAi,
   `run.sh check-pack-install pi-tui peer pin (${peerTui}) must match (${piAi})`);
 
-console.log('[check-dep-versions] 12 assertions ok');
+// peerDependencies floor must track the devDep pin (0.11 Stage 0): a pi bump
+// that lifts devDeps but leaves a stale `>=0.78.0` peer floor would let a
+// consumer install pi-shell-acp against a pi that lacks the 0.79 public
+// trust exports the bridge now imports. Floor === `>=<devDep>`.
+const peerDepAi = pkg.peerDependencies?.['@earendil-works/pi-ai'];
+const peerDepCoding = pkg.peerDependencies?.['@earendil-works/pi-coding-agent'];
+const peerDepTui = pkg.peerDependencies?.['@earendil-works/pi-tui'];
+assert.equal(peerDepAi, `>=${piAi}`,
+  `package.json peerDependencies @earendil-works/pi-ai (${peerDepAi}) must be >=${piAi} (devDep floor)`);
+assert.equal(peerDepCoding, `>=${piAi}`,
+  `package.json peerDependencies @earendil-works/pi-coding-agent (${peerDepCoding}) must be >=${piAi} (devDep floor)`);
+assert.equal(peerDepTui, `>=${piAi}`,
+  `package.json peerDependencies @earendil-works/pi-tui (${peerDepTui}) must be >=${piAi} (devDep floor)`);
+
+console.log('[check-dep-versions] 15 assertions ok');
+EOF
+  )
+}
+
+check_pi_import_surface() {
+  # 0.11 Stage 0 (동결결정 9): the bridge may reference @earendil-works/pi-*
+  # ONLY by the package root. ANY subpath (`/dist`, `/core`, `/src`, `/foo`, …)
+  # reaches pi's private surface and silently breaks on pi internal reshuffles.
+  # The check is intentionally SPECIFIER-shaped, not import-keyword-shaped: it
+  # matches a quoted/backtick module specifier `@earendil-works/pi-*/…`, so one
+  # pattern catches static `from`, dynamic `import()`, `require()`,
+  # `export … from`, side-effect `import "…"`, and whitespace variants alike.
+  # Root import `@earendil-works/pi-coding-agent` (no trailing slash) is allowed.
+  # Scans EVERY tracked .ts/.js/.mjs/.cjs source (git ls-files), not a hardcoded
+  # file list — a new root file (acp-bridge.ts, event-mapper.ts, engraving.ts,
+  # pi-context-augment.ts, protocol.js, …) can never silently escape the gate.
+  local hits
+  hits=$(cd "$REPO_DIR" && git ls-files '*.ts' '*.js' '*.mjs' '*.cjs' \
+    | grep -vE '^(node_modules|dist)/' \
+    | xargs -r grep -HnE "[\"'\`]@earendil-works/pi-(ai|coding-agent|tui)/" 2>/dev/null || true)
+  if [ -n "$hits" ]; then
+    echo "[check-pi-import-surface] FAIL: pi private subpath reference(s) — import @earendil-works/pi-* by the package ROOT only:"
+    echo "$hits"
+    exit 1
+  fi
+  ok "[check-pi-import-surface] pi references are root-only (no private subpath; all tracked ts/js scanned)"
+}
+
+check_pi_runtime_version() {
+  # 0.11 Stage 0 (동결결정 9, runtime half): tsc catches a missing 0.79 export
+  # at dev time, but an installed environment can still resolve an older pi at
+  # runtime where the named trust exports do not exist. Verify VERSION >= floor
+  # via a DYNAMIC import of the package root only — never statically import a
+  # 0.79-only symbol here, or this guard would crash before it can fail loud.
+  (cd "$REPO_DIR" && node --input-type=module <<'EOF'
+const FLOOR = '0.79.0';
+const cmp = (a, b) => {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
+  return 0;
+};
+let VERSION;
+try {
+  ({ VERSION } = await import('@earendil-works/pi-coding-agent'));
+} catch (e) {
+  console.error(`[check-pi-runtime-version] FAIL: cannot import @earendil-works/pi-coding-agent root — ${e?.message ?? e}`);
+  process.exit(1);
+}
+if (typeof VERSION !== 'string') {
+  console.error('[check-pi-runtime-version] FAIL: pi root export VERSION is not a string');
+  process.exit(1);
+}
+if (cmp(VERSION, FLOOR) < 0) {
+  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge imports 0.79 public trust exports (hasProjectTrustInputs/ProjectTrustStore/...) older pi lacks. Bump @earendil-works/pi-*.`);
+  process.exit(1);
+}
+console.log(`[check-pi-runtime-version] ok — pi VERSION ${VERSION} >= ${FLOOR}`);
 EOF
   )
 }
@@ -3147,7 +3218,7 @@ check_pack_install() {
   # repo packages with; --ignore-workspace stops it from re-attaching
   # to our pnpm-workspace.yaml; --ignore-scripts blocks the husky
   # prepare hook (and any future install scripts) from running inside
-  # the consumer project. Peer deps are pinned to the 0.78.x release
+  # the consumer project. Peer deps are pinned to the 0.79.x release
   # baseline so the smoke matches the same shape an external pi user
   # would have after `pi install`.
   local tmp
@@ -3156,13 +3227,13 @@ check_pack_install() {
 
   printf '%s\n' '{ "name": "pi-shell-acp-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
 
-  echo "[check-pack-install] pnpm add into $tmp (with 0.78.x peers + typebox)"
+  echo "[check-pack-install] pnpm add into $tmp (with 0.79.x peers + typebox)"
   local install_log
   install_log=$(cd "$tmp" && pnpm add \
     "$tgz_path" \
-    "@earendil-works/pi-ai@0.78.0" \
-    "@earendil-works/pi-coding-agent@0.78.0" \
-    "@earendil-works/pi-tui@0.78.0" \
+    "@earendil-works/pi-ai@0.79.0" \
+    "@earendil-works/pi-coding-agent@0.79.0" \
+    "@earendil-works/pi-tui@0.79.0" \
     "typebox@latest" \
     --ignore-workspace --ignore-scripts 2>&1) || {
     fail "[check-pack-install] pnpm add failed:"
@@ -4193,6 +4264,12 @@ case "$cmd" in
     ;;
   check-dep-versions)
     check_dep_versions
+    ;;
+  check-pi-import-surface)
+    check_pi_import_surface
+    ;;
+  check-pi-runtime-version)
+    check_pi_runtime_version
     ;;
   check-auth-boundary)
     check_auth_boundary
