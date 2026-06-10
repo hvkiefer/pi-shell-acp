@@ -9,9 +9,11 @@
  * hydrate or replay it).
  *
  * Two layers, clearly sectioned:
- *   1. PURE record functions + types (mint / serialize / parse / scanByNativeId /
- *      decideUpsert / read-receipt mutators). No fs, no clock beyond an injected
- *      `now`. These are the backend-agnostic authority.
+ *   1. RECORD functions + types (mint / serialize / parse / scanByNativeId /
+ *      decideUpsert / read-receipt mutators), the backend-agnostic authority.
+ *      Pure beyond an injected `now`, with ONE exception since 3D-3: mint/parse
+ *      read backend capability (wakeMode/deliveryLevel) from the packaged registry
+ *      via a cached fs read (loadMetaCapabilityRegistry) — see that seam below.
  *   2. The thin FS-BOUND STORE (step 3): `upsertMetaSession` wraps the pure core
  *      (readdir → `scanByNativeId` → `decideUpsert` → atomic write) with the real
  *      filesystem. It lives in this module (not a sibling `*-store.ts`) on purpose:
@@ -222,7 +224,8 @@ function isoNow(now: Date): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pure record functions
+// Record functions (pure beyond an injected `now`, except mint/parse read the
+// packaged capability registry via the cached metaCapabilityFor seam — 3D-3)
 // ---------------------------------------------------------------------------
 
 /**
@@ -232,7 +235,9 @@ function isoNow(now: Date): string {
  */
 export function mintMetaRecord(input: MetaMintInput, now: Date = new Date()): MetaRecord {
 	const backend = requireBackend(input.backend);
-	const descriptor = META_BACKEND_DESCRIPTORS[backend];
+	// 3D-3: backend honesty metadata is sourced from the capability registry, not
+	// META_BACKEND_DESCRIPTORS (which now survives only as the drift-guard reference).
+	const capability = metaCapabilityFor(backend);
 	const ts = isoNow(now);
 	return {
 		schemaVersion: META_SCHEMA_VERSION,
@@ -244,8 +249,8 @@ export function mintMetaRecord(input: MetaMintInput, now: Date = new Date()): Me
 		createdAt: ts,
 		lastSeen: ts,
 		delivery: {
-			wakeMode: descriptor.wakeMode,
-			deliveryLevel: descriptor.deliveryLevel,
+			wakeMode: capability.wakeMode,
+			deliveryLevel: capability.deliveryLevel,
 			lastEnqueuedAt: null,
 			lastDeliveredAt: null,
 			lastReadAt: null,
@@ -311,8 +316,9 @@ export function parseMetaRecord(json: string): MetaRecord {
 	// wakeMode is backend-DETERMINED (Claude doorbell = self-fetch; agy/codex =
 	// direct-inject). A record whose stored wakeMode contradicts its backend is
 	// corrupt — a Claude record claiming direct-inject would silently mis-route
-	// the "last 1 cm" delivery contract. Refuse it.
-	const canonicalWakeMode = META_BACKEND_DESCRIPTORS[backend].wakeMode;
+	// the "last 1 cm" delivery contract. Refuse it. 3D-3: the canonical is sourced
+	// from the capability registry, not META_BACKEND_DESCRIPTORS.
+	const canonicalWakeMode = metaCapabilityFor(backend).wakeMode;
 	if (wakeMode !== canonicalWakeMode) {
 		throw new MetaRecordError(
 			`meta-record "delivery.wakeMode" (${wakeMode}) contradicts backend "${backend}" ` +
@@ -595,13 +601,15 @@ export function parseMetaIdentity(json: string): MetaIdentity {
 // concern to the launch-allowlist `entwurf-targets.json`). "이 시민은 self-fetch
 // 인가 / pi 는 어떻게 깨우나" is answered by capability, not by identity.
 //
-// This block is the SCHEMA + PARSER + path resolver only. It does NOT re-wire
-// the live consumers: `META_BACKEND_DESCRIPTORS` stays the authority that mint/
-// parse read today, and nothing here touches record writer/upsert/readMetaInbox/
-// enqueueMetaMessage. Cutting the live const over to this registry (and removing
-// wakeMode from the record) lands in step 3D. For the transition, the 3C gate
-// asserts the JSON AGREES with the live const for the three existing backends
-// (a drift guard) and COVERS exactly META_BACKENDS_V2 (pi included).
+// This block is the SCHEMA + PARSER + path resolver. As of 3C it did NOT re-wire
+// the live consumers (`META_BACKEND_DESCRIPTORS` was the authority mint/parse read).
+// 3D-3 then cut mint/parse over to this registry via the `metaCapabilityFor` seam
+// (defined below `metaCapabilitiesFilePath`): the registry is now the LIVE source of
+// wakeMode/deliveryLevel, and `META_BACKEND_DESCRIPTORS` survives only as the
+// drift-guard reference. Removing wakeMode from the record itself lands in step 3D-4.
+// The 3C gate (check-entwurf-capabilities) still asserts the JSON AGREES with the
+// const for the three existing backends (the drift guard) and COVERS exactly
+// META_BACKENDS_V2 (pi included).
 //
 // pi's wakeMode = direct-inject (NOT self-fetch): pi's live wake path is the
 // entwurf-control socket — `pi.sendMessage(... triggerTurn ...)` injects the
@@ -712,6 +720,48 @@ export function parseMetaCapabilityRegistry(json: string): MetaCapabilityRegistr
 /** The packaged capability registry path: `<repo>/pi/entwurf-capabilities.json`. */
 export function metaCapabilitiesFilePath(): string {
 	return path.join(import.meta.dirname, "..", "..", "pi", "entwurf-capabilities.json");
+}
+
+// ---------------------------------------------------------------------------
+// capability live source (0.11 Stage 0 step 3D-3)
+//
+// 3C shipped the registry FILE + parser but left META_BACKEND_DESCRIPTORS as the
+// authority that mint/parse read (3C header: "Cutting the live const over to this
+// registry ... lands in step 3D"). 3D-3 is that cut-over: mint/parse now read
+// backend honesty metadata (wakeMode/deliveryLevel) from the registry via the seam
+// below, NOT from the const. The const survives ONLY as the drift-guard reference
+// in check-entwurf-capabilities (registry ≡ const for the 3 existing backends), so
+// the cut-over is behaviour-preserving. The record.delivery.wakeMode SLOT stays
+// (its removal is 3D-4); only its SOURCE moves.
+// ---------------------------------------------------------------------------
+
+/** Memoized packaged registry; the file is immutable at runtime, so caching is honest (not stateful lying). */
+let cachedMetaCapabilities: MetaCapabilityRegistry | null = null;
+
+/**
+ * Load + memoize the packaged capability registry — the live source of backend
+ * honesty metadata as of 3D-3. A missing/corrupt file throws (the registry is a
+ * packaged invariant; check-pack guarantees its presence).
+ */
+export function loadMetaCapabilityRegistry(): MetaCapabilityRegistry {
+	if (cachedMetaCapabilities === null) {
+		cachedMetaCapabilities = parseMetaCapabilityRegistry(fs.readFileSync(metaCapabilitiesFilePath(), "utf8"));
+	}
+	return cachedMetaCapabilities;
+}
+
+/**
+ * The capability for one backend, from the registry (3D-3 live source). The
+ * optional `registry` injection lets a gate prove the value is registry-DRIVEN
+ * (feed a doctored registry → the lookup follows it), distinguishing "read from
+ * the registry" from "hardcoded off the const". MetaBackend ⊂ MetaBackendV2, so
+ * the registry (which covers all 4) always has the 3 mint/parse backends.
+ */
+export function metaCapabilityFor(
+	backend: MetaBackend,
+	registry: MetaCapabilityRegistry = loadMetaCapabilityRegistry(),
+): MetaCapability {
+	return registry.backends[backend];
 }
 
 /** Denote-sortable on-disk filename. Body is SSOT; do NOT parse this for authority. */
