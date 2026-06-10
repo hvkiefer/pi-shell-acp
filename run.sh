@@ -2928,7 +2928,7 @@ if (typeof VERSION !== 'string') {
   process.exit(1);
 }
 if (cmp(VERSION, FLOOR) < 0) {
-  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge imports 0.79 public trust exports (hasProjectTrustInputs/ProjectTrustStore/...) older pi lacks. Bump @earendil-works/pi-*.`);
+  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge imports 0.79.1 public trust exports + semantics (hasProjectTrustInputs without AGENTS.md/CLAUDE.md, ProjectTrustStore nearest-ancestor get) older pi lacks or behaves differently. Bump @earendil-works/pi-*.`);
   process.exit(1);
 }
 console.log(`[check-pi-runtime-version] ok — pi VERSION ${VERSION} >= ${FLOOR}`);

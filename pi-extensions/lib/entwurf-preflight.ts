@@ -26,7 +26,9 @@
  *   saved === false        → deny           (explicit distrust; store wins)
  *   saved === true         → approve        (saved trust → internal --approve)
  *   null + prefix match    → approve        (operator prefix promotes null→yes)
- *   null + no trust inputs → trusted-no-arg (nothing project-local to load)
+ *   null + no trust inputs → trusted-no-arg (no trust-gated input — pi 0.79.1
+ *                                             excludes AGENTS.md/CLAUDE.md, so
+ *                                             context files may still be loaded)
  *   else (null + inputs)   → fail-fast      (unknown/untrusted controlled launch)
  *
  * Injection (frozen decision 4): `agentDir` defaults to `getAgentDir()` but is
