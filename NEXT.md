@@ -393,12 +393,17 @@ lock per session (같은 sessionId 동시 prompt 진입 throw).
 - 본체: `~/repos/gh/pi-shell-acp/`
 - Consumer: `~/repos/gh/agent-config/`
 - NixOS consumer: `~/repos/gh/nixos-config/`
-- OpenClaw source / plugin stub: `~/repos/3rd/openclaw/`, `plugins/openclaw/`
+- OpenClaw source: `~/repos/3rd/openclaw/`. Plugin `plugins/openclaw/` is **deprecated** (see below).
 
-## Parked — do not pick unless GLG reopens
+## Deprecated — closed, do not reopen
 
-- **OpenClaw track**: native `claude-cli` / `openai-codex` 가 이미 충분히 좋다. Gemini lane 만 필요
-  시 재개. plugin self-contained install / ClawHub trust / embedded runtime 등 전부 parked.
+- **OpenClaw track (2026-06-10 종료)**: `plugins/openclaw` deprecated & unmaintained.
+  Claude / Gemini 가 ACP 를 네이티브로 지원하고 (Claude 는 6/15 이후 크레딧 기반),
+  wrapper 레이어의 존재 이유가 사라졌다. ACP 본체(pi-shell-acp)는 계속 Claude / Codex /
+  Gemini 지원 — 맥락만 바뀐 것. npm `@junghan0611/openclaw-pi-shell-acp@0.0.1` 은
+  `npm deprecate` 로 마킹, 소스는 reference 용으로 동결. ClawHub publish / self-contained
+  install / embedded runtime 전부 폐기. `@junghanacs` publisher 핸들은 확보됐고(issue #2346
+  resolved) 다른 용도로 전용.
 - **Long-term / separate issues**: #11 remote SSH resume cwd alignment (remote entwurf identity는
   0.9.0 에서 의도적으로 fail-fast), #10 broader ontology RFC, #8 ACP `entwurf_send` message
   visibility UX, #2 pi-first context meter, L5 long soak with repeated context-pressure events.

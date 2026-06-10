@@ -6,11 +6,15 @@ locally authenticated credentials.
 
 ![openclaw-pi-shell-acp — OpenClaw gateway for the pi-shell-acp bridge](docs/assets/openclaw-pi-shell-acp-hero.jpg)
 
-> **Status: prerelease 0.0.x.** Published package path for early
-> adopters. The plugin is usable, but the current implementation is
-> still a child-`pi` stub; the self-contained ACP transport lands in a
-> later phase. ClawHub releases may remain hidden from normal install
-> surfaces until review completes.
+> **⚠️ DEPRECATED & UNMAINTAINED (2026-06-10).** This OpenClaw plugin
+> is no longer developed or supported, and will not be published
+> further. Claude and Gemini now support ACP natively (Claude on a
+> credit basis from 2026-06-15), so the OpenClaw wrapper layer no longer
+> has a reason to exist. The pi-shell-acp bridge itself is unaffected and
+> continues to support Claude / Codex / Gemini — use it directly:
+> <https://github.com/junghan0611/pi-shell-acp>. The npm package
+> `@junghan0611/openclaw-pi-shell-acp@0.0.1` is marked deprecated on the
+> registry; the source below is frozen for reference.
 
 ## Recommended routing (2026-05-26)
 

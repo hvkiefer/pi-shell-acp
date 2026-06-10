@@ -105,7 +105,7 @@ pi install ./
 
 > **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude/Codex/Gemini answer). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
 
-> The OpenClaw plugin sibling lives at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) and ships as its own npm package (`@junghan0611/openclaw-pi-shell-acp`). It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
+> The OpenClaw plugin sibling at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) is **deprecated and unmaintained** as of 2026-06-10 — Claude and Gemini now support ACP natively, so the wrapper is no longer needed. It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
 
 > **Extension set — do not filter.** `pi-shell-acp` ships four `pi.extensions` entries as a single set: the provider extension (`index.ts`) plus three `pi-extensions/*.ts` modules (entwurf, entwurf-control, model-lock). Filtering some out via pi's object-form package configuration can leave the model lock or entwurf surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
 
@@ -143,7 +143,7 @@ Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex
 
 This repo also carries `plugins/*` — sibling packages that adapt the same bridge to non-pi hosts. Currently:
 
-- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`) and listed on [ClawHub](https://clawhub.ai/plugins/@junghan0611/openclaw-pi-shell-acp), but currently parked.
+- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`). **Deprecated and unmaintained** as of 2026-06-10 (Claude/Gemini now support ACP natively; Claude credit-based from 2026-06-15) — the npm version is marked deprecated and the source is frozen for reference.
 
 Each adapter has its own `README.md`. They do not change the pi-facing surface above.
 
