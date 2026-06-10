@@ -40,13 +40,19 @@
   `ProjectTrustContext["mode"]`로 추출; lib→lib `.ts` import + root tsconfig exclude(scripts/tsconfig가
   typecheck). 게이트 `check-project-trust-handler` 16.
 
-**▶ 다음 한 걸음 (구현 세션 진입점 — 버킷 A + 3D-2 + 3D-3 완료, 다음 = 3D-4 = 끊을 지점 ②):**
-- **(main track) step 3D-4 = v2 writer/upsert + delivery-authority cut. 끊을 지점 ②(GPT 큰 리뷰).**
-  v1 delivery authority를 끊고 v2 identity + state.json(receipt) + registry(capability)로 단일화. **2-커밋
-  분할(Fable 분할선 정정: "delivery-비결합 vs delivery-결합", read/write 아님 — read를 먼저 identity로 바꾸면
-  enqueue/read의 markEnqueued/markRead가 full record 필요해 컴파일 깨짐):** 커밋1(green checkpoint)=delivery
-  안 보는 소비자 dual-read 전환 / 커밋2(the cut, 리뷰 대상)=delivery-결합 3인방 + 게이트 재작성. **정찰 완료
-  (재정찰 불필요) — 라인·분류·결정·invariant 전부 아래 "3D-4 작업 계획" 섹션에 박음. 구현은 거기부터.**
+**▶ 다음 한 걸음 (구현 세션 진입점 — Stage 0 step 3(meta-record v2) 전체 완료, 다음 = contract-lock(동결결정 10) → 버킷 B 설계동결 → step 4-5):**
+- **(main track) 다음 = entwurf 공개 동사 contract-lock(동결결정 10) + 버킷 B 설계동결.** step 3(v1→v2 전환)이
+  끝났으니 다음 큰 덩어리는 step 4-5(fact-provider + entwurf_v2 dispatch)인데 **NO-GO until 버킷 B**(6칸표/
+  TypeBox 스키마/error taxonomy를 원장에 결정표로 — 아래 Fable 섹션 F1/F2/F4/F6). 그 전에 **동결결정 10
+  contract-lock**(entwurf=공개 동사 1개로 축소 + `entwurf_peers`=읽기 전용 fact 표면)을 fact-provider 빌드보다
+  먼저 잠근다. 정찰은 진입 시(레거시 3-verb `entwurf`/`_resume`/`_send`는 완전 전환까지 유지 = 동결결정 10 scope A).
+- **step 3D-4 ✅ 완료 = the cut (끊을 지점 ②, GPT+Fable 리뷰 통과).** 커밋1 `31a246c`(dual-read seam +
+  delivery-비결합 소비자) + 커밋2 `f0a20d7`(v2 write + migration + enqueue/read cut + 게이트 재작성). 이로써
+  **meta-record v2 전환(3A→3D) 완결:** live write=v2 identity, receipt=state.json 단독, capability=registry,
+  v1 dual-read 유지. 게이트: check-meta-session 49 / check-meta-mailbox-state-write 14 / check-meta-migration 14
+  / check-meta-dual-consumers 9 / check-meta-capability-source 14, smoke 전부 green. GPT 보강(isEntwurf 런타임
+  검증 + migration create/attach-v2 no-state claim) 반영. **남은 잔여:** 고정순서 7(MCP `pi-tools-bridge` wording
+  — 구조 비의존이라 코드 무변경, 주석만) = 저우선.
 - **3D-3 진입 시 기억할 2건(Fable 검수 2026-06-10):** (1) `pi/entwurf-capabilities.json`이 이제 **런타임
   load-bearing** — 3D-3 이후 모든 mint/parse가 이 파일에 의존, 누락/corruption이면 메타레코드 파싱 전체
   throw(fail-loud, check-pack이 tarball 포함 보장; 단 설치환경 깨지면 MCP 브리지 전체 멈춤 = 의존성 승격 인지).
@@ -336,8 +342,10 @@ trusted 전에는 cwd 아래 어떤 project-local 파일도 읽지 않는다 —
 > - **3D-3 ✅** capability-backed metadata (`97c0503`) — mint/parse 소비처를 `META_BACKEND_DESCRIPTORS`
 >   → capability registry(3C, `metaCapabilityFor` seam)로 전환, 기존 3 backend drift guard 유지, const는
 >   drift-guard reference로만 생존. `record.delivery.wakeMode` 슬롯 유지(제거는 3D-4). `check-meta-capability-source` 14.
-> - **3D-4** v2 writer/upsert + gate update — 새 write=v2, v1 read 유지, `check-meta-session`/
->   `smoke-meta-mailbox`/store-doctor 정당 update. **여기서 끊을 지점 ②(GPT 큰 리뷰).** 상세 계획은 ↓ 섹션.
+> - **3D-4 ✅** v2 writer/upsert + the cut (`31a246c` commit1 dual-read seam + `f0a20d7` commit2 the cut) —
+>   live write=v2, receipt=state.json 단독, v1 dual-read 유지. 게이트 재작성(check-meta-session 49 /
+>   check-meta-mailbox-state-write 14 rename / check-meta-migration 14 신규 / smoke state.json). **끊을 지점 ②
+>   = GPT+Fable 리뷰 통과.** 상세 계획은 ↓ 섹션(이력 보존).
 
 ### Stage 0 step 3D-4 작업 계획 — 정찰 완료 (GPT+Fable 자문 통합 2026-06-10, 재정찰 불필요)
 
@@ -485,12 +493,11 @@ N3a 한 줄을 B 작업목록에 포함하는 조건 — 충족). N3-검증: con
 정찰 + GPT 리뷰 + 코드 재검수로 순서 고정. 지금은 3D-2 직전이다 — 어기면 dual-read 역호환 또는
 receipt 증거가 깨진다.
 
-**현 authority 위치 (2026-06-10 현재 — 전환 중):**
-- **live receipt = 이제 dual-write(3D-2 `79b3c98`).** `enqueueMetaMessage`/`readMetaInbox`가
-  `record.delivery.*`(v1 home, Claude D7 observable) stamp **유지** + mailbox `state.json`(3B,
-  `MailboxReceiptState`/`stampMailboxReceipt`) **동시 stamp**, byte-identical. 파일 마커
-  `.msg`/`.msg.delivered`는 여전히 doorbell이지 read-receipt 아님. **authority 단일화(state만 남기고
-  delivery 제거)는 3D-4 = 끊을 지점 ②** — 지금은 두 store가 평행 동작.
+**현 authority 위치 (2026-06-10 현재 — meta-record v2 전환 완결):**
+- **live receipt = state.json 단독(3D-4 `f0a20d7`).** `enqueueMetaMessage`/`readMetaInbox`가 record를
+  안 건드리고(identity dual-read만) mailbox `state.json`(`MailboxReceiptState`/`stampMailboxReceipt`)에만
+  stamp. v2 record엔 `delivery{}` 없음. 파일 마커 `.msg`/`.msg.delivered`는 여전히 doorbell이지 read-receipt
+  아님. v1 legacy record의 receipt는 upsert attach 시 `migrateV1DeliveryReceipts`로 state에 이관(state-wins).
 - **capability source = 이제 registry(3D-3 `97c0503`).** mint/parse가 `metaCapabilityFor` seam
   (memoized `loadMetaCapabilityRegistry`)으로 `pi/entwurf-capabilities.json`에서 wakeMode/deliveryLevel을
   읽음. `META_BACKEND_DESCRIPTORS`는 `check-entwurf-capabilities`의 **drift-guard reference로만 생존**
