@@ -41,13 +41,12 @@
   typecheck). 게이트 `check-project-trust-handler` 16.
 
 **▶ 다음 한 걸음 (구현 세션 진입점 — 버킷 A + 3D-2 + 3D-3 완료, 다음 = 3D-4 = 끊을 지점 ②):**
-- **(main track) step 3D-4 = v2 writer/upsert + gate update. 끊을 지점 ②(GPT 큰 리뷰).** 새 write=v2
-  (`serializeMetaIdentity`/`parseMetaIdentity` 3D-1 산물 FS 연결), v1 read 유지(dual-read), record에서
-  `delivery{}`+`wakeMode` 제거(state.json·capability registry로 이미 이동 완료 = 3D-2/3D-3). **정당하게 깨질
-  게이트(= regression 아님, 원장이 못박음): `check-meta-session`(delivery/wakeMode/lastSeen 단언 +
-  backend↔wakeMode contradiction) · `smoke-meta-mailbox`(receipt assertion 위치) · store-doctor(contradiction
-  check).** dual-read 경로엔 v1 fixture 게이트 별도 유지. **순서: v2 writer 붙임 → 깨진 게이트 정당 update →
-  그 직후 큰 리뷰로 끊음.** 정찰은 진입 시.
+- **(main track) step 3D-4 = v2 writer/upsert + delivery-authority cut. 끊을 지점 ②(GPT 큰 리뷰).**
+  v1 delivery authority를 끊고 v2 identity + state.json(receipt) + registry(capability)로 단일화. **2-커밋
+  분할(Fable 분할선 정정: "delivery-비결합 vs delivery-결합", read/write 아님 — read를 먼저 identity로 바꾸면
+  enqueue/read의 markEnqueued/markRead가 full record 필요해 컴파일 깨짐):** 커밋1(green checkpoint)=delivery
+  안 보는 소비자 dual-read 전환 / 커밋2(the cut, 리뷰 대상)=delivery-결합 3인방 + 게이트 재작성. **정찰 완료
+  (재정찰 불필요) — 라인·분류·결정·invariant 전부 아래 "3D-4 작업 계획" 섹션에 박음. 구현은 거기부터.**
 - **3D-3 진입 시 기억할 2건(Fable 검수 2026-06-10):** (1) `pi/entwurf-capabilities.json`이 이제 **런타임
   load-bearing** — 3D-3 이후 모든 mint/parse가 이 파일에 의존, 누락/corruption이면 메타레코드 파싱 전체
   throw(fail-loud, check-pack이 tarball 포함 보장; 단 설치환경 깨지면 MCP 브리지 전체 멈춤 = 의존성 승격 인지).
@@ -338,7 +337,62 @@ trusted 전에는 cwd 아래 어떤 project-local 파일도 읽지 않는다 —
 >   → capability registry(3C, `metaCapabilityFor` seam)로 전환, 기존 3 backend drift guard 유지, const는
 >   drift-guard reference로만 생존. `record.delivery.wakeMode` 슬롯 유지(제거는 3D-4). `check-meta-capability-source` 14.
 > - **3D-4** v2 writer/upsert + gate update — 새 write=v2, v1 read 유지, `check-meta-session`/
->   `smoke-meta-mailbox`/store-doctor 정당 update. **여기서 끊을 지점 ②(GPT 큰 리뷰).**
+>   `smoke-meta-mailbox`/store-doctor 정당 update. **여기서 끊을 지점 ②(GPT 큰 리뷰).** 상세 계획은 ↓ 섹션.
+
+### Stage 0 step 3D-4 작업 계획 — 정찰 완료 (GPT+Fable 자문 통합 2026-06-10, 재정찰 불필요)
+
+3D-4 = v1 delivery authority를 끊고 **v2 identity + state.json(receipt) + registry(capability)**로 단일화.
+~10 함수 + 3 게이트 + prune이 얽힌 cut이라 **2-커밋 분할**(분할선 = delivery 결합 여부, Fable 정정).
+구현 세션은 이 섹션의 라인·분류·결정으로 재정찰 없이 게이트부터 작성한다.
+
+**커밋1 (green checkpoint — delivery-비결합 dual-read 소비자, store 안 깨고 되돌리기 쉬움):**
+- 신규 `readMetaIdentityByGardenId`(`parseMetaIdentity` dual-read). `readMetaRecordByGardenId`(meta-session.ts:1188)는 **유지**(커밋2 처분).
+- **`scanByNativeId`(:790) → dual-read/identity scan (G1, GPT — 빠지면 duplicate-mint 버그):** 커밋2에서 upsert가
+  v2 write 시작하면 다음 attach 때 이게 v2를 못 읽으면 **존재하는 시민을 못 찾아 중복 mint** → 커밋1에서 미리
+  v1·v2 둘 다 읽게(backend/nativeSessionId만 보니 identity로 충분, delivery-비결합). invariant ④의 작업 항목.
+- `meta-bridge-prune.ts`(:23 import, :97 parse, :111-114 필드, :132 transcriptPath, :140 `lastSeen`) →
+  `parseMetaIdentity` + `lastSeen`→`recordUpdatedAt`. **transcriptPath nullable 규칙(G2, GPT — null≠orphan):**
+  `null`은 orphan **아님**(pi nullable-at-birth = "미확정/없음", "파일 사라짐"과 다름) — orphan은
+  `typeof===string && !exists`만, stale은 `recordUpdatedAt` 기준만.
+- `meta-bridge-store-doctor.ts:34` `parseMetaRecord` → `parseMetaRecordAny`.
+- `mcp/pi-tools-bridge/src/index.ts:337-338`(marker 검증, `rec.backend`/`rec.nativeSessionId`만 봄 = identity로 충분)
+  → `readMetaIdentityByGardenId`로 **의도적 분류**(H4; typecheck 우연 통과 금지). `entwurf_inbox_read` receipt는
+  `readMetaInbox` 반환 경유라 state-stamp 후 자연 정합 = 무변경 OK.
+- 게이트: synthetic v2 fixture로 scan/prune/doctor/marker가 **v1·v2 둘 다** 읽음 = green checkpoint.
+
+**커밋2 (the cut, 끊을 지점 ② = GPT 큰 리뷰 대상 — delivery-결합 3인방, 서로 의존이라 atomic):**
+- `mintMetaIdentity`(v2) + `MetaIdentityMintInput`{`backend:MetaBackendV2`(pi 포함), `nativeSessionId`, `cwd`,
+  `model?`, `transcriptPath?`(nullable), `parentGardenId?`, `isEntwurf?`}. `mintMetaRecord`(v1)/`MetaMintInput`은
+  v1-fixture/dual-read 게이트용 **보존**.
+- **attach merge 3-값 규칙(G5, GPT — optional≠null):** `decideUpsert` attach 시 optional 필드
+  (model/transcriptPath/parentGardenId)는 `undefined`=기존 값 **보존**, `null`=명시적 unknown/clear, `string`=갱신.
+  (안 그러면 pi birth의 null 입력이 기존 transcriptPath를 지움.) 게이트로 3-값 구분 assert.
+- `decideUpsert`(:838)/`upsertMetaSession`(:1140, **+optional `mailboxDir` 기본값** = enqueue/read와 동일 패턴, hook
+  무변경)/`atomicWriteRecord`(:1157) → `serializeMetaIdentity`(v2) write.
+- **`readMetaRecordByGardenId`(:1188) 처분(G3, GPT — 반환 타입 flip 금지=이름 거짓말):** v1 legacy 전용으로
+  `readMetaRecordV1ByGardenId`로 **rename/강등**, live path는 `readMetaIdentityByGardenId`만.
+- 신규 `migrateV1DeliveryReceipts`(별도 export, **단독 게이트**): per-field `merged[f]=state[f] ?? v1[f]`(state wins),
+  **timestamp 3개만**(`lastEnqueuedAt`/`lastDeliveredAt`/`lastReadAt` — wakeMode/deliveryLevel은 registry 소유, 통째-merge면
+  3B strict keyset throw = H2). **crash-order: state merge를 v2 rewrite보다 먼저**(사이 crash 시 record 여전히 v1 →
+  다음 attach 재migration = 멱등 안전; 반대 순서는 receipt 영구 소실).
+- `enqueueMetaMessage`(:1249 markEnqueued)/`readMetaInbox`(:1307 read, :1333 markRead) — record-stamp **중단**,
+  state.json만(`readAt`←state stamp).
+- `markEnqueued`(:876)/`markRead`(:886)/`markDelivered`(:881) 처분(삭제 or v1-fixture 전용 명시 강등 = H3);
+  `check-meta-capability-source`의 `mintMetaRecord`(v1) "live mint" docstring re-label(H3).
+- 게이트 재작성(정당 update, regression 아님): `check-meta-session`(:80-88 delivery seed, :130-131 keyset,
+  :161-167 delivery parse, :559 `.delivery.lastReadAt` → **v2 identity 단언 + v1-fixture dual-read 서브게이트**),
+  `check-meta-mailbox-dualwrite`(H1: "record.delivery v1 home intact" → **"identity 파일 byte-identical + state만 stamp"**;
+  cut 후 dualwrite 이름이 거짓말 → `check-meta-mailbox-state-write`류로 **rename**=정리1),
+  `smoke-meta-mailbox`(:107-108 `.meta.json` delivery.lastReadAt → **state.json lastReadAt**).
+- 신규 게이트: migration **4케이스 분류(G4 정밀화, GPT — state-wins ↔ no-create 충돌 방지):** create=state 무변경 /
+  attach v2→v2=무변경 / **attach v1→v2 = v1 receipt가 state의 null 필드를 실제로 채울 때만 write 1회** /
+  **state가 이미 이기거나 v1 delivery 전부 null = no-write/no-create**("migrating nothing is not a receipt") +
+  crash-order(drift-throw로 record 여전히 v1 assert).
+
+**invariant 체크리스트 (커밋2 게이트로 박을 것 — GPT 8 + Fable 보강):** ①upsert create→`schemaVersion 2`
+②v2엔 delivery·lastSeen 없음 ③attach→`recordUpdatedAt`(lastSeen 아님) ④scan/read v1·v2 둘 다 수용 ⑤enqueue/read는
+**identity 파일 byte-identical, mailbox state만 변경** ⑥빈 inbox는 record도 state도 무변경 ⑦v1 legacy fixture 여전히
+normalize ⑧v1 delivery receipt가 state로 migrate(conflict 시 state wins, 전부 null이면 no-create).
 
 ### Fable 5 설계 검수 반영 — entwurf_v2(step 4-5) 진입 블로커 (2026-06-10, Fable+Opus+GPT 3자 수렴, 소스 확정)
 
