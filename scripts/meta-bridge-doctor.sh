@@ -183,5 +183,54 @@ else
   fi
 fi
 
+# ── writer-version parity (source ↔ assembled ↔ installed) ──────────────────
+# The dangerous lag: a meta-record schema cut updates the repo SOURCE but the
+# DEPLOYED bundle (what the live SessionStart hook runs) is not re-assembled, so
+# new sessions are still written by the old writer — invisibly. "source complete"
+# ≠ "deployed complete". This section makes the running writer version legible:
+# live-write schema = does the bundle carry serializeMetaIdentity (v2 identity
+# write) or only mintMetaRecord (v1). Hash = drift catch. The authority for "what
+# records me" is the INSTALLED bundle; a mismatch vs source is a loud FAIL.
+echo
+echo "writer-version parity"
+livewrite_schema() { # $1=meta-session.ts → v2|v1|absent
+  [ -f "$1" ] || { echo "absent"; return; }
+  if grep -q "serializeMetaIdentity" "$1"; then echo "v2"; else echo "v1"; fi
+}
+hash12() { [ -f "$1" ] && sha256sum "$1" | cut -c1-12 || echo "------------"; }
+
+SRC_MS="$REPO/pi-extensions/lib/meta-session.ts"
+ASM_MS="$REPO/pi/meta-bridge/.assembled/$PLUGIN/lib/meta-session.ts"
+INST_MS="$(ls "$CLAUDE_CFG"/plugins/cache/"$MKT_NAME"/"$PLUGIN"/*/lib/meta-session.ts 2>/dev/null | head -1 || true)"
+
+src_v="$(livewrite_schema "$SRC_MS")";            src_h="$(hash12 "$SRC_MS")"
+asm_v="$(livewrite_schema "$ASM_MS")";            asm_h="$(hash12 "$ASM_MS")"
+inst_v="$(livewrite_schema "${INST_MS:-/none}")"; inst_h="$(hash12 "${INST_MS:-/none}")"
+
+echo "  source    : $src_v  ($src_h)"
+echo "  assembled : $asm_v  ($asm_h)"
+echo "  installed : $inst_v  ($inst_h)  ${INST_MS:-<none>}"
+
+# store reality — distribution of schemaVersion across landed records.
+sv1=0; sv2=0
+for mf in "$META_SESSIONS"/*.meta.json; do
+  [ -f "$mf" ] || continue
+  case "$(grep -o '"schemaVersion"[[:space:]]*:[[:space:]]*[0-9]*' "$mf" | grep -o '[0-9]*$' | head -1)" in
+    1) sv1=$((sv1 + 1)) ;; 2) sv2=$((sv2 + 1)) ;;
+  esac
+done
+echo "  store     : v1=$sv1 v2=$sv2  (dual-read reads both)"
+
+if [ -z "${INST_MS:-}" ]; then
+  warn "no installed bundle to compare — run ./run.sh install-meta-bridge"
+elif [ "$inst_h" = "$src_h" ]; then
+  ok "deployed writer matches source ($inst_v) — no version lag"
+else
+  bad "deployed writer STALE: installed=$inst_v($inst_h) vs source=$src_v($src_h). The live hook records sessions with the OLD writer. Run ./run.sh install-meta-bridge to redeploy, then open a Claude session and re-run this doctor."
+fi
+if [ -f "$ASM_MS" ] && [ "$asm_h" != "$src_h" ]; then
+  warn "assembled bundle differs from source ($asm_v vs $src_v) — stale .assembled; install re-assembles it"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then echo "meta-bridge doctor: PASS"; else echo "meta-bridge doctor: FAIL (see above)"; exit 1; fi
