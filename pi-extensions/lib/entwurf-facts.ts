@@ -27,7 +27,7 @@
  * the surrounding identity facts around it.
  */
 
-import { type FactLiveness, factLivenessOf } from "./entwurf-v2-contract.ts";
+import { type FactLiveness, factLivenessOf, isLivenessSupported } from "./entwurf-v2-contract.ts";
 import type { MetaBackendV2, MetaIdentity } from "./meta-session.ts";
 import type { SocketLiveness } from "./socket-probe.ts";
 
@@ -76,4 +76,137 @@ export function resolvePeerFact(identity: MetaIdentity, socket: SocketLiveness |
 		recordUpdatedAt: identity.recordUpdatedAt,
 		liveness: factLivenessOf(identity.backend, socket),
 	};
+}
+
+// ── slice 2: meta-store axis ⨯ socket axis → facts-only listing ─────────────
+// (설계 동결 2026-06-11, GPT힣 + Fable 수렴 — NEXT.md "step 4 slice 2 설계 동결")
+
+/**
+ * The SOCKET-axis input to the union: one 3-value probe of a control socket plus
+ * its get_info-derived runtime enrich. Slice-3 wiring fills this by probing the
+ * control-socket dir AND every in-domain citizen's canonical socket path with
+ * `probeSocketLiveness` (3-value, indeterminate preserved). `liveness` is the
+ * 3-value `SocketLiveness` — never `unsupported`, because a probe genuinely ran.
+ * The enrich fields are probe-derived RUNTIME facts (the get_info RPC), labelled
+ * as such — they are NOT meta-record identity and NOT synthetic; a `null` means
+ * the RPC did not surface that field (see `infoError`).
+ */
+export interface SocketProbe {
+	gardenId: string;
+	liveness: SocketLiveness;
+	cwd: string | null;
+	model: string | null;
+	idle: boolean | null;
+	infoError: string | null;
+}
+
+/**
+ * A live control socket with NO meta-record citizen behind it — "socket-only pi":
+ * a live pi session that predates the pi meta-record writer, or one caught in a
+ * deploy-lag / crash window. Kept as a DISTINCT fact kind, never folded into
+ * `PeerFact` and never given a 5th liveness value: "this socket has no citizen"
+ * is a statement whose SUBJECT is the socket, not a citizen, so it must not
+ * borrow the citizen-keyed 4-value liveness enum (the sibling of R1 — do not
+ * collapse a different subject). All fields are the socket filename (gardenId =
+ * 동결결정3 correlation authority) + probe-derived runtime facts.
+ */
+export interface SocketOnlyFact {
+	kind: "socket-only";
+	gardenId: string;
+	liveness: SocketLiveness;
+	cwd: string | null;
+	model: string | null;
+	idle: boolean | null;
+	infoError: string | null;
+}
+
+/**
+ * The union output. Two arrays, NOT one discriminated array: the surface layer
+ * (slice 4) may tag a `PeerFact` with `kind:"peer"` when it merges the sections,
+ * but the pure core keeps `PeerFact`'s slice-1 keyset untouched (no `kind` field
+ * baked onto it). `entwurf_peers` reports both sections so the new listing fully
+ * replaces the old live-pi discovery.
+ */
+export interface FactList {
+	peers: PeerFact[];
+	socketOnly: SocketOnlyFact[];
+}
+
+/**
+ * Pure union of the meta-store axis (citizens) and the socket axis (probes) into
+ * a facts-only listing. No IO — slice-3 wiring reads the meta-store and probes
+ * the sockets, then injects both lists.
+ *
+ * Correlation key = `gardenId` (동결결정3; `nativeSessionId` is backend-local, not
+ * a global key). Rules frozen 2026-06-11 (GPT힣 + Fable):
+ *   - in-domain (pi) citizen: liveness = its socket probe (3-value preserved).
+ *     The wiring MUST probe every in-domain citizen's canonical socket path, so a
+ *     citizen ABSENT from `socketProbes` is a wiring-invariant violation → throw.
+ *     We never pass `null` for a pi citizen (resolvePeerFact would map it to
+ *     `indeterminate` and strand a dormant citizen as un-resumable); a dormant
+ *     citizen's absent socket file is probed to `dead` (ENOENT) by the wiring and
+ *     arrives here AS `dead` → dormant → resumable.
+ *   - out-of-domain citizen WITH a control socket at its gardenId → fail-loud
+ *     (address ambiguity; a non-pi citizen must not own a pi control socket).
+ *   - out-of-domain citizen without a socket → `unsupported` (via resolvePeerFact).
+ *   - a probed gardenId with NO citizen → `SocketOnlyFact` (socket-only pi).
+ * A gardenId is never emitted as both a `PeerFact` and a `SocketOnlyFact`; once a
+ * pi meta-record writer ships, a socket-only entry is promoted to a `PeerFact`.
+ */
+export function resolveFactList(identities: MetaIdentity[], socketProbes: SocketProbe[]): FactList {
+	const probeMap = new Map<string, SocketProbe>();
+	for (const probe of socketProbes) {
+		if (probeMap.has(probe.gardenId)) {
+			throw new Error(`resolveFactList: duplicate socket probe for gardenId ${probe.gardenId}`);
+		}
+		probeMap.set(probe.gardenId, probe);
+	}
+
+	const peers: PeerFact[] = [];
+	const consumed = new Set<string>();
+	for (const identity of identities) {
+		const gid = identity.gardenId;
+		if (consumed.has(gid)) {
+			throw new Error(`resolveFactList: duplicate meta-record for gardenId ${gid}`);
+		}
+		let socket: SocketLiveness | null;
+		if (isLivenessSupported(identity.backend)) {
+			const probe = probeMap.get(gid);
+			if (!probe) {
+				throw new Error(
+					`resolveFactList: in-domain citizen ${gid} (${identity.backend}) was not probed — ` +
+						"wiring must probe every in-domain citizen's canonical socket path (absent file → dead, never unprobed)",
+				);
+			}
+			socket = probe.liveness;
+		} else {
+			if (probeMap.has(gid)) {
+				throw new Error(
+					`resolveFactList: out-of-domain citizen ${gid} (${identity.backend}) has a control socket — ` +
+						"address ambiguity (a non-pi citizen must not own a pi control socket)",
+				);
+			}
+			socket = null;
+		}
+		peers.push(resolvePeerFact(identity, socket));
+		consumed.add(gid);
+	}
+
+	const socketOnly: SocketOnlyFact[] = [];
+	for (const probe of socketProbes) {
+		if (consumed.has(probe.gardenId)) continue;
+		socketOnly.push({
+			kind: "socket-only",
+			gardenId: probe.gardenId,
+			liveness: probe.liveness,
+			cwd: probe.cwd,
+			model: probe.model,
+			idle: probe.idle,
+			infoError: probe.infoError,
+		});
+	}
+
+	peers.sort((a, b) => a.gardenId.localeCompare(b.gardenId));
+	socketOnly.sort((a, b) => a.gardenId.localeCompare(b.gardenId));
+	return { peers, socketOnly };
 }

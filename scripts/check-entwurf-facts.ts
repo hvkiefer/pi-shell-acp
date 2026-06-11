@@ -21,7 +21,14 @@
  */
 
 import assert from "node:assert/strict";
-import { type PeerFact, resolvePeerFact } from "../pi-extensions/lib/entwurf-facts.ts";
+import {
+	type FactList,
+	type PeerFact,
+	resolveFactList,
+	resolvePeerFact,
+	type SocketOnlyFact,
+	type SocketProbe,
+} from "../pi-extensions/lib/entwurf-facts.ts";
 import {
 	FACT_LIVENESSES,
 	type FactLiveness,
@@ -160,5 +167,161 @@ for (const backend of META_BACKENDS_V2) {
 // Type-level guard: the test references PeerFact so a field rename breaks tsc.
 const _typecheck: (f: PeerFact) => FactLiveness = (f) => f.liveness;
 void _typecheck;
+
+// ════════════════════════════════════════════════════════════════════════════
+// slice 2 — resolveFactList: meta-store ⨯ socket union (설계 동결 2026-06-11,
+// GPT힣 + Fable). PeerFact for record citizens, SocketOnlyFact for record-less
+// live sockets; gardenId is the correlation key.
+// ════════════════════════════════════════════════════════════════════════════
+
+function socketProbe(gardenId: string, liveness: SocketLiveness, over: Partial<SocketProbe> = {}): SocketProbe {
+	return { gardenId, liveness, cwd: null, model: null, idle: null, infoError: null, ...over };
+}
+
+const GID_PI_LIVE = "20260611T115213-3aa371";
+const GID_PI_DORMANT = "20260611T093858-14984d";
+const GID_CLAUDE = "20260611T112732-0f42b6";
+const GID_SOCKET_ONLY = "20260611T135517-5f0d25";
+
+// ── basic union: pi-live citizen + claude citizen + record-less live socket ──
+{
+	const ids = [identity("pi", { gardenId: GID_PI_LIVE }), identity("claude-code", { gardenId: GID_CLAUDE })];
+	const probes = [socketProbe(GID_PI_LIVE, "alive"), socketProbe(GID_SOCKET_ONLY, "alive", { cwd: "/tmp/x" })];
+	const out = resolveFactList(ids, probes);
+	ok("union: 2 citizens → 2 PeerFacts", out.peers.length === 2);
+	ok("union: 1 record-less socket → 1 SocketOnlyFact", out.socketOnly.length === 1);
+	ok(
+		"union: pi-live citizen liveness = alive (from its probe)",
+		out.peers.find((p) => p.gardenId === GID_PI_LIVE)?.liveness === "alive",
+	);
+	ok(
+		"union: claude citizen liveness = unsupported (out-of-domain, socket ignored)",
+		out.peers.find((p) => p.gardenId === GID_CLAUDE)?.liveness === "unsupported",
+	);
+	ok("union: socket-only gardenId surfaced", out.socketOnly[0]?.gardenId === GID_SOCKET_ONLY);
+}
+
+// ── dormant trap (Fable): pi citizen probed dead → dead (NOT indeterminate) ──
+{
+	const out = resolveFactList([identity("pi", { gardenId: GID_PI_DORMANT })], [socketProbe(GID_PI_DORMANT, "dead")]);
+	ok(
+		"dormant trap: pi citizen + probe=dead → liveness=dead (resumable, not stranded)",
+		out.peers[0]?.liveness === "dead",
+	);
+	ok("dormant trap: dead pi citizen is a PeerFact, not socket-only", out.socketOnly.length === 0);
+}
+
+// ── F3 preserve: pi citizen probed indeterminate → not folded to dead ────────
+{
+	const out = resolveFactList([identity("pi", { gardenId: GID_PI_LIVE })], [socketProbe(GID_PI_LIVE, "indeterminate")]);
+	ok(
+		"F3 preserve: pi citizen + probe=indeterminate → indeterminate (never folded)",
+		out.peers[0]?.liveness === "indeterminate",
+	);
+}
+
+// ── wiring invariant: unprobed in-domain citizen → throw (null is unprobed-only) ─
+{
+	let threw = false;
+	try {
+		resolveFactList([identity("pi", { gardenId: GID_PI_LIVE })], []);
+	} catch {
+		threw = true;
+	}
+	ok("wiring invariant: in-domain citizen absent from probes → throw (never silent null/indeterminate)", threw);
+}
+
+// ── fail-loud (동결3): out-of-domain citizen owning a control socket = ambiguity ─
+{
+	let threw = false;
+	try {
+		resolveFactList([identity("claude-code", { gardenId: GID_CLAUDE })], [socketProbe(GID_CLAUDE, "alive")]);
+	} catch {
+		threw = true;
+	}
+	ok("dedup/authority: non-pi citizen + control socket at same gid → fail-loud", threw);
+}
+
+// ── dedup (동결3): pi citizen + its socket → PeerFact only, never both ────────
+{
+	const out = resolveFactList([identity("pi", { gardenId: GID_PI_LIVE })], [socketProbe(GID_PI_LIVE, "alive")]);
+	ok("dedup: pi citizen consumes its socket (1 PeerFact)", out.peers.length === 1);
+	ok("dedup: consumed gid not also emitted as SocketOnlyFact", out.socketOnly.length === 0);
+	const allGids = [...out.peers.map((p) => p.gardenId), ...out.socketOnly.map((s) => s.gardenId)];
+	ok("dedup: no gardenId appears in both sections", new Set(allGids).size === allGids.length);
+}
+
+// ── duplicate inputs → throw ─────────────────────────────────────────────────
+{
+	let dupProbe = false;
+	try {
+		resolveFactList([], [socketProbe(GID_PI_LIVE, "alive"), socketProbe(GID_PI_LIVE, "dead")]);
+	} catch {
+		dupProbe = true;
+	}
+	ok("duplicate socket probe for one gid → throw", dupProbe);
+
+	let dupId = false;
+	try {
+		resolveFactList(
+			[identity("pi", { gardenId: GID_PI_LIVE }), identity("pi", { gardenId: GID_PI_LIVE })],
+			[socketProbe(GID_PI_LIVE, "alive")],
+		);
+	} catch {
+		dupId = true;
+	}
+	ok("duplicate meta-record for one gid → throw", dupId);
+}
+
+// ── SocketOnlyFact: 3-value liveness + probe-derived enrich, no synthetic id ──
+{
+	const out = resolveFactList(
+		[],
+		[socketProbe(GID_SOCKET_ONLY, "alive", { cwd: "/tmp/w", model: "gpt-5.5", idle: true, infoError: null })],
+	);
+	const s = out.socketOnly[0] as SocketOnlyFact;
+	ok("socket-only: kind discriminant", s.kind === "socket-only");
+	ok("socket-only: liveness ∈ SocketLiveness 3-value (never unsupported)", s.liveness === "alive");
+	ok("socket-only: probe-derived cwd passthrough", s.cwd === "/tmp/w");
+	ok("socket-only: probe-derived model passthrough", s.model === "gpt-5.5");
+	ok("socket-only: probe-derived idle passthrough", s.idle === true);
+	const keys = Object.keys(s).sort();
+	const expected = ["cwd", "gardenId", "idle", "infoError", "kind", "liveness", "model"].sort();
+	assert.deepStrictEqual(keys, expected, `SocketOnlyFact keyset drift: ${keys.join(",")}`);
+	ok("socket-only: keyset exact (gardenId + liveness + probe-derived enrich)", true);
+	const FORBIDDEN = [
+		"resumable",
+		"sendable",
+		"transport",
+		"dispatch",
+		"action",
+		"backend",
+		"nativeSessionId",
+		"isEntwurf",
+	];
+	for (const k of FORBIDDEN) {
+		ok(`socket-only: no '${k}' (no verb-routing, no synthetic identity)`, !(k in s));
+	}
+}
+
+// ── determinism: output sorted by gardenId in each section ───────────────────
+{
+	const ids = [
+		identity("pi", { gardenId: "20260611T222222-bbbbbb" }),
+		identity("pi", { gardenId: "20260611T111111-aaaaaa" }),
+	];
+	const probes = [
+		socketProbe("20260611T222222-bbbbbb", "alive"),
+		socketProbe("20260611T111111-aaaaaa", "alive"),
+		socketProbe("20260611T333333-cccccc", "alive"),
+	];
+	const out = resolveFactList(ids, probes);
+	ok("determinism: peers sorted by gardenId", out.peers[0]?.gardenId === "20260611T111111-aaaaaa");
+	ok("determinism: socketOnly sorted by gardenId", out.socketOnly[0]?.gardenId === "20260611T333333-cccccc");
+}
+
+// Type-level guard: reference FactList so a shape rename breaks tsc.
+const _factlist: (f: FactList) => number = (f) => f.peers.length + f.socketOnly.length;
+void _factlist;
 
 console.log(`\n[check-entwurf-facts] ${passed} assertions ok`);
