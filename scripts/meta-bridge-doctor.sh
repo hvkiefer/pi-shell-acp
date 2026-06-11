@@ -198,18 +198,28 @@ livewrite_schema() { # $1=meta-session.ts → v2|v1|absent
   if grep -q "serializeMetaIdentity" "$1"; then echo "v2"; else echo "v1"; fi
 }
 hash12() { [ -f "$1" ] && sha256sum "$1" | cut -c1-12 || echo "------------"; }
+registry_for_ms() { # $1=bundle meta-session.ts → sibling plugin-root registry path
+  [ -f "$1" ] || { echo ""; return; }
+  dirname "$(dirname "$1")"
+}
 
 SRC_MS="$REPO/pi-extensions/lib/meta-session.ts"
+SRC_REG="$REPO/pi/entwurf-capabilities.json"
 ASM_MS="$REPO/pi/meta-bridge/.assembled/$PLUGIN/lib/meta-session.ts"
 INST_MS="$(ls "$CLAUDE_CFG"/plugins/cache/"$MKT_NAME"/"$PLUGIN"/*/lib/meta-session.ts 2>/dev/null | head -1 || true)"
 
-src_v="$(livewrite_schema "$SRC_MS")";            src_h="$(hash12 "$SRC_MS")"
-asm_v="$(livewrite_schema "$ASM_MS")";            asm_h="$(hash12 "$ASM_MS")"
-inst_v="$(livewrite_schema "${INST_MS:-/none}")"; inst_h="$(hash12 "${INST_MS:-/none}")"
+ASM_ROOT="$(registry_for_ms "$ASM_MS")"
+INST_ROOT="$(registry_for_ms "${INST_MS:-}")"
+ASM_REG="${ASM_ROOT:+$ASM_ROOT/entwurf-capabilities.json}"
+INST_REG="${INST_ROOT:+$INST_ROOT/entwurf-capabilities.json}"
 
-echo "  source    : $src_v  ($src_h)"
-echo "  assembled : $asm_v  ($asm_h)"
-echo "  installed : $inst_v  ($inst_h)  ${INST_MS:-<none>}"
+src_v="$(livewrite_schema "$SRC_MS")";            src_h="$(hash12 "$SRC_MS")";  src_reg_h="$(hash12 "$SRC_REG")"
+asm_v="$(livewrite_schema "$ASM_MS")";            asm_h="$(hash12 "$ASM_MS")";  asm_reg_h="$(hash12 "${ASM_REG:-/none}")"
+inst_v="$(livewrite_schema "${INST_MS:-/none}")"; inst_h="$(hash12 "${INST_MS:-/none}")"; inst_reg_h="$(hash12 "${INST_REG:-/none}")"
+
+echo "  source    : $src_v  ($src_h)  registry=$src_reg_h"
+echo "  assembled : $asm_v  ($asm_h)  registry=$asm_reg_h"
+echo "  installed : $inst_v  ($inst_h)  registry=$inst_reg_h  ${INST_MS:-<none>}"
 
 # store reality — distribution of schemaVersion across landed records.
 sv1=0; sv2=0
@@ -236,19 +246,19 @@ fi
 # at runtime. In the bundle layout it must sit at the plugin ROOT (resolved via
 # `../` from lib/). A v2 bundle WITHOUT it throws on every mint/parse — a silent
 # hook break that hash parity alone cannot see (it only hashes meta-session.ts).
-check_registry_dep() { # $1=bundle meta-session.ts  $2=label
-  local ms="$1" label="$2" root reg
+check_registry_dep() { # $1=bundle meta-session.ts  $2=label  $3=registry-path  $4=registry-hash
+  local ms="$1" label="$2" reg="$3" reg_h="$4"
   [ -f "$ms" ] && grep -q "serializeMetaIdentity" "$ms" || return 0 # v1/absent: no registry dep
-  root="$(dirname "$(dirname "$ms")")"
-  reg="$root/entwurf-capabilities.json"
-  if [ -f "$reg" ]; then
-    ok "$label v2 carries capability registry ($reg)"
-  else
+  if [ ! -f "$reg" ]; then
     bad "$label is v2 but MISSING entwurf-capabilities.json at plugin root ($reg) — the v2 writer throws on mint/parse (silent hook break). Re-run ./run.sh install-meta-bridge (now bundles the registry)."
+  elif [ "$reg_h" != "$src_reg_h" ]; then
+    bad "$label v2 carries a STALE capability registry: $reg_h vs source=$src_reg_h ($reg). Re-run ./run.sh install-meta-bridge so the live writer and its load-bearing registry move together."
+  else
+    ok "$label v2 carries capability registry ($reg, $reg_h)"
   fi
 }
-check_registry_dep "$ASM_MS" "assembled"
-check_registry_dep "$INST_MS" "installed"
+check_registry_dep "$ASM_MS" "assembled" "${ASM_REG:-}" "$asm_reg_h"
+check_registry_dep "$INST_MS" "installed" "${INST_REG:-}" "$inst_reg_h"
 
 echo
 if [ "$fail" -eq 0 ]; then echo "meta-bridge doctor: PASS"; else echo "meta-bridge doctor: FAIL (see above)"; exit 1; fi
