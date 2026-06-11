@@ -40,7 +40,8 @@
   `ProjectTrustContext["mode"]`로 추출; lib→lib `.ts` import + root tsconfig exclude(scripts/tsconfig가
   typecheck). 게이트 `check-project-trust-handler` 16.
 
-**▶ 다음 한 걸음 (구현 세션 진입점 — Stage 0 step 3 + contract-lock + 버킷 B freeze 전체 완료, 다음 = step 4 fact-provider **slice 2**(설계 동결 ↓ "step 4 slice 2 설계 동결" 섹션) → slice 3-4 → F-mailbox amendment → step 5):**
+**▶ 다음 한 걸음 (구현 세션 진입점 — fact-provider slice 1·2·3·4a·4b 전부 완료(push됨 `ee7eef4`), 다음 = step 4 **slice 4c**(MCP `entwurf_peers` 표면+render, 설계 ↓ "step 4 slice 4 설계 동결" 섹션) → enrich(get_info) 후속 → F-mailbox amendment → step 5):**
+> **slice 4c 진입 메모 (2026-06-11 세션 종료):** 4c는 라이브 MCP 도구 변경이라 성격이 다름 — `mcp/pi-tools-bridge/src/index.ts`의 `entwurf_peers` handler가 `listEntwurfFacts`(실제 IO deps 주입) 호출, additive payload(`sessions` 유지 + `peers`/`socketOnly`/`diagnostics`), 텍스트 3섹션 + `DISPATCH_TABLE` 의미론 정적 인용(verdict 필드 금지). **진입 전 권장: Fable에게 4a/4b 코드리뷰(설계만 받았고 코드 미검수) + 4c render/payload 설계 검수.** GPi(`20260611T115213-3aa371`)·Fable(`20260611T112732-0f42b6`) 계속 가용.
 > **baseline green 체크포인트 (2026-06-11 세션 시작):** `pnpm check` EXIT=0 전 게이트 통과
 > (meta 계열 check/smoke, trust handler, SDK surface, poison-smoke, check-pack 등 전체 green).
 > `main`=`origin/main`, working tree clean. step 4-pre(contract-lock) 진입 시작점 고정.
