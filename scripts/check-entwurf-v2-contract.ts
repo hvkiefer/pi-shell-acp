@@ -251,4 +251,23 @@ eq("receipt.reject.observedLiveness enum === FACT_LIVENESSES (4)", enumValues(re
 	...FACT_LIVENESSES,
 ]);
 
+// exactness — additionalProperties:false makes the schema reject extra keys at
+// the JSON-Schema level (not merely by declared-property convention). Without
+// it, {ok:true, ..., reason:"bad-target"} would validate against the success
+// branch (default additionalProperties=true).
+function additionalProps(schema: unknown): unknown {
+	return (schema as { additionalProperties?: unknown }).additionalProperties;
+}
+eq("input schema is exact (additionalProperties:false)", additionalProps(EntwurfV2InputSchema), false);
+eq(
+	"receipt.success is exact (additionalProperties:false — stray reason rejected)",
+	additionalProps(EntwurfV2ReceiptSuccessSchema),
+	false,
+);
+eq(
+	"receipt.reject is exact (additionalProperties:false — stray allow facet rejected)",
+	additionalProps(EntwurfV2ReceiptRejectSchema),
+	false,
+);
+
 console.log(`\ncheck-entwurf-v2-contract: ${passed} assertions passed`);

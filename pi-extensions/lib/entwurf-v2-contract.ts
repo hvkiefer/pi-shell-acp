@@ -196,53 +196,66 @@ export function resolveDispatch(intent: EntwurfIntent, liveness: FactLiveness): 
 // existing entwurf tools use (entwurf-control.ts:92-95). The logic types above
 // are hand-written unions, NOT `Static<>` inferences, so the 0.34/1.x widening
 // caveat does not touch them; the gate keeps schema ↔ types in lockstep.
-export const EntwurfV2InputSchema = Type.Object({
-	// R2/F6 executable: the garden-id shape is enforced by pattern, not prose —
-	// a malformed/typo gid fails the schema (→ bad-target) and can never reach a
-	// spawn. SSOT regex = SESSION_ID_RE (pi-extensions/lib/session-id.js).
-	target: Type.String({
-		pattern: SESSION_ID_RE.source,
-		description:
-			"garden-id of an EXISTING citizen (pattern-enforced). spawn-new is out of v2 scope (legacy entwurf keeps it); a malformed/typo gid is bad-target.",
-	}),
-	intent: StringEnum(ENTWURF_INTENTS, {
-		description:
-			"caller's declared outcome contract (F1): fire-and-forget = ack only, owned-outcome = caller owns completion.",
-	}),
-	mode: Type.Optional(
-		StringEnum(ENTWURF_V2_MODES, {
+export const EntwurfV2InputSchema = Type.Object(
+	{
+		// R2/F6 executable: the garden-id shape is enforced by pattern, not prose —
+		// a malformed/typo gid fails the schema (→ bad-target) and can never reach a
+		// spawn. SSOT regex = SESSION_ID_RE (pi-extensions/lib/session-id.js).
+		target: Type.String({
+			pattern: SESSION_ID_RE.source,
 			description:
-				"delivery mode (steer = interrupt current turn, follow_up = queue) — NOT the ownership axis (F1) nor liveness routing.",
+				"garden-id of an EXISTING citizen (pattern-enforced). spawn-new is out of v2 scope (legacy entwurf keeps it); a malformed/typo gid is bad-target.",
 		}),
-	),
-	wantsReply: Type.Optional(
-		Type.Boolean({
-			description: "conversation etiquette only — NOT ownership; never triggers an auto-send (Q2).",
+		intent: StringEnum(ENTWURF_INTENTS, {
+			description:
+				"caller's declared outcome contract (F1): fire-and-forget = ack only, owned-outcome = caller owns completion.",
 		}),
-	),
-});
+		mode: Type.Optional(
+			StringEnum(ENTWURF_V2_MODES, {
+				description:
+					"delivery mode (steer = interrupt current turn, follow_up = queue) — NOT the ownership axis (F1) nor liveness routing.",
+			}),
+		),
+		wantsReply: Type.Optional(
+			Type.Boolean({
+				description: "conversation etiquette only — NOT ownership; never triggers an auto-send (Q2).",
+			}),
+		),
+		// `additionalProperties: false` — a frozen contract input is exact; an unknown
+		// key is a caller error, not silently ignored.
+	},
+	{ additionalProperties: false },
+);
 
 // Receipt = a DISCRIMINATED union on `ok` (R3/F6) — NOT one flat object with
-// optionals. A flat-optional object would admit an illegal receipt like
-// {ok:true, reason:...}; the union makes the success and reject shapes mutually
-// exclusive at the schema level (success carries action/transport/ownership and
-// NO reason; reject carries reason and NONE of the allow facets).
-export const EntwurfV2ReceiptSuccessSchema = Type.Object({
-	ok: Type.Literal(true),
-	action: StringEnum(ENTWURF_V2_ACTIONS),
-	transport: StringEnum(ENTWURF_V2_TRANSPORTS),
-	ownership: StringEnum(ENTWURF_V2_OWNERSHIPS),
-	observedLiveness: StringEnum(FACT_LIVENESSES, {
-		description: "the 4-value fact liveness the verdict was computed from (R1/R3).",
-	}),
-});
+// optionals. Each branch is EXACT (`additionalProperties: false`): without it,
+// JSON Schema's default admits extra keys, so an illegal receipt like
+// {ok:true, ..., reason:"bad-target"} would validate against the success branch.
+// With it, success carries action/transport/ownership and rejects a stray reason;
+// reject carries reason and rejects any allow facet — the branches are mutually
+// exclusive at the schema level, not merely by declared-property convention.
+export const EntwurfV2ReceiptSuccessSchema = Type.Object(
+	{
+		ok: Type.Literal(true),
+		action: StringEnum(ENTWURF_V2_ACTIONS),
+		transport: StringEnum(ENTWURF_V2_TRANSPORTS),
+		ownership: StringEnum(ENTWURF_V2_OWNERSHIPS),
+		observedLiveness: StringEnum(FACT_LIVENESSES, {
+			description: "the 4-value fact liveness the verdict was computed from (R1/R3).",
+		}),
+	},
+	{ additionalProperties: false },
+);
 
-export const EntwurfV2ReceiptRejectSchema = Type.Object({
-	ok: Type.Literal(false),
-	reason: StringEnum(ENTWURF_V2_REJECT_REASONS),
-	observedLiveness: StringEnum(FACT_LIVENESSES, {
-		description: "the 4-value fact liveness the reject was computed from (R1/R3).",
-	}),
-});
+export const EntwurfV2ReceiptRejectSchema = Type.Object(
+	{
+		ok: Type.Literal(false),
+		reason: StringEnum(ENTWURF_V2_REJECT_REASONS),
+		observedLiveness: StringEnum(FACT_LIVENESSES, {
+			description: "the 4-value fact liveness the reject was computed from (R1/R3).",
+		}),
+	},
+	{ additionalProperties: false },
+);
 
 export const EntwurfV2ReceiptSchema = Type.Union([EntwurfV2ReceiptSuccessSchema, EntwurfV2ReceiptRejectSchema]);
