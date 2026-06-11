@@ -7,7 +7,13 @@
  *   - dormant trap: a pi citizen with NO socket file reads `dead` (ENOENT), so
  *     downstream it routes dormant→resumable (never an unprobed gap),
  *   - F3 preserve: a stalled socket reads `indeterminate`, never folded to dead,
- *   - dir hygiene: non-`.sock` and malformed (non-garden-id) names are ignored,
+ *   - dir hygiene: non-`.sock` names ignored; malformed (non-garden-id) names
+ *     are VISIBLY dropped (`malformedNames`), not silently (P3),
+ *   - symlink guard (P1): a gid-shaped `*.sock` symlink is never probed — a
+ *     citizen owning one is forced `dead`, a record-less one dropped — and is
+ *     surfaced in `symlinkedGardenIds`,
+ *   - dir-read error (P2e②): ENOENT → `dirError=null` (normal empty); any other
+ *     failure → `dirError` set (socket axis loss surfaced, not swallowed),
  *   - dedup: a gid present in BOTH the dir and the citizen list is probed once,
  *   - missing dir: citizens are still probed (→ dead),
  *   - determinism: output sorted by gardenId,
@@ -22,7 +28,12 @@ import assert from "node:assert/strict";
 import * as path from "node:path";
 import { resolveFactList } from "../pi-extensions/lib/entwurf-facts.ts";
 import type { MetaBackendV2, MetaIdentity } from "../pi-extensions/lib/meta-session.ts";
-import { controlSocketPath, SOCKET_SUFFIX, scanSocketProbes } from "../pi-extensions/lib/socket-discovery.ts";
+import {
+	controlSocketPath,
+	SOCKET_SUFFIX,
+	type SocketDirEntry,
+	scanSocketProbes,
+} from "../pi-extensions/lib/socket-discovery.ts";
 import type { SocketLiveness } from "../pi-extensions/lib/socket-probe.ts";
 
 let passed = 0;
@@ -45,8 +56,10 @@ const PROBE_MAP: Record<string, SocketLiveness> = {
 	// GID_DORMANT intentionally absent → fakeProbe returns "dead" (ENOENT)
 };
 
-function fakeReaddir(names: string[]): (dir: string) => Promise<string[]> {
-	return async () => names;
+// Plain regular-file entries (the common case). A name may be passed as a
+// `{name, isSymbolicLink}` tuple to mark it a symlink.
+function fakeReaddir(names: Array<string | SocketDirEntry>): (dir: string) => Promise<SocketDirEntry[]> {
+	return async () => names.map((n) => (typeof n === "string" ? { name: n, isSymbolicLink: false } : n));
 }
 
 // Probe keyed by the gardenId embedded in the canonical socket path. An absent
@@ -63,7 +76,7 @@ const NAMES = [`${GID_LIVE}.sock`, `${GID_STALL}.sock`, `${GID_SOCKET_ONLY}.sock
 async function main(): Promise<void> {
 	// ── union: dir sockets ∪ pi citizens, each probed ──────────────────────────
 	{
-		const probes = await scanSocketProbes([GID_DORMANT, GID_LIVE], {
+		const { probes } = await scanSocketProbes([GID_DORMANT, GID_LIVE], {
 			dir: DIR,
 			readdir: fakeReaddir(NAMES),
 			probe: fakeProbe(PROBE_MAP),
@@ -77,21 +90,52 @@ async function main(): Promise<void> {
 		ok("enrich null this slice (probe-only, honest)", byGid[GID_LIVE]?.cwd === null && byGid[GID_LIVE]?.model === null);
 	}
 
-	// ── dir hygiene: non-.sock + malformed names ignored ───────────────────────
+	// ── dir hygiene: non-.sock ignored; malformed names VISIBLY dropped (P3) ────
 	{
-		const probes = await scanSocketProbes([], { dir: DIR, readdir: fakeReaddir(NAMES), probe: fakeProbe(PROBE_MAP) });
+		const { probes, malformedNames } = await scanSocketProbes([], {
+			dir: DIR,
+			readdir: fakeReaddir(NAMES),
+			probe: fakeProbe(PROBE_MAP),
+		});
 		const gids = probes.map((p) => p.gardenId);
 		ok("non-.sock entry ignored (README.txt)", !gids.includes("README"));
-		ok("malformed socket name (not a garden id) ignored", !gids.some((g) => g.includes("not-a-gid")));
+		ok("malformed socket name (not a garden id) not probed", !gids.some((g) => g.includes("not-a-gid")));
 		ok(
 			"only well-formed garden ids surface",
 			gids.every((g) => /^\d{8}T\d{6}-[0-9a-f]{6}$/.test(g)),
+		);
+		ok("P3: malformed .sock name surfaced (not silently dropped)", malformedNames.includes("not-a-gid.sock"));
+		ok("P3: non-.sock entry is NOT a malformed-name diagnostic", !malformedNames.includes("README.txt"));
+	}
+
+	// ── symlink guard (P1): gid-shaped .sock symlink never probed, surfaced ─────
+	{
+		// GID_LIVE is a symlink (forgery vector) AND a pi citizen; GID_SOCKET_ONLY is
+		// a symlink with no citizen (record-less). GID_DORMANT is a clean citizen.
+		const { probes, symlinkedGardenIds } = await scanSocketProbes([GID_LIVE, GID_DORMANT], {
+			dir: DIR,
+			readdir: fakeReaddir([
+				{ name: `${GID_LIVE}.sock`, isSymbolicLink: true },
+				{ name: `${GID_SOCKET_ONLY}.sock`, isSymbolicLink: true },
+				`${GID_DORMANT}.sock`,
+			]),
+			// probe would return "alive" for both — proving we did NOT probe the symlinks.
+			probe: fakeProbe({ [GID_LIVE]: "alive", [GID_SOCKET_ONLY]: "alive", [GID_DORMANT]: "alive" }),
+		});
+		const byGid = Object.fromEntries(probes.map((p) => [p.gardenId, p]));
+		ok("P1: symlinked sockets surfaced in symlinkedGardenIds", symlinkedGardenIds.length === 2);
+		ok("P1: symlinked citizen forced dead (NOT probed alive)", byGid[GID_LIVE]?.liveness === "dead");
+		ok("P1: record-less symlink dropped from probes entirely", byGid[GID_SOCKET_ONLY] === undefined);
+		ok("P1: clean citizen still probed normally", byGid[GID_DORMANT]?.liveness === "alive");
+		ok(
+			"P1: symlinkedGardenIds sorted",
+			symlinkedGardenIds[0] !== undefined && symlinkedGardenIds[0] < (symlinkedGardenIds[1] ?? "~"),
 		);
 	}
 
 	// ── dedup: gid in BOTH dir and citizen list → probed once ──────────────────
 	{
-		const probes = await scanSocketProbes([GID_LIVE], {
+		const { probes } = await scanSocketProbes([GID_LIVE], {
 			dir: DIR,
 			readdir: fakeReaddir([`${GID_LIVE}.sock`]),
 			probe: fakeProbe(PROBE_MAP),
@@ -99,22 +143,50 @@ async function main(): Promise<void> {
 		ok("dedup: gid in dir AND citizen list → one probe", probes.filter((p) => p.gardenId === GID_LIVE).length === 1);
 	}
 
-	// ── missing dir → citizens still probed (→ dead) ───────────────────────────
+	// ── dir-read error (P2e②): ENOENT empty vs other-error surfaced ────────────
 	{
-		const probes = await scanSocketProbes([GID_DORMANT], {
+		const enoent = await scanSocketProbes([GID_DORMANT], {
 			dir: DIR,
 			readdir: async () => {
-				throw new Error("ENOENT: no such directory");
+				const e = new Error("ENOENT: no such directory") as NodeJS.ErrnoException;
+				e.code = "ENOENT";
+				throw e;
 			},
 			probe: fakeProbe(PROBE_MAP),
 		});
-		ok("missing dir → empty listing, citizen still probed", probes.length === 1);
-		ok("missing dir → dormant citizen reads dead", probes[0]?.liveness === "dead");
+		ok("missing dir (ENOENT) → empty listing, citizen still probed", enoent.probes.length === 1);
+		ok("missing dir → dormant citizen reads dead", enoent.probes[0]?.liveness === "dead");
+		ok("P2e②: ENOENT is the normal empty → dirError null (not surfaced)", enoent.dirError === null);
+
+		// probe returns "alive" — proving the citizen is NOT probed when the dir is
+		// untrusted (a non-ENOENT readdir failure): connect() would follow a symlink,
+		// so we hold the citizen at indeterminate instead (GPi Q2/P1).
+		let probeCalled = false;
+		const eacces = await scanSocketProbes([GID_DORMANT], {
+			dir: DIR,
+			readdir: async () => {
+				const e = new Error("EACCES: permission denied, scandir") as NodeJS.ErrnoException;
+				e.code = "EACCES";
+				throw e;
+			},
+			probe: async () => {
+				probeCalled = true;
+				return "alive";
+			},
+		});
+		ok("P2e②: non-ENOENT readdir failure → dirError surfaced", typeof eacces.dirError === "string");
+		ok("P2e②: EACCES message preserved in dirError", eacces.dirError?.includes("EACCES") === true);
+		ok("P2e②: citizen still reported (socket axis lost, not blinded)", eacces.probes.length === 1);
+		ok("P2e②/P1: untrusted dir → citizen NOT probed (no connect through unverified path)", !probeCalled);
+		ok(
+			"P2e②/P1: untrusted dir → citizen held at indeterminate (not alive, not stranded)",
+			eacces.probes[0]?.liveness === "indeterminate",
+		);
 	}
 
 	// ── determinism: sorted by gardenId ────────────────────────────────────────
 	{
-		const probes = await scanSocketProbes(["20260611T333333-cccccc", "20260611T111111-aaaaaa"], {
+		const { probes } = await scanSocketProbes(["20260611T333333-cccccc", "20260611T111111-aaaaaa"], {
 			dir: DIR,
 			readdir: async () => [],
 			probe: async () => "dead",
@@ -141,7 +213,7 @@ async function main(): Promise<void> {
 			recordUpdatedAt: "2026-06-11T00:00:00.000Z",
 		});
 		const citizens = [identity(GID_LIVE, "pi"), identity(GID_DORMANT, "pi")];
-		const probes = await scanSocketProbes([GID_LIVE, GID_DORMANT], {
+		const { probes } = await scanSocketProbes([GID_LIVE, GID_DORMANT], {
 			dir: DIR,
 			readdir: fakeReaddir([`${GID_LIVE}.sock`]),
 			probe: fakeProbe(PROBE_MAP),

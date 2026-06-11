@@ -12,6 +12,10 @@
  *     (expected external-state corruption → diagnostics, not a crash),
  *   - the conflict diagnostic carries backend + gardenId ONLY (no identity field),
  *   - enrich stays null (probe-only slice),
+ *   - socket-axis hazards folded (slice 4c, Fable 검수): a symlinked socket →
+ *     socket-symlink-rejected diagnostic (P1), a malformed *.sock name →
+ *     malformed-socket-name diagnostic (P3), a non-ENOENT dir-read failure →
+ *     socket-dir-read-error diagnostic (P2e②),
  *   - diagnostics are kind-tagged and sorted.
  *
  * No IO — meta entries/reader and socket dir/readdir/probe are injected fakes.
@@ -20,8 +24,8 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { type EntwurfFactsDeps, listEntwurfFacts } from "../pi-extensions/lib/entwurf-fact-provider.ts";
-import { type MetaBackendV2, type MetaIdentity, serializeMetaIdentity } from "../pi-extensions/lib/meta-session.ts";
-import { SOCKET_SUFFIX } from "../pi-extensions/lib/socket-discovery.ts";
+import { type MetaBackendV2, serializeMetaIdentity } from "../pi-extensions/lib/meta-session.ts";
+import { SOCKET_SUFFIX, type SocketDirEntry } from "../pi-extensions/lib/socket-discovery.ts";
 import type { SocketLiveness } from "../pi-extensions/lib/socket-probe.ts";
 
 let passed = 0;
@@ -53,7 +57,21 @@ function rec(gardenId: string, backend: MetaBackendV2): string {
 	});
 }
 
-function deps(meta: Record<string, string>, sockets: Record<string, SocketLiveness>): EntwurfFactsDeps {
+interface SocketOpts {
+	/** gids whose `*.sock` entry is a symlink (P1). */
+	symlinks?: string[];
+	/** extra raw dir entries (e.g. a malformed `*.sock` name) (P3). */
+	extraNames?: string[];
+	/** readdir throws with this code (e.g. "EACCES" / "ENOENT") (P2e②). */
+	readdirErrorCode?: string;
+}
+
+function deps(
+	meta: Record<string, string>,
+	sockets: Record<string, SocketLiveness>,
+	opts: SocketOpts = {},
+): EntwurfFactsDeps {
+	const symlinkSet = new Set(opts.symlinks ?? []);
 	return {
 		metaEntries: Object.keys(meta),
 		readRecord: (f: string) => {
@@ -63,7 +81,19 @@ function deps(meta: Record<string, string>, sockets: Record<string, SocketLivene
 		},
 		socket: {
 			dir: DIR,
-			readdir: async () => Object.keys(sockets).map((g) => `${g}${SOCKET_SUFFIX}`),
+			readdir: async (): Promise<SocketDirEntry[]> => {
+				if (opts.readdirErrorCode) {
+					const e = new Error(`${opts.readdirErrorCode}: readdir failed`) as NodeJS.ErrnoException;
+					e.code = opts.readdirErrorCode;
+					throw e;
+				}
+				const sockEntries: SocketDirEntry[] = Object.keys(sockets).map((g) => ({
+					name: `${g}${SOCKET_SUFFIX}`,
+					isSymbolicLink: symlinkSet.has(g),
+				}));
+				const extra: SocketDirEntry[] = (opts.extraNames ?? []).map((n) => ({ name: n, isSymbolicLink: false }));
+				return [...sockEntries, ...extra];
+			},
 			probe: async (p: string) => sockets[path.basename(p, SOCKET_SUFFIX)] ?? "dead",
 		},
 	};
@@ -155,6 +185,69 @@ async function main(): Promise<void> {
 	// (verified by reading the source) keeps wiring bugs loud.
 	ok("C-원칙: collision handled as diagnostic, not crash (no throw above)", true);
 
+	// ── socket-axis hazard: symlinked socket → diagnostic, never probed (P1) ────
+	{
+		// A pi citizen whose socket is a symlink: it must NOT probe alive (forgery),
+		// it is forced dead → still a peer (dormant), and a diagnostic is raised.
+		const r = await listEntwurfFacts(
+			deps({ [`${GID_PI}.meta.json`]: rec(GID_PI, "pi") }, { [GID_PI]: "alive" }, { symlinks: [GID_PI] }),
+		);
+		const peer = r.facts.peers.find((p) => p.gardenId === GID_PI);
+		ok("P1: symlinked pi citizen forced dead (not probed alive)", peer?.liveness === "dead");
+		const sym = r.diagnostics.find((d) => d.kind === "socket-symlink-rejected");
+		ok("P1: socket-symlink-rejected diagnostic raised", sym?.kind === "socket-symlink-rejected");
+		if (sym && sym.kind === "socket-symlink-rejected") {
+			ok("P1: symlink diagnostic carries the gardenId", sym.gardenId === GID_PI);
+			const keys = Object.keys(sym).sort();
+			assert.deepStrictEqual(
+				keys,
+				["gardenId", "kind", "message"],
+				`symlink diagnostic keyset drift: ${keys.join(",")}`,
+			);
+		}
+	}
+
+	// ── socket-axis hazard: malformed *.sock name → visible diagnostic (P3) ─────
+	{
+		const r = await listEntwurfFacts(
+			deps({ [`${GID_PI}.meta.json`]: rec(GID_PI, "pi") }, { [GID_PI]: "alive" }, { extraNames: ["not-a-gid.sock"] }),
+		);
+		const mal = r.diagnostics.find((d) => d.kind === "malformed-socket-name");
+		ok("P3: malformed-socket-name diagnostic raised", mal?.kind === "malformed-socket-name");
+		if (mal && mal.kind === "malformed-socket-name") {
+			ok("P3: malformed diagnostic carries the offending name", mal.name === "not-a-gid.sock");
+		}
+		ok("P3: pi citizen still listed alongside the malformed-name diagnostic", r.facts.peers.length === 1);
+	}
+
+	// ── socket-axis hazard: non-ENOENT dir-read failure → diagnostic (P2e②) ─────
+	{
+		const r = await listEntwurfFacts(
+			deps({ [`${GID_PI}.meta.json`]: rec(GID_PI, "pi") }, { [GID_PI]: "alive" }, { readdirErrorCode: "EACCES" }),
+		);
+		const dirErr = r.diagnostics.find((d) => d.kind === "socket-dir-read-error");
+		ok("P2e②: socket-dir-read-error diagnostic raised on EACCES", dirErr?.kind === "socket-dir-read-error");
+		ok(
+			"P2e②: meta citizen still listed (socket axis lost, citizen axis survives)",
+			r.facts.peers.length === 1 && r.facts.peers[0]?.gardenId === GID_PI,
+		);
+		ok(
+			"P2e②/P1: untrusted dir → pi citizen held at indeterminate (NOT probed alive through unverified path)",
+			r.facts.peers[0]?.liveness === "indeterminate",
+		);
+	}
+
+	// ── ENOENT dir is the normal empty → NO socket-dir-read-error (P2e②) ────────
+	{
+		const r = await listEntwurfFacts(
+			deps({ [`${GID_PI}.meta.json`]: rec(GID_PI, "pi") }, { [GID_PI]: "alive" }, { readdirErrorCode: "ENOENT" }),
+		);
+		ok(
+			"P2e②: ENOENT dir → no socket-dir-read-error diagnostic (normal empty)",
+			!r.diagnostics.some((d) => d.kind === "socket-dir-read-error"),
+		);
+	}
+
 	// ── determinism: diagnostics sorted, kind-tagged ───────────────────────────
 	{
 		const r = await listEntwurfFacts(
@@ -167,8 +260,19 @@ async function main(): Promise<void> {
 	console.log(`\n[check-entwurf-fact-provider] ${passed} assertions ok`);
 }
 
-function diagnosticKey(d: { kind: string; filename?: string; gardenId?: string }): string {
-	return d.kind === "meta-record-read-error" ? `0:${d.filename}` : `1:${d.gardenId}`;
+function diagnosticKey(d: { kind: string; filename?: string; gardenId?: string; name?: string }): string {
+	switch (d.kind) {
+		case "meta-record-read-error":
+			return `0:${d.filename}`;
+		case "garden-id-socket-conflict":
+			return `1:${d.gardenId}`;
+		case "socket-symlink-rejected":
+			return `2:${d.gardenId}`;
+		case "malformed-socket-name":
+			return `3:${d.name}`;
+		default:
+			return "4:";
+	}
 }
 
 await main();

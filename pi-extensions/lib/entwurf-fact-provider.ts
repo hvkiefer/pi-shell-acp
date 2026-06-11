@@ -34,10 +34,17 @@ import { type SocketScanDeps, scanSocketProbes } from "./socket-discovery.ts";
 
 /** A listing-surface problem, surfaced explicitly rather than hidden or thrown.
  * Kind-tagged so the render layer shows provenance; each carries only verbatim
- * facts (never a half-parsed identity). */
+ * facts (never a half-parsed identity). The last three are socket-axis hazards
+ * folded from `scanSocketProbes` (slice 4c, Fable 검수): a symlinked socket is a
+ * correlation-authority forgery attempt (P1), a malformed `*.sock` name a visible
+ * drop (P3), a non-ENOENT dir-read failure asymmetric loss of the socket axis
+ * (P2e②). */
 export type EntwurfDiagnostic =
 	| { kind: "meta-record-read-error"; filename: string; message: string }
-	| { kind: "garden-id-socket-conflict"; gardenId: string; backend: MetaBackendV2; message: string };
+	| { kind: "garden-id-socket-conflict"; gardenId: string; backend: MetaBackendV2; message: string }
+	| { kind: "socket-symlink-rejected"; gardenId: string; message: string }
+	| { kind: "malformed-socket-name"; name: string; message: string }
+	| { kind: "socket-dir-read-error"; message: string };
 
 export interface EntwurfFactsResult {
 	facts: FactList;
@@ -53,7 +60,18 @@ export interface EntwurfFactsDeps {
 }
 
 function diagnosticSortKey(d: EntwurfDiagnostic): string {
-	return d.kind === "meta-record-read-error" ? `0:${d.filename}` : `1:${d.gardenId}`;
+	switch (d.kind) {
+		case "meta-record-read-error":
+			return `0:${d.filename}`;
+		case "garden-id-socket-conflict":
+			return `1:${d.gardenId}`;
+		case "socket-symlink-rejected":
+			return `2:${d.gardenId}`;
+		case "malformed-socket-name":
+			return `3:${d.name}`;
+		case "socket-dir-read-error":
+			return "4:";
+	}
 }
 
 /**
@@ -72,9 +90,34 @@ export async function listEntwurfFacts(deps: EntwurfFactsDeps): Promise<EntwurfF
 	}
 
 	// 2. socket axis — probe (dir sockets) ∪ (in-domain citizen canonical paths).
+	//    Its three hazards (symlink forgery / malformed name / dir-read error) are
+	//    folded into diagnostics here so the listing survives but never lies.
 	const piGids = identities.filter((i) => isLivenessSupported(i.backend)).map((i) => i.gardenId);
-	const probes = await scanSocketProbes(piGids, deps.socket ?? {});
+	const scan = await scanSocketProbes(piGids, deps.socket ?? {});
+	const probes = scan.probes;
 	const socketGids = new Set(probes.map((p) => p.gardenId));
+	for (const gardenId of scan.symlinkedGardenIds) {
+		diagnostics.push({
+			kind: "socket-symlink-rejected",
+			gardenId,
+			message:
+				"control socket is a symlink — never probed (it could redirect to another session's listener and forge " +
+				"an alive liveness for this gardenId); a citizen owning it is treated as dead (dormant), a record-less one dropped.",
+		});
+	}
+	for (const name of scan.malformedNames) {
+		diagnostics.push({
+			kind: "malformed-socket-name",
+			name,
+			message: "control-socket filename is not a garden id — no citizen to correlate to; dropped from the listing.",
+		});
+	}
+	if (scan.dirError !== null) {
+		diagnostics.push({
+			kind: "socket-dir-read-error",
+			message: `control-socket directory unreadable (socket axis incomplete; meta-record citizens still listed): ${scan.dirError}`,
+		});
+	}
 
 	// 3. pre-quarantine non-pi citizens that collide with a control socket.
 	const conflictGids = new Set<string>();
