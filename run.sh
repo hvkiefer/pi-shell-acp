@@ -69,6 +69,7 @@ Usage:
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
   ./run.sh check-entwurf-fact-provider # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4b): ASSEMBLY listEntwurfFacts — listAllMetaIdentities→scanSocketProbes→pre-quarantine non-pi/socket conflicts→resolveFactList(clean)→{facts,diagnostics}; C-원칙: expected corruption (parse/collision)→diagnostics (listing survives), impossible invariant (dup/unprobed)→throw; collision quarantines BOTH PeerFact+socket; deps injected, no IO
+  ./run.sh check-entwurf-peers-surface # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4c): MCP entwurf_peers RENDER renderEntwurfPeers — legacy `sessions` = projection of facts (alive only, no 2nd scan), socketPath via controlSocketPath (SSOT), count=projection length, three distinct arrays, NO verb-routing key (JSON deep scan) NOR word (text), diagnostics both surfaces, empty→(none), unsupported shown, enrich→(not enriched); WIRING guard: bridge calls provider+render, getLiveSessions gone; facts fabricated, no IO
   ./run.sh check-entwurf-send-mailbox-fallback # deterministic gate: pi-native entwurf_send → meta-bridge mailbox fallback (transport 2). ENOENT/ECONNREFUSED falls back, timeout does not; shared formatMetaMailboxBody; no-socket citizen → .msg enqueue; WIRING guard (pi-native calls fallback, bridge uses shared formatter)
   ./run.sh check-plugin-empty-final-recovery   # deterministic recovery-decision gate for plugins/openclaw/src/index.ts (issue #20 — no pi process)
   ./run.sh check-plugin-prompt-format          # deterministic shape gate for buildConversationPrompt + stripChatCompletionTail (issue #20 follow-up leak)
@@ -1355,6 +1356,20 @@ check_entwurf_fact_provider() {
   # throw, never swallowed. A collision quarantines BOTH the PeerFact and the
   # socket (gid is the universal address). meta + socket deps injected, no IO.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-fact-provider.ts)
+}
+
+check_entwurf_peers_surface() {
+  # Deterministic gate for 0.11 Stage 0 step 4 (fact-provider slice 4c): the MCP
+  # entwurf_peers RENDER/PAYLOAD layer renderEntwurfPeers. Legacy `sessions` is a
+  # PROJECTION of facts (alive pi citizens + alive socket-only), NOT a second scan
+  # (a re-run getLiveSessions would bypass the provider quarantine); socketPath via
+  # controlSocketPath (SSOT, no correlation-authority drift); count = projection
+  # length not peers.length; three distinct arrays (peers/socketOnly/diagnostics);
+  # NO verb-routing field in JSON (deep key scan) NOR word in text (title leak);
+  # diagnostics in both surfaces; empty → "(none)"; unsupported shown; enrich null
+  # → "(not enriched)". WIRING guard: bridge calls listEntwurfFacts+renderEntwurfPeers,
+  # getLiveSessions gone. Facts fabricated, no IO (only static source read).
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-peers-surface.ts)
 }
 
 check_entwurf_send_mailbox_fallback() {
@@ -4372,6 +4387,9 @@ case "$cmd" in
     ;;
   check-entwurf-fact-provider)
     check_entwurf_fact_provider
+    ;;
+  check-entwurf-peers-surface)
+    check_entwurf_peers_surface
     ;;
   check-entwurf-send-mailbox-fallback)
     check_entwurf_send_mailbox_fallback

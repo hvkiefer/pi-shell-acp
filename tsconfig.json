@@ -63,6 +63,11 @@
 		// slice 4b) — a lib→lib VALUE importer (resolveFactList / scanSocketProbes
 		// / listAllMetaIdentities), same `.ts`-extension fence. Typechecked by
 		// scripts/tsconfig.json via the gate (check-entwurf-fact-provider.ts).
-		"pi-extensions/lib/entwurf-fact-provider.ts"
+		"pi-extensions/lib/entwurf-fact-provider.ts",
+		// entwurf-peers-render.ts is the MCP `entwurf_peers` PURE render/payload
+		// layer (step 4 slice 4c) — a lib→lib VALUE importer (controlSocketPath from
+		// socket-discovery.ts), same `.ts`-extension fence. Typechecked by
+		// scripts/tsconfig.json via the gate (check-entwurf-peers-surface.ts).
+		"pi-extensions/lib/entwurf-peers-render.ts"
 	]
 }

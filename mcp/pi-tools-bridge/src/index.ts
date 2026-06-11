@@ -15,7 +15,9 @@
  *                       enqueueMetaMessage + FileChanged doorbell) for a NATIVE session with no
  *                       control socket. The "meta" ontology stays internal; the action surface is
  *                       entwurf_*. Fire-and-forget (enqueue/delivery confirmed, a read is not).
- *   - entwurf_peers   — active pi control sockets only (see control.ts getLiveSessions)
+ *   - entwurf_peers   — entwurf fact surface: garden citizens (meta-records) + record-less control
+ *                       sockets, each with liveness; legacy `sessions` projection retained. Brain =
+ *                       pi-extensions/lib/entwurf-fact-provider (listEntwurfFacts) + entwurf-peers-render.
  *   - entwurf_self    — own session identity envelope (sessionId, agentId, cwd, timestamp)
  *   - entwurf_inbox_read — the receiver half of entwurf_send's meta-bridge path: drain your own
  *                       inbox by garden id + stamp the D7 read-receipt (readMetaInbox: lastReadAt).
@@ -70,7 +72,7 @@
  *   - no user-specific paths baked in; env-configurable with safe defaults
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -89,9 +91,12 @@ import {
 	runEntwurfResumeSync,
 	runEntwurfSync,
 } from "../../../pi-extensions/lib/entwurf-core.ts";
+import { listEntwurfFacts } from "../../../pi-extensions/lib/entwurf-fact-provider.ts";
+import { renderEntwurfPeers } from "../../../pi-extensions/lib/entwurf-peers-render.ts";
 import { formatMetaMailboxBody } from "../../../pi-extensions/lib/meta-mailbox-body.ts";
 import {
 	defaultMetaMailboxDir,
+	defaultMetaSessionsDir,
 	enqueueMetaMessage,
 	type MetaSenderMarker,
 	parentPid,
@@ -99,7 +104,6 @@ import {
 	readMetaInbox,
 	readMetaSenderMarker,
 } from "../../../pi-extensions/lib/meta-session.ts";
-import { probeSocketLiveness, shouldListAsLive } from "../../../pi-extensions/lib/socket-probe.ts";
 import { resolveEntwurfResumeMode } from "./resume-mode.ts";
 
 const HOME = os.homedir();
@@ -170,51 +174,16 @@ function rpcCall(socketPath: string, payload: Record<string, unknown>): Promise<
 }
 
 // ============================================================================
-// Live control-socket discovery (for entwurf_peers)
-//
-// PM-mandated layer separation: this is the *active* control-socket world
-// (~/.pi/entwurf-control/*.sock). It is NOT used by entwurf_resume — that
-// layer lives over saved entwurf session JSONL files in ~/.pi/agent/sessions
-// and must not depend on a live socket.
+// Live control-socket discovery for entwurf_peers now lives in the TS
+// fact-provider (pi-extensions/lib/entwurf-fact-provider.ts → listEntwurfFacts),
+// which the entwurf_peers handler calls + renders (entwurf-peers-render.ts). The
+// old bridge-local `getLiveSessions`/`isSocketAlive` (alive-only scan) was
+// removed: a separate scan would bypass the provider's quarantine and resurrect
+// the symlink-forgery + F3 splits. The legacy `sessions` payload is kept as a
+// PROJECTION of those facts (alive only), not a second scan. PM layer separation
+// is unchanged: this is still the *active* control-socket world, NOT the saved
+// entwurf-session world that entwurf_resume reads from ~/.pi/agent/sessions.
 // ============================================================================
-
-interface LiveSessionInfo {
-	sessionId: string;
-	socketPath: string;
-}
-
-// Liveness probe shares the entwurf-control SSOT (pi-extensions/lib/socket-probe).
-// The bridge only *lists* live sockets (it never unlinks), so it consumes the
-// listing policy: a session is live for discovery only on a positive connect;
-// an indeterminate probe (timeout / unknown error) is hidden but left on disk —
-// matching the extension's GC, which keeps indeterminate sockets too. Keeping
-// both surfaces on one probe prevents the two from diverging on timeout targets.
-async function isSocketAlive(socketPath: string): Promise<boolean> {
-	return shouldListAsLive(await probeSocketLiveness(socketPath));
-}
-
-async function getLiveSessions(): Promise<LiveSessionInfo[]> {
-	try {
-		await fs.access(ENTWURF_DIR);
-	} catch {
-		return [];
-	}
-	const entries = await fs.readdir(ENTWURF_DIR, { withFileTypes: true }).catch(() => []);
-	const sessions: LiveSessionInfo[] = [];
-
-	for (const entry of entries) {
-		if (!entry.name.endsWith(SOCKET_SUFFIX)) continue;
-		if (entry.isSymbolicLink()) continue;
-		const socketPath = path.join(ENTWURF_DIR, entry.name);
-		if (!(await isSocketAlive(socketPath))) continue;
-		const sessionId = entry.name.slice(0, -SOCKET_SUFFIX.length);
-		if (!sessionId || sessionId.includes("/")) continue;
-		sessions.push({ sessionId, socketPath });
-	}
-
-	sessions.sort((a, b) => a.sessionId.localeCompare(b.sessionId));
-	return sessions;
-}
 
 // ============================================================================
 // Helpers
@@ -590,28 +559,39 @@ server.tool(
 
 server.tool(
 	"entwurf_peers",
-	"List active pi sessions that currently expose a control socket (i.e. were launched with " +
-		"--entwurf-control). Returns sessionId + socket path for each live session. " +
-		"Pair with entwurf_send to address a specific peer. " +
-		"Note: this is the *active* session world. It is NOT the way to discover saved entwurf " +
-		"sessions — those live as JSONL files under ~/.pi/agent/sessions and are addressed by " +
-		"sessionId via entwurf_resume; their original processes may already have exited.",
+	"List the entwurf fact surface: garden citizens (from meta-records) AND record-less control " +
+		"sockets, each with its liveness. A legacy `sessions` projection (alive pi sessions only) is " +
+		"retained for old consumers. Pair with entwurf_send to address a peer by garden id. " +
+		"This reports FACTS, never verbs: `liveness` is a fact (alive/dead/indeterminate, or " +
+		"`unsupported` for a backend with no control-socket probe such as claude-code); the dispatch " +
+		"decision (send vs resume) is computed LATER by the entwurf_v2 contract from that liveness, " +
+		"not here. By that frozen table an alive pi citizen takes a fire-and-forget send, a dead " +
+		"(dormant) pi citizen an owned resume, and an `unsupported` citizen falls outside the table " +
+		"(legacy send / future mailbox amendment) — but this surface carries no per-row routing field. " +
+		"Note: this is the *active* world. It is NOT how you discover saved entwurf sessions — those " +
+		"live as JSONL under ~/.pi/agent/sessions, addressed via entwurf_resume; their processes may " +
+		"already have exited.",
 	{},
 	async () => {
 		try {
-			const sessions = await getLiveSessions();
-			const lines = sessions.length
-				? sessions.map((s) => `- ${s.sessionId}`)
-				: ["(no live pi sessions with --entwurf-control found)"];
-			const payload = {
-				controlDir: ENTWURF_DIR,
-				count: sessions.length,
-				sessions: sessions.map((s) => ({
-					sessionId: s.sessionId,
-					socketPath: s.socketPath,
-				})),
-			};
-			return textOk(`${lines.join("\n")}\n\n${JSON.stringify(payload)}`);
+			// Meta-store axis: list `.meta.json` entries (ENOENT = fresh install =
+			// empty; any other readdir failure is a real error, not a silent empty).
+			const sessionsDir = defaultMetaSessionsDir();
+			let metaEntries: string[] = [];
+			try {
+				metaEntries = (await fs.readdir(sessionsDir)).filter((n) => n.endsWith(".meta.json"));
+			} catch (err) {
+				if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+			}
+			const result = await listEntwurfFacts({
+				metaEntries,
+				readRecord: (filename) => readFileSync(path.join(sessionsDir, filename), "utf8"),
+				// Socket axis: same dir the legacy scan used. controlSocketPath (SSOT)
+				// builds the derived socketPath, so scan and render cannot drift.
+				socket: { dir: ENTWURF_DIR },
+			});
+			const { text, payload } = renderEntwurfPeers(result, ENTWURF_DIR);
+			return textOk(`${text}\n\n${JSON.stringify(payload)}`);
 		} catch (err) {
 			return textErr(`entwurf_peers error: ${err instanceof Error ? err.message : String(err)}`);
 		}
