@@ -101,9 +101,14 @@ export interface SocketProbe {
 }
 
 /**
- * A live control socket with NO meta-record citizen behind it — "socket-only pi":
- * a live pi session that predates the pi meta-record writer, or one caught in a
- * deploy-lag / crash window. Kept as a DISTINCT fact kind, never folded into
+ * A record-less control-socket probe — a socket path that no meta-record citizen
+ * claims. The canonical case is "socket-only pi": a live pi session that predates
+ * the pi meta-record writer, or one caught in a deploy-lag / crash window. But
+ * `liveness` is the full 3-value `SocketLiveness`, NOT only `alive` — a
+ * dir-present stale socket arrives as `dead` and a load-stalled one as
+ * `indeterminate`; both stay in the listing (hiding a dead socket is GC's job,
+ * not the listing's, and an indeterminate socket-only — "not unlinked, not live"
+ * — is the most worth surfacing). Kept as a DISTINCT fact kind, never folded into
  * `PeerFact` and never given a 5th liveness value: "this socket has no citizen"
  * is a statement whose SUBJECT is the socket, not a citizen, so it must not
  * borrow the citizen-keyed 4-value liveness enum (the sibling of R1 — do not
@@ -206,7 +211,11 @@ export function resolveFactList(identities: MetaIdentity[], socketProbes: Socket
 		});
 	}
 
-	peers.sort((a, b) => a.gardenId.localeCompare(b.gardenId));
-	socketOnly.sort((a, b) => a.gardenId.localeCompare(b.gardenId));
+	// Sort by gardenId with a plain `<` compare (not localeCompare) so both fact
+	// surfaces and the socket scan share one locale-independent ordering.
+	const byGardenId = (a: { gardenId: string }, b: { gardenId: string }): number =>
+		a.gardenId < b.gardenId ? -1 : a.gardenId > b.gardenId ? 1 : 0;
+	peers.sort(byGardenId);
+	socketOnly.sort(byGardenId);
 	return { peers, socketOnly };
 }

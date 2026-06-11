@@ -27,6 +27,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SocketProbe } from "./entwurf-facts.ts";
+import { SESSION_ID_RE } from "./session-id.js";
 import { probeSocketLiveness, type SocketLiveness } from "./socket-probe.ts";
 
 /** Canonical control-socket directory; the socket filename IS the gardenId
@@ -34,10 +35,12 @@ import { probeSocketLiveness, type SocketLiveness } from "./socket-probe.ts";
 export const CONTROL_SOCKET_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 export const SOCKET_SUFFIX = ".sock";
 
-/** A control-socket filename is a bare garden id. Anything else in the dir is
- * not ours and is ignored — the filename is the correlation authority, so a
- * malformed name has no citizen to correlate to. */
-const GARDEN_ID_RE = /^\d{8}T\d{6}-[0-9a-f]{6}$/;
+// A control-socket filename is a bare garden id. We reuse the repo-wide
+// `SESSION_ID_RE` SSOT (not a local copy): 동결결정3 makes the socket filename the
+// correlation authority, which only holds if the socket axis and the meta-record
+// axis speak the SAME id grammar — a drifted local regex would silently drop a
+// legitimate gid's socket from the scan. A malformed name has no citizen to
+// correlate to and is ignored.
 
 export function controlSocketPath(gardenId: string, dir: string = CONTROL_SOCKET_DIR): string {
 	return path.join(dir, `${gardenId}${SOCKET_SUFFIX}`);
@@ -73,9 +76,9 @@ export async function scanSocketProbes(
 	const socketGids = names
 		.filter((n) => n.endsWith(SOCKET_SUFFIX))
 		.map((n) => n.slice(0, -SOCKET_SUFFIX.length))
-		.filter((gid) => GARDEN_ID_RE.test(gid));
+		.filter((gid) => SESSION_ID_RE.test(gid));
 
-	const allGids = [...new Set([...socketGids, ...piCitizenGardenIds])].sort();
+	const allGids = [...new Set([...socketGids, ...piCitizenGardenIds])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	const probes: SocketProbe[] = [];
 	for (const gardenId of allGids) {
 		const liveness = await probe(controlSocketPath(gardenId, dir));
