@@ -65,6 +65,7 @@ Usage:
   ./run.sh check-socket-probe          # deterministic gate (0.11 Stage 0, F3): three-valued control-socket liveness (alive|dead|indeterminate) — GC reclaims dead only, indeterminate survives; pure classify + 2-socket integration, no API
   ./run.sh check-project-trust-handler # deterministic gate (0.11 Stage 0, Trust 2층): project_trust handler — decideProjectTrust matrix (escape=inherited-false+interactive+trust-here→{yes,remember:true}; non-interactive→undecided; never undefined) + adapter single-writer, fake prompt, no UI
   ./run.sh check-entwurf-v2-contract   # deterministic gate (0.11 Stage 0 step 4-pre, 동결결정 10 + Fable R1-R5): FROZEN entwurf_v2 contract — R1 backend liveness domain (pi only; claude/codex/agy=unsupported, not folded), 6-cell intent×liveness table (single verdict, 2 allow/4 reject), N1 indeterminate-no-spawn, Q2 owned-live-no-autosend, R3 table↔receipt round-trip, R5 taxonomy, schema↔types drift; pure, no API
+  ./run.sh check-entwurf-v2-lock       # deterministic gate (0.11 Stage 0 step 5a, 버킷 B F2): per-gid dispatch LOCK primitive — openSync wx atomic acquire, second-acquire=target-locked conflict (holder JSON for human cleanup), nonce-owned release (successor survives late release), stale reclaim same-host+ESRCH-only (EPERM/remote/alive/unknown fail-closed), empty/corrupt=conflict not auto-deleted, F2-P1 malformed gid throws; real temp dir, deps injected
   ./run.sh check-entwurf-facts         # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 1+2): PURE PeerFact core + resolveFactList union — R1 out-of-domain→unsupported, R3b pi 4-value, facts-only keyset; union: PeerFact+SocketOnlyFact by gardenId, dormant→dead, F3 indeterminate preserved, non-pi+socket fail-loud; pure, no IO
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
@@ -1309,6 +1310,21 @@ check_entwurf_v2_contract() {
   # pre-claims bad-target/untrusted-fail-fast/target-locked (bucket B F2). Plus
   # a schema↔types drift guard on the TypeBox input/receipt. Pure, no API.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-contract.ts)
+}
+
+check_entwurf_v2_lock() {
+  # Deterministic gate for 0.11 Stage 0 step 5a (버킷 B F2): the per-gid dispatch
+  # LOCK primitive — the only guard against a double-spawn of the same dormant
+  # target (pi self-guards CREATE but not RESUME, 검증원장 F2). acquire =
+  # openSync(lockPath,"wx") atomic; a second acquire without release =
+  # target-locked conflict carrying the holder JSON (F2-P2 human cleanup). release
+  # = unlink ONLY when the on-disk nonce is still ours (a successor's re-acquire
+  # survives a late release). Stale reclaim ONLY for same host + ESRCH; EPERM
+  # (other user's live pid) / different host / alive pid / unknown error all
+  # fail-closed to conflict. Empty/corrupt lockfile = conflict, never
+  # auto-deleted. F2-P1: a malformed gid throws before any path is built. Real
+  # temp dir (wx atomicity under test); clock/nonce/pid/host/kill injected.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-lock.ts)
 }
 
 check_entwurf_facts() {
@@ -4375,6 +4391,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-contract)
     check_entwurf_v2_contract
+    ;;
+  check-entwurf-v2-lock)
+    check_entwurf_v2_lock
     ;;
   check-entwurf-facts)
     check_entwurf_facts
