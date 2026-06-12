@@ -51,12 +51,7 @@ import {
 	makeRejectReceipt,
 	resolveDispatch,
 } from "./entwurf-v2-contract.ts";
-import {
-	type AcquireLockResult,
-	acquireLock as defaultAcquireLock,
-	releaseLock as defaultReleaseLock,
-	type LockClaim,
-} from "./entwurf-v2-lock.ts";
+import type { AcquireLockResult, LockClaim, LockConflict } from "./entwurf-v2-lock.ts";
 import {
 	defaultMetaMailboxDir,
 	defaultMetaSessionsDir,
@@ -66,12 +61,8 @@ import {
 	metaCapabilityFor,
 } from "./meta-session.ts";
 import { isValidSessionId } from "./session-id.js";
-import {
-	controlSocketPath,
-	inspectTargetControlSocket as defaultInspectSocket,
-	type TargetSocketInspection,
-} from "./socket-discovery.ts";
-import { probeSocketLiveness, type SocketLiveness } from "./socket-probe.ts";
+import { controlSocketPath, type TargetSocketInspection } from "./socket-discovery.ts";
+import type { SocketLiveness } from "./socket-probe.ts";
 
 // Re-export the shared conflict predicate so producers of a TargetResolution have a
 // single import site for it (it is the SAME fn the fact-provider listing uses).
@@ -138,8 +129,17 @@ export type ExecutionPlan =
 // `lock` is non-null for an in-domain execute (control-socket send OR spawn-bg
 // resume — both keep the claim so 5c's at-most-once re-resolve runs under the same
 // nonce) and null for the lock-free meta-mailbox path (？7).
+//
+// A reject's optional machine-readable diagnostic. Only `target-locked` carries one:
+// the `LockConflict` (holder pid/host/createdAt, lockPath, human detail) the lock
+// primitive produced on contention. It rides ALONGSIDE the receipt — the receipt
+// schema is unchanged; 5d's surface renders it onto the reject. (B3: without this the
+// holder evidence was dropped at the decider boundary, so a PID-reuse permanent lock
+// could not be observed/cleared — F2-P2 "관측 가능해야 수용".)
+export type RejectDiagnostic = { kind: "target-locked"; conflict: LockConflict };
+
 export type DispatchDecision =
-	| { kind: "reject"; receipt: RejectReceipt }
+	| { kind: "reject"; receipt: RejectReceipt; diagnostic?: RejectDiagnostic }
 	| { kind: "execute"; receipt: SuccessReceipt; plan: ExecutionPlan; lock: LockClaim | null };
 
 // ── target resolution (E: single-target, not a whole-store scan) ────────────
@@ -163,15 +163,22 @@ export interface DispatchInput {
 	message: string;
 }
 
+// Every IO seam is a REQUIRED dep (no default): the decider performs ZERO IO of its
+// own. The live wrappers (5c) wire the real fns; the gate injects fakes. This is what
+// makes "pure decider" honest — there is no hidden default that touches `~/.pi`. (B1:
+// the removed `acquireLock` default hardcoded `{ dir: undefined }` → it ignored any
+// injected lock dir and leaked the per-gid lock to the real `~/.pi/entwurf-v2-locks`
+// whenever a caller/test wired the other dirs but relied on the lock default.) Pure
+// config (capability registry read, plan-planted dirs, the observe timeout) keeps a
+// default — it is data, not an IO seam.
 export interface DispatchDeciderDeps {
 	resolveTarget: (gardenId: string) => TargetResolution | Promise<TargetResolution>;
-	acquireLock?: (gardenId: string) => AcquireLockResult;
-	releaseLock?: (claim: LockClaim) => unknown;
-	inspectSocket?: (gardenId: string) => Promise<TargetSocketInspection>;
-	probeSocket?: (socketPath: string) => Promise<SocketLiveness>;
+	acquireLock: (gardenId: string) => AcquireLockResult;
+	releaseLock: (claim: LockClaim) => unknown;
+	inspectSocket: (gardenId: string) => Promise<TargetSocketInspection>;
+	probeSocket: (socketPath: string) => Promise<SocketLiveness>;
 	preflightForCwd: (cwd: string) => PreflightOutcome;
 	capabilityFor?: (backend: MetaBackendV2) => MetaCapability;
-	controlDir?: string;
 	mailboxDir?: string;
 	sessionsDir?: string;
 	observeTimeoutMs?: number;
@@ -234,10 +241,8 @@ async function livenessFromInspection(
  * ONLY through injected deps.
  */
 export async function decideDispatch(input: DispatchInput, deps: DispatchDeciderDeps): Promise<DispatchDecision> {
-	const acquireLock = deps.acquireLock ?? ((gid: string) => defaultAcquireLock(gid, { dir: undefined }));
-	const releaseLock = deps.releaseLock ?? ((claim: LockClaim) => defaultReleaseLock(claim));
-	const inspectSocket = deps.inspectSocket ?? ((gid: string) => defaultInspectSocket(gid, deps.controlDir));
-	const probeSocket = deps.probeSocket ?? ((p: string) => probeSocketLiveness(p));
+	// IO seams are required deps (no defaults) — see DispatchDeciderDeps (B1).
+	const { acquireLock, releaseLock, inspectSocket, probeSocket } = deps;
 	const capabilityFor = deps.capabilityFor ?? metaCapabilityFor;
 	const mailboxDir = deps.mailboxDir ?? defaultMetaMailboxDir();
 	const sessionsDir = deps.sessionsDir ?? defaultMetaSessionsDir();
@@ -245,7 +250,8 @@ export async function decideDispatch(input: DispatchInput, deps: DispatchDecider
 	const mode: EntwurfV2Mode = input.mode ?? ENTWURF_V2_MODE_DEFAULT;
 	const wantsReply = input.wantsReply ?? false;
 
-	const reject = (receipt: RejectReceipt): DispatchDecision => ({ kind: "reject", receipt });
+	const reject = (receipt: RejectReceipt, diagnostic?: RejectDiagnostic): DispatchDecision =>
+		diagnostic ? { kind: "reject", receipt, diagnostic } : { kind: "reject", receipt };
 
 	// 1. requireGardenId — BEFORE any path is built.
 	const gardenId = requireGardenId(input.target);
@@ -282,65 +288,87 @@ export async function decideDispatch(input: DispatchInput, deps: DispatchDecider
 	// 4. in-domain → acquire the per-gid lock BEFORE lstat/connect.
 	const acq = acquireLock(gardenId);
 	if (!acq.ok) {
-		return reject(makeRejectReceipt("target-locked", null));
+		// B3: carry the lock's holder evidence (pid/host/createdAt + lockPath) as a
+		// diagnostic so a permanently-held gid is observable/clearable. The receipt
+		// stays pre-probe-null; the conflict rides alongside it.
+		return reject(makeRejectReceipt("target-locked", null), { kind: "target-locked", conflict: acq.conflict });
 	}
 	const lock = acq.claim;
 
-	// Helper: release the held lock, then return a reject decision.
+	// B2: from here a lock is HELD. Every reject path releases it explicitly
+	// (rejectAfterRelease); every execute path that keeps the lock sets
+	// retainLock=true just before returning. If inspectSocket / probeSocket /
+	// preflightForCwd THROWS, the catch releases the still-held lock before
+	// rethrowing — without this a thrown IO error leaks the lock and the long-lived
+	// MCP bridge pins the gid forever. This is 5b's lock lifecycle to own, not 5c's.
 	const rejectAfterRelease = (receipt: RejectReceipt): DispatchDecision => {
 		releaseLock(lock);
 		return reject(receipt);
 	};
 
-	// 5. under the lock: inspect the socket (lstat-then-connect), then route.
-	const inspection = await inspectSocket(gardenId);
-	const mapped = await livenessFromInspection(inspection, probeSocket);
-	if ("addressConflict" in mapped) {
-		return rejectAfterRelease(makeRejectReceipt("target-address-conflict", null));
-	}
-	const { liveness, socketPath } = mapped;
-
-	const receipt = resolveDispatch(input.intent, liveness, false);
-	if (!receipt.ok) {
-		// resolver reject (owned-live-no-autosend / indeterminate-no-spawn / …) — the
-		// lock was for an in-domain probe that yielded no execute, so release it.
-		return rejectAfterRelease(receipt);
-	}
-
-	if (receipt.action === "resume") {
-		// 1B: preflight runs ONLY here (the sole branch that launches a child into a
-		// target cwd). deny → nonce-owned release → untrusted-fail-fast, with the
-		// honest measured liveness (dormant = the `dead` we just probed).
-		const outcome = deps.preflightForCwd(identity.cwd);
-		if (outcome.kind === "deny") {
-			return rejectAfterRelease(makeRejectReceipt("untrusted-fail-fast", liveness));
+	let retainLock = false;
+	try {
+		// 5. under the lock: inspect the socket (lstat-then-connect), then route.
+		const inspection = await inspectSocket(gardenId);
+		const mapped = await livenessFromInspection(inspection, probeSocket);
+		if ("addressConflict" in mapped) {
+			return rejectAfterRelease(makeRejectReceipt("target-address-conflict", null));
 		}
-		const plan: ExecutionPlan = {
-			transport: "spawn-bg",
-			action: "resume",
-			targetGardenId: gardenId,
-			sessionId: gardenId, // D3: gid is the pi resume authority, not nativeSessionId.
-			cwd: identity.cwd,
-			prompt: input.message,
-			launchArgs: outcome.launchArgs,
-			expectedSocketPath: socketPath,
-			observeTimeoutMs,
-			releaseWhen: "socket-alive-or-child-exited",
-		};
-		return { kind: "execute", receipt, plan, lock };
-	}
+		const { liveness, socketPath } = mapped;
 
-	// receipt.action === "send" → control-socket send (lock kept for 5c re-resolve).
-	const plan: ExecutionPlan = {
-		transport: "control-socket",
-		action: "send",
-		targetGardenId: gardenId,
-		socketPath,
-		mode,
-		wantsReply,
-		message: input.message,
-	};
-	return { kind: "execute", receipt, plan, lock };
+		const receipt = resolveDispatch(input.intent, liveness, false);
+		if (!receipt.ok) {
+			// resolver reject (owned-live-no-autosend / indeterminate-no-spawn / …) — the
+			// lock was for an in-domain probe that yielded no execute, so release it.
+			return rejectAfterRelease(receipt);
+		}
+
+		if (receipt.action === "resume") {
+			// 1B: preflight runs ONLY here (the sole branch that launches a child into a
+			// target cwd). deny → nonce-owned release → untrusted-fail-fast, with the
+			// honest measured liveness (dormant = the `dead` we just probed).
+			const outcome = deps.preflightForCwd(identity.cwd);
+			if (outcome.kind === "deny") {
+				return rejectAfterRelease(makeRejectReceipt("untrusted-fail-fast", liveness));
+			}
+			const plan: ExecutionPlan = {
+				transport: "spawn-bg",
+				action: "resume",
+				targetGardenId: gardenId,
+				sessionId: gardenId, // D3: gid is the pi resume authority, not nativeSessionId.
+				cwd: identity.cwd,
+				prompt: input.message,
+				launchArgs: outcome.launchArgs,
+				expectedSocketPath: socketPath,
+				observeTimeoutMs,
+				releaseWhen: "socket-alive-or-child-exited",
+			};
+			retainLock = true;
+			return { kind: "execute", receipt, plan, lock };
+		}
+
+		// receipt.action === "send" → control-socket send (lock kept for 5c re-resolve).
+		const plan: ExecutionPlan = {
+			transport: "control-socket",
+			action: "send",
+			targetGardenId: gardenId,
+			socketPath,
+			mode,
+			wantsReply,
+			message: input.message,
+		};
+		retainLock = true;
+		return { kind: "execute", receipt, plan, lock };
+	} catch (err) {
+		if (!retainLock) {
+			try {
+				releaseLock(lock);
+			} catch {
+				// best-effort: a release failure must NOT mask the original throw.
+			}
+		}
+		throw err;
+	}
 }
 
 /** The canonical control-socket path for a target — re-exported so a production

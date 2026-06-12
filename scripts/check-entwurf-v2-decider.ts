@@ -17,10 +17,18 @@
  *   8. unsupported + fire-and-forget + deliverable=false ⇒ reject only, no plan.
  *   9. an invalid garden id throws BEFORE any path/lock is built (F2-P1).
  *  10. no spawn-bg plan carries provider/model (D4: 5c-owned launch identity).
+ *  11. (B2) a throw AFTER the lock is acquired (inspect/probe/preflight) releases
+ *      the held lock before the error propagates — no leak. A reject-path
+ *      releaseLock that itself throws is RETRIED (the unlink never happened, so the
+ *      lock is still ours) and the ORIGINAL error propagates — retry-pinned so a
+ *      refactor cannot drop it.
+ *  12. (B3) a target-locked reject carries the lock's holder evidence as a
+ *      diagnostic (pid/lockPath/detail), including the corrupt null-holder case;
+ *      no other reject carries one.
  *
- * No IO — the target lookup, lock, socket inspection/probe, preflight, and
- * capability registry are all injected; lock acquire/release calls are tracked so
- * "no-lock-retained" is proven, not assumed.
+ * No IO — the target lookup, lock, socket inspection/probe, and preflight are all
+ * REQUIRED injected deps (the decider keeps NO live IO default); lock
+ * acquire/release calls are tracked so "no-lock-retained" is proven, not assumed.
  */
 
 import assert from "node:assert/strict";
@@ -159,7 +167,6 @@ function mkDeps(opts: ScenarioOpts): Tracked {
 		probeSocket: async (): Promise<SocketLiveness> => opts.probe ?? "dead",
 		preflightForCwd: () => opts.preflight ?? APPROVE,
 		capabilityFor: () => capability(opts.wakeMode ?? "direct-inject"),
-		controlDir: "/fake/ctl",
 		mailboxDir: "/fake/mailbox",
 		sessionsDir: "/fake/sessions",
 	};
@@ -183,6 +190,7 @@ async function main(): Promise<void> {
 		ok("bad-target: observedLiveness null (pre-probe)", d.kind === "reject" && d.receipt.observedLiveness === null);
 		ok("bad-target: reason", d.kind === "reject" && d.receipt.reason === "bad-target");
 		ok("bad-target: no lock acquired", t.acquireCalls.length === 0);
+		ok("bad-target: no diagnostic (only target-locked carries one)", d.kind === "reject" && d.diagnostic === undefined);
 	}
 
 	// ── 7: pre-probe address conflict — reject WITHOUT probing or locking ────────
@@ -207,6 +215,53 @@ async function main(): Promise<void> {
 		ok("target-locked: lock acquire attempted", t.acquireCalls.length === 1);
 		ok("target-locked: no release (acquire failed → nothing held)", t.releaseCalls.length === 0);
 		ok("target-locked: not probed (lock before probe)", t.inspectCalls.length === 0);
+		// B3: the holder evidence the lock produced must survive to the decision.
+		ok("target-locked: diagnostic carried", d.kind === "reject" && d.diagnostic?.kind === "target-locked");
+		ok(
+			"target-locked: diagnostic holder pid preserved",
+			d.kind === "reject" && d.diagnostic?.conflict.holder?.pid === 4242,
+		);
+		ok(
+			"target-locked: diagnostic lockPath preserved",
+			d.kind === "reject" && d.diagnostic?.conflict.lockPath === `/fake/locks/${GID}.lock`,
+		);
+	}
+
+	// ── B3: target-locked with a corrupt (null holder) lockfile still carries the ─
+	// diagnostic (lockPath + detail) — a human needs the path even when the body is
+	// empty/corrupt and there is no pid to show.
+	{
+		const d = await decideDispatch(
+			{ target: GID, intent: "owned-outcome", message: "hi" },
+			{
+				resolveTarget: () => ({ identity: identity("pi"), preProbeAddressConflict: false }),
+				acquireLock: () => ({
+					ok: false,
+					conflict: {
+						reason: "target-locked",
+						lockPath: `/fake/locks/${GID}.lock`,
+						holder: null,
+						detail: "lockfile is empty, corrupt, or holds a different garden id",
+					},
+				}),
+				releaseLock: () => {},
+				inspectSocket: async () => {
+					throw new Error("target-locked(corrupt): must not probe after a lock conflict");
+				},
+				probeSocket: async () => "dead",
+				preflightForCwd: () => APPROVE,
+			},
+		);
+		ok("target-locked(corrupt): reject", d.kind === "reject" && d.receipt.reason === "target-locked");
+		ok(
+			"target-locked(corrupt): diagnostic carried with null holder",
+			d.kind === "reject" && d.diagnostic?.kind === "target-locked" && d.diagnostic.conflict.holder === null,
+		);
+		ok(
+			"target-locked(corrupt): diagnostic detail preserved",
+			d.kind === "reject" &&
+				d.diagnostic?.conflict.detail === "lockfile is empty, corrupt, or holds a different garden id",
+		);
 	}
 
 	// ── post-lock address conflict (pi + symlinked own socket) → release+reject ──
@@ -442,6 +497,92 @@ async function main(): Promise<void> {
 		ok("unsupported-owned: acquireLock NOT called", t.acquireCalls.length === 0);
 	}
 
+	// ── B2: a throw AFTER the lock is acquired RELEASES it before rethrowing ─────
+	// inspectSocket / probeSocket / preflightForCwd are the three post-lock IO sites
+	// that can throw. Each must leave NO held lock (else a long-lived MCP bridge pins
+	// the gid forever). The decision still propagates the error (the decider does not
+	// swallow it); only the lock is cleaned up.
+	{
+		const runThrowing = async (label: string, over: Partial<DispatchDeciderDeps>): Promise<void> => {
+			const released: LockClaim[] = [];
+			let threw = false;
+			try {
+				await decideDispatch(
+					{ target: GID, intent: "owned-outcome", message: "x" },
+					{
+						resolveTarget: () => ({ identity: identity("pi"), preProbeAddressConflict: false }),
+						acquireLock: () => ({ ok: true, claim: lockClaim(GID) }),
+						releaseLock: (c: LockClaim) => {
+							released.push(c);
+						},
+						inspectSocket: async () => ({ kind: "absent", socketPath: "/fake/ctl/s.sock" }),
+						probeSocket: async () => "dead",
+						preflightForCwd: () => APPROVE,
+						...over,
+					},
+				);
+			} catch {
+				threw = true;
+			}
+			ok(`lock-leak(${label}): error rethrown`, threw);
+			ok(`lock-leak(${label}): lock RELEASED before rethrow`, released.length === 1);
+			ok(`lock-leak(${label}): released the held claim`, released[0]?.gardenId === GID);
+		};
+
+		await runThrowing("inspect throw", {
+			inspectSocket: async () => {
+				throw new Error("inspect boom");
+			},
+		});
+		await runThrowing("probe throw", {
+			inspectSocket: async () => ({ kind: "socket-file", socketPath: "/fake/ctl/s.sock" }),
+			probeSocket: async () => {
+				throw new Error("probe boom");
+			},
+		});
+		await runThrowing("preflight throw", {
+			// absent → dead → owned-outcome resume verdict → preflight is reached
+			preflightForCwd: () => {
+				throw new Error("preflight boom");
+			},
+		});
+	}
+
+	// ── B2 retry-pin (Fable 2차 권고): a reject-path releaseLock that THROWS is ──
+	// retried by the catch. releaseLock can only throw when the unlink did NOT happen
+	// (a successful unlink returns "released"), so at catch time the lock is still
+	// ours → the 2nd attempt is a legitimate retry, not a double-free. The ORIGINAL
+	// error (not the retry's) propagates, and releaseLock is called exactly twice.
+	// This pins the retry so a future refactor cannot silently drop it.
+	{
+		const released: LockClaim[] = [];
+		let caught: unknown = null;
+		try {
+			await decideDispatch(
+				{ target: GID, intent: "owned-outcome", message: "x" },
+				{
+					resolveTarget: () => ({ identity: identity("pi"), preProbeAddressConflict: false }),
+					acquireLock: () => ({ ok: true, claim: lockClaim(GID) }),
+					releaseLock: (c: LockClaim) => {
+						released.push(c);
+						throw new Error(`release boom ${released.length}`);
+					},
+					// owned-outcome + LIVE → owned-live-no-autosend reject → rejectAfterRelease
+					inspectSocket: async () => ({ kind: "socket-file", socketPath: "/fake/ctl/s.sock" }),
+					probeSocket: async () => "alive",
+					preflightForCwd: () => APPROVE,
+				},
+			);
+		} catch (e) {
+			caught = e;
+		}
+		ok(
+			"reject-release-throw: ORIGINAL error propagates (not the retry's)",
+			caught instanceof Error && caught.message === "release boom 1",
+		);
+		ok("reject-release-throw: releaseLock retried exactly twice", released.length === 2);
+	}
+
 	// ── 9: invalid garden id throws BEFORE resolveTarget (F2-P1) ─────────────────
 	{
 		let threw = false;
@@ -450,6 +591,20 @@ async function main(): Promise<void> {
 			resolveTarget: () => {
 				resolveCalled = true;
 				return { identity: null, preProbeAddressConflict: false };
+			},
+			// Required IO seams: the throw at requireGardenId must precede every one of
+			// them, so they are wired as "must not be reached" tripwires.
+			acquireLock: () => {
+				throw new Error("invalid-gid: acquireLock must not be reached");
+			},
+			releaseLock: () => {
+				throw new Error("invalid-gid: releaseLock must not be reached");
+			},
+			inspectSocket: async () => {
+				throw new Error("invalid-gid: inspectSocket must not be reached");
+			},
+			probeSocket: async () => {
+				throw new Error("invalid-gid: probeSocket must not be reached");
 			},
 			preflightForCwd: () => APPROVE,
 		};
