@@ -11,9 +11,15 @@
 - **Facts before verbs.** fact-provider와 `entwurf_peers`는 liveness/capability/identity/cwd-history만 말한다. send/resume/transport 판단은 step 5 dispatch에서만 한다.
 - **Capability dignity.** Claude/Codex/Gemini/pi는 형제 백엔드다. surface 차이를 capability 포기로 번역하지 말고, unsupported는 숨기지 말고 사실로 노출한다.
 
+## GLG 작업 스타일 — 다음 세션 시작 전에 붙들 것
+
+- **개발은 뺄셈이다.** 새 기능·새 축을 만들기 전에 "안 해도 되는가"를 먼저 묻는다.
+- **작게 자르고 순차 검수한다.** GPT힣 1차 → 통과분만 Fable 2차. 동시 throw 금지.
+- **5b는 pure decider만.** transport 실행·spawn·smoke·새 표면은 다음 슬라이스로 넘긴다.
+
 ## Current state — 2026-06-12 (구현 세션 #2 — 진입① + 5a done, 5b next)
 
-- **2026-06-12 구현 세션: 진입① + 5a 완료·커밋·검수통과** (push는 GLG 대기). 다음 = **5b pure decider**.
+- **2026-06-12 구현 세션: 진입① + 5a 완료·커밋·푸시·검수통과**. 다음 = **5b pure decider**.
   - **S1 = GLG 해소(2026-06-12):** nested spawn은 **코드레벨에서 차별 안 함**(다 열어둠), **지침으로 가드**. 5c
     launcher가 `--entwurf-control` 붙여 손자 spawn이 코드상 가능해지는 걸 수용. depth-cap 기계 가드 안 만듦. 인터페이스는
     뚫어두되 "사용자가 허락하는 경우에만" = 정책/지침 레벨. → **S1 BLOCKER 해소, 5c 진행 가능.** (재귀 dispatch 안전:
@@ -34,6 +40,9 @@
 - **비차단 backlog(Fable O1):** reclaim marker는 nonce 무소유 → 인간이 in-flight marker 오삭제 시에만 race 재개방
   (document-grade, conflict detail이 이미 경고). 운영 중 marker 수동 정리가 실제로 일어나면 marker에 nonce 기록+자기것만
   unlink(~5줄). 지금은 불요.
+- **뺄셈 재검토 닻:** 5b/5c가 안정된 뒤 **자동 stale reclaim 자체가 꼭 필요한지** 다시 본다. 더 단순한 대안은
+  "ESRCH여도 자동 reclaim 없이 `target-locked`+수동 cleanup"이다. 지금 구현은 `acquireLock` 내부에 격리되어 있으니
+  유지하되, reclaim 위에 새 기능을 더 얹지 말 것.
 - Done: step 4 fact-provider slice 1·2·3·4a·4b·4c **+ F-mailbox amendment** (contract층 step 5 blocker 닫힘). `entwurf_peers` renders facts + legacy `sessions` projection from the same provider; no second socket scan.
 - F-mailbox amendment (this cleanup's companion commit): `entwurf_v2` contract now routes `fire-and-forget + unsupported citizen → meta-mailbox/ack-only` instead of rejecting it. New `meta-mailbox` transport + `mailbox-undeliverable` reason (fail-closed) + `UNSUPPORTED_DISPATCH_TABLE` mini-table separate from the 6-cell table. `resolveDispatch` takes a 2nd `mailboxDeliverable` fact. GPT힣 review = GO; `RESOLVER_REJECT_REASONS` rename + in-domain no-mailbox guard folded in.
 - Verified: `check-entwurf-v2-contract` **109** (was 81), `check-socket-discovery` 31, `check-entwurf-fact-provider` 27, `check-entwurf-peers-surface` 40, full `pnpm check` green.
@@ -58,7 +67,8 @@
      smoke + doctor `--entwurf-control` flag 체크 + prefixRoots 배선. 상세 = ↓ "Stage 0 step 5 작업 계획"(5a-5d 분해).
 2. **Small optional follow-up:** `get_info` enrich for alive socket probes (`cwd/model/idle`, per-socket `infoError`, `Promise.allSettled`, no whole-list throw). Current `(not enriched)` is honest.
 3. **Release-gate matrix smoke (step 5와 같이 게이트화):** sender surface(pi-native / MCP bridge) × target kind(live socket / meta mailbox) × direction(pi→meta·meta→pi·meta→meta·pi→pi). cross-transport 실제 도달성은 contract층이 아니라 여기서 증명(GPT힣 (c) 판정).
-4. **Separate backlog:** pi `session_start` meta-record writer; legacy `entwurf_send` direct socket symlink guard.
+4. **Separate backlog:** pi `session_start` meta-record writer; legacy `entwurf_send` direct socket symlink guard; 5b/5c 안정 후
+   **자동 stale reclaim을 뺄 수 있는지 재검토**(수동 cleanup 모델과 비교).
 
 ## Guardrails for next agent
 
