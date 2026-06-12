@@ -17,19 +17,26 @@
 - **작게 자르고 순차 검수한다.** GPT힣 1차 → 통과분만 Fable 2차. 동시 throw 금지.
 - **5b는 pure decider만.** transport 실행·spawn·smoke·새 표면은 다음 슬라이스로 넘긴다.
 
-## Current state — 2026-06-13 (구현 세션 #4 — 5b 3 blocker 봉합·GPT+Fable 둘 다 GO·local 커밋, push 전)
+## Current state — 2026-06-13 (구현 세션 #4 — 5b 봉합 + 5c-1 done·전부 GO·local 커밋, push 전)
 
-- **2026-06-13 구현 세션 #4 (hejdev6 서버 이전 첫 세션): 5b lock-lifecycle blocker B1/B2/B3 봉합.
-  GPT힣 1차 GO + Fable5 2차 GO. local 커밋 `33f0c20`(push 전).** 다음 = **5c transport hand**.
-  push는 GLG가 더 진행 후 일괄.
-  - **봉합 내용(상세 = 커밋 `33f0c20` 본문이 SSOT):** B1=IO seam(acquire/release/inspect/probe) required
-    dep 승격(뺄셈 채택, `{dir:undefined}` footgun 구조 소멸; controlDir·default IO 래퍼/import 제거).
-    B2=post-lock try/retainLock/catch — inspect/probe/preflight throw 시 release+rethrow, reject-path
-    release throw는 정당한 retry(unlink 미발생). B3=`DispatchDecision` reject에 `diagnostic?: RejectDiagnostic`,
-    target-locked만 `LockConflict`(holder/lockPath/detail) 보존(receipt schema·observedLiveness=null 불변).
-  - **게이트:** check-entwurf-v2-decider 82→**100**(lock-leak 9 + B3 diagnostic/null-holder +
-    reject-path release retry-pin). 관련 회귀 green(lock 67/contract 233/socket-discovery 42/fact-provider 32).
-    **full `pnpm check` EXIT=0, lint/typecheck clean. check-pack 127 files**(HEAD 베이스라인; 이전 메모 "128"은 부정확).
+- **2026-06-13 구현 세션 #4 (hejdev6 서버 이전 첫 세션): 5b B1/B2/B3 봉합 + 5c design + 5c-1 구현.
+  매 단계 GPT 1차 GO → Fable 2차 GO. local 커밋만(push 전, GLG가 더 진행 후 일괄).** ◀ NOW = **5c-2 control-socket send 배선**.
+  - **5c-1 (`ff69a3a`, GPT design GO → code GO → Fable GO): pure release-policy reducer.** transport IO
+    전에 "어떤 event에서 lock release 허용되는가"를 순수 state machine으로 격리(`entwurf-v2-release.ts`).
+    `decideReleasePolicy`(meta-mailbox→no-lock / in-domain→release-after-{send-final, spawn-observation},
+    lock 非null+gid 일치 강제) + `reduceRelease`(single-release 선가드, spawn-started 단독 release 금지=
+    double-spawn 창 방지, 첫 socket-alive∨child-exited∨spawn-start-failed에만 release). 게이트
+    check-entwurf-v2-release **27**. 상세 = 커밋 `ff69a3a` 본문.
+  - **⚠ 5c-2/5c-3 배선 시 반드시 박을 계약 2개(검수에서 도출, load-bearing):**
+    - **(GPT, 5c-2) `send-final(failed)`는 첫 send 실패가 아니라 legacy fallback/re-resolve까지 끝난 최종
+      outcome에만 emit** — 첫 실패에 emit하면 lock 조기 release. 5c-2 게이트: "send-final은 fallback 체인 소진 후 1회".
+    - **(Fable, 5c-3) timeout은 release event가 아니다** — ReleaseEvent에 timeout 종류 없음은 의도된 설계
+      (bare timeout release는 child가 늦게 socket 띄우면 double-spawn 창 재개방). watcher는 observeTimeoutMs 만료를
+      **관측으로 해소**해야: kill child → `child-exited(null)` → release, 또는 hold + 증거 표면화. 5c-3 게이트로 박을 것.
+  - **5b lock-lifecycle B1/B2/B3 (`33f0c20`):** 상세 커밋 본문. B1=IO seam required dep 승격(뺄셈, footgun 소멸)
+    · B2=post-lock try/retainLock/catch + reject-path release retry · B3=RejectDiagnostic로 target-locked holder 보존.
+    게이트 check-entwurf-v2-decider 82→**100**(lock-leak 9 + B3 diagnostic/null-holder + retry-pin).
+    full `pnpm check` EXIT=0. check-pack 127→**129**(release.ts + gate 2파일 packed; scripts/ 게이트도 tarball 포함).
   - **검수 협업 교훈(살릴 것):** GPT 1차 → 반영 → Fable 2차 **순차**. **동시에 같은 것 묻지 않기가 핵심.**
     순서·역할은 사안 따라 유동(어떤 사안은 GPT가 더 필요할 수도). 이번엔 double-release 관찰을 GPT가 던지고
     Fable이 "현행이 옳다 — retry는 무해를 넘어 이득"으로 독립 판정 + 게이트 retry-pin 권고 → 분업이 실제로 값을
@@ -67,12 +74,24 @@
 
 ## Next moves — read order
 
-1. **Step 5 — 5b DONE(local `b1adec1`+`91e5665`+`fc731ce`+`33f0c20`, GPT+Fable 둘 다 GO), ◀ NOW = 5c transport hand.**
-   - **다음 세션 첫 동작:** 5c 진입. decider가 반환하는 `DispatchDecision.plan`(`ExecutionPlan`)을 재유도 없이
-     소비하는 transport hand. 3 transport: control-socket send / meta-mailbox send / spawn-bg resume. **load-bearing
-     게이트 = release-after-observation(Fable 3):** acquire→spawn 배선은 5c watcher 전에 켜면 안 됨, "관측 전 release
-     없음"으로 박을 것. send-fail fallback은 같은 lock nonce로 1회 재해결(decider가 lock 유지하는 이유). 4-step 규율:
-     이해(읽기만)→GLG 범위 좁힘→구현→검수(GPT 1차→Fable 2차, 동시 같은 질문 금지). push 전 GLG 확인.
+1. **Step 5 — 5b DONE + 5c-1 DONE(local `…33f0c20`(5b)+`bad296a`(next)+`ff69a3a`(5c-1), 전부 GPT+Fable GO), ◀ NOW = 5c-2 control-socket send 배선.**
+   - **5c 분해(GPT design GO):** 5c-1 pure release reducer ✅ → **5c-2 control-socket send** → 5c-3 spawn-bg + 실
+     socket-alive watcher(load-bearing) → 5c-4 meta-mailbox send. 위험 순, pure-before-IO.
+   - **5c-2 첫 동작:** `ExecutionPlan(control-socket)`{socketPath,mode,wantsReply,message}을 legacy entwurf_send
+     경로 재사용해 보내고, `reduceRelease`에 event 먹여 lock release. **재사용 map(정찰됨, 재구현 금지):**
+     `sendRpcCommand`(entwurf-control.ts:1105, net.createConnection 위 RPC 송신) + `classifyConnectError`
+     (socket-probe.ts:39, "dead"|"indeterminate")로 fallback 게이트(entwurf-control.ts:1704-1709 = dead만 fallback,
+     stall/EACCES/unknown은 throw — mailbox로 숨기지 말 것) + `enqueueMetaMessage`(meta-session.ts:1467) +
+     `formatMetaMailboxBody`. sender envelope=`buildLocalSenderEnvelope`(entwurf-control.ts:582).
+     **반드시 박을 계약(GPT):** `send-final(failed)`는 첫 send 실패가 아니라 fallback/re-resolve 체인 소진 후
+     최종 outcome에만 1회 emit(조기 release 금지) — 5c-2 게이트로. send-fail fallback은 같은 lock nonce 1회 재해결.
+   - **5c-3 진입 시 박을 계약(Fable, load-bearing):** timeout은 release event 아님. watcher는 observeTimeoutMs
+     만료를 **관측으로 해소**(kill child→`child-exited(null)`→release, 또는 hold+증거). bare timeout release 금지
+     (double-spawn 창 재개방). `spawnEntwurfResumeAsync`는 `--no-extensions` 하드코딩이라 무수정 호출 금지 —
+     v2는 `--entwurf-control` 살려야 socket 관측 가능(A1), 옵션/wrapper 추가하되 piArgs SSOT 공유. watcher는
+     `plan.expectedSocketPath`만, release는 넘겨받은 `lock` claim으로만(gid 재조회 금지).
+   - **4-step 규율:** 이해(읽기만)→(GLG 폰 관망, 막힐 때만 호출)→구현→검수(GPT 1차→Fable 2차, 동시 같은 질문 금지).
+     커밋은 셋이 GO 후 local, push는 GLG가 더 진행 후 일괄.
    - **소비할 plan 계약(5b가 심어둠, 재유도 금지):** control-socket={socketPath,mode,wantsReply,message} ·
      meta-mailbox={mailboxDir,sessionsDir,wantsReply,message} · spawn-bg={sessionId(=gid),cwd,prompt,launchArgs,
      expectedSocketPath,observeTimeoutMs,releaseWhen}. **provider/model·child pid는 plan에 없음** — 5c launcher가
