@@ -326,5 +326,43 @@ withTempDir((dir) => {
 	ok("reclaim-mutex: clean reclaim succeeds (same host + ESRCH)", reclaimer.ok === true);
 	ok("reclaim-mutex: no leftover .reclaim marker after success", !fs.existsSync(`${lockPath}.reclaim`));
 });
+// (O2) a marker-EEXIST conflict detail carries the marker mtime (so a human can
+// tell a 1-second in-progress reclaim from a 3-day orphan marker).
+withTempDir((dir) => {
+	const lockPath = lockPathFor(GID_A, dir);
+	acquireLock(GID_A, fixedDeps({ dir }));
+	fs.writeFileSync(`${lockPath}.reclaim`, "");
+	const blocked = acquireLock(GID_A, fixedDeps({ dir, killFn: killers.esrch }));
+	if (!blocked.ok)
+		ok("reclaim-mutex: marker conflict detail carries marker mtime (O2)", /marker mtime/.test(blocked.conflict.detail));
+});
+
+// ── L3 release: gardenId mismatch (path authority) → not-owned, preserved ──
+withTempDir((dir) => {
+	const lockPath = lockPathFor(GID_A, dir);
+	fs.mkdirSync(dir, { recursive: true });
+	// a <GID_A>.lock whose body claims gardenId GID_B but shares our nonce.
+	const foreign = {
+		gardenId: GID_B,
+		pid: 4242,
+		hostname: HOST,
+		createdAt: "x",
+		nonce: "shared-nonce",
+		owner: "entwurf_v2",
+		lockPath,
+	};
+	fs.writeFileSync(lockPath, JSON.stringify(foreign));
+	const aClaim: LockClaim = {
+		gardenId: GID_A,
+		pid: 4242,
+		hostname: HOST,
+		createdAt: "x",
+		nonce: "shared-nonce",
+		owner: "entwurf_v2",
+		lockPath,
+	};
+	eq("release: foreign-gid lock (same nonce) = not-owned (path authority = gid)", releaseLock(aClaim), "not-owned");
+	ok("release: foreign-gid lock preserved (not freed)", fs.existsSync(lockPath));
+});
 
 console.log(`\ncheck-entwurf-v2-lock: ${passed} assertions passed`);

@@ -253,9 +253,10 @@ export function acquireLock(gardenId: string, deps: LockDeps = {}): AcquireLockR
 		}
 	};
 
-	// Create the lock and write the claim. On a write/close failure AFTER the wx
-	// create, best-effort unlink our OWN fresh file before rethrowing — otherwise a
-	// transient ENOSPC leaves an empty lockfile that permanently corrupt-conflicts
+	// Create the lock and write the claim. write AND close are ONE unit: ENOSPC /
+	// NFS can throw on close (the flush), not just write, so a failure in EITHER
+	// must best-effort unlink our OWN fresh file before rethrowing — otherwise the
+	// transient error leaves a stray lockfile that permanently corrupt-conflicts
 	// the gid (Fable 2 self-harm). The unlink is safe: we hold the file exclusively.
 	const tryCreate = (): { ok: true } | { ok: false; code: string | undefined } => {
 		let fd: number;
@@ -264,13 +265,19 @@ export function acquireLock(gardenId: string, deps: LockDeps = {}): AcquireLockR
 		} catch (err) {
 			return { ok: false, code: (err as NodeJS.ErrnoException).code };
 		}
+		let closed = false;
 		try {
 			writeSync(fd, `${JSON.stringify(claim)}\n`);
+			closeSync(fd);
+			closed = true;
+			return { ok: true };
 		} catch (err) {
-			try {
-				closeSync(fd);
-			} catch {
-				/* fd may already be unusable */
+			if (!closed) {
+				try {
+					closeSync(fd);
+				} catch {
+					/* fd may already be unusable */
+				}
 			}
 			try {
 				unlinkSync(lockPath);
@@ -281,8 +288,6 @@ export function acquireLock(gardenId: string, deps: LockDeps = {}): AcquireLockR
 				`entwurf-v2-lock: failed to write claim to ${lockPath}: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}`,
 			);
 		}
-		closeSync(fd);
-		return { ok: true };
 	};
 
 	const first = tryCreate();
@@ -321,19 +326,25 @@ export function acquireLock(gardenId: string, deps: LockDeps = {}): AcquireLockR
 	// The blind unlink this replaced could delete a SUCCESSOR's fresh lock: two
 	// dispatchers read the same dead holder, the first reclaimed+recreated, the
 	// second's unlink then deleted the first's new lock → both spawned. The mutex
-	// serializes ALL would-be reclaimers (a fresh acquirer EEXISTs on the lock and
-	// re-enters this same branch), so under it the stale lock cannot change; an
-	// EEXIST on the marker is a fail-closed conflict (a permanent conflict is the
-	// accepted worst case — same grade as a corrupt lockfile — never a double-spawn).
+	// serializes every would-be reclaimer: another reclaimer (or a fresh acquirer
+	// that EEXISTed on the still-present stale lock and re-entered this branch)
+	// loses the marker wx and fails closed. While the stale lock is still present
+	// it therefore cannot change under us; the ONE actor that can appear is a fresh
+	// acquirer winning the unlink→create gap (its wx then succeeds on the absent
+	// path) — handled below as an honest conflict, never a clobber. An EEXIST on
+	// the marker is a fail-closed conflict (a permanent conflict is the accepted
+	// worst case — same grade as a corrupt lockfile — never a double-spawn).
 	let markerFd: number;
 	try {
 		markerFd = openSync(reclaimMarkerPath, "wx");
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException).code;
 		if (code === "EEXIST") {
+			const markerMtime = lockMtimeIso(reclaimMarkerPath);
+			const age = markerMtime ? ` (marker mtime ${markerMtime})` : "";
 			return conflict(
 				holder,
-				`reclaim already in progress (or a stale reclaim marker at ${reclaimMarkerPath}); confirm no dispatcher is mid-reclaim, then clear it by hand`,
+				`reclaim already in progress (or a stale reclaim marker at ${reclaimMarkerPath}${age}); confirm no dispatcher is mid-reclaim, then clear it by hand`,
 			);
 		}
 		throw err;
@@ -377,13 +388,15 @@ export type ReleaseResult = "released" | "not-owned" | "absent";
  * a late release returns `not-owned` and leaves the successor's claim intact. An
  * already-gone lock returns `absent`. This is the second half of the F2 guard:
  * without the nonce check a recycled pid or a stale watcher could delete a live
- * successor's lock.
+ * successor's lock. The read passes `claim.gardenId` so a `<A>.lock` carrying a
+ * different gardenId (with a coincidental same nonce) is `not-owned`, never freed
+ * — path authority is the gid all the way through (GPT 4 / 동결결정3).
  */
 export function releaseLock(claim: LockClaim, deps: { dir?: string } = {}): ReleaseResult {
 	const lockPath = claim.lockPath ?? lockPathFor(claim.gardenId, deps.dir);
 	let onDisk: LockClaim | null;
 	try {
-		onDisk = parseLockClaim(readFileSync(lockPath, "utf8"), lockPath);
+		onDisk = parseLockClaim(readFileSync(lockPath, "utf8"), lockPath, claim.gardenId);
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === "ENOENT") return "absent";
 		throw err;
