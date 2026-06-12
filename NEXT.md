@@ -17,9 +17,30 @@
 - **작게 자르고 순차 검수한다.** GPT힣 1차 → 통과분만 Fable 2차. 동시 throw 금지.
 - **5b는 pure decider만.** transport 실행·spawn·smoke·새 표면은 다음 슬라이스로 넘긴다.
 
-## Current state — 2026-06-12 (구현 세션 #2 — 진입① + 5a done, 5b next)
+## Current state — 2026-06-12 (구현 세션 #3 — 5b 구현 done·커밋(local)·GPT 1차 검수 대기, push 전)
 
-- **2026-06-12 구현 세션: 진입① + 5a 완료·커밋·푸시·검수통과**. 다음 = **5b pure decider**.
+- **2026-06-12 구현 세션 #3: 5b pure decider 구현 완료 + 선행 커밋. local 커밋만(push·검수 미완).**
+  다음 = **GPT 1차 응답 반영 → Fable 2차 → (둘 다 GO면) GLG push → 5c**.
+  - **선행 커밋 (`b1adec1`, GPT 설계검수 C):** `isNonPiGardenIdSocketConflict` 공유 predicate 추출
+    (`entwurf-facts.ts`) + fact-provider:125 구멍 봉합(conflict를 `socketGids ∪ symlinkedGardenIds`로 —
+    symlinked non-pi 소켓이 clean PeerFact로 잔존하던 구멍). pi+symlink는 이 predicate 아님(decider
+    `inspectTargetControlSocket`이 잡음). 게이트 check-entwurf-facts 82→**86**, check-entwurf-fact-provider 27→**32**.
+  - **5b decider (`91e5665`):** `entwurf-v2-decider.ts` 신규 — `decideDispatch`(7단계 순수 orchestration,
+    transport 0) → `DispatchDecision`(reject | execute+plan+lock). `ExecutionPlan`은 5c hand가 재유도 없이
+    소비(socketPath/mailboxDir/sessionsDir/launchArgs planted) — **provider/model·child pid는 의도적 제외**
+    (5c-owned launch identity / watcher release-context). lock lifecycle: in-domain execute(control-socket send +
+    spawn-bg resume) 유지, 모든 reject release(nonce-owned), mailbox 무락(？7).
+  - **신규 helper:** `inspectTargetControlSocket`(socket-discovery.ts, ？2 lstat-then-connect, symlink는
+    isSocket이어도 connect 금지) + `resolveMailboxDeliverability`(self-fetch만, fail-closed).
+  - **타입 정밀화 2건(behavior 불변, GPT/Fable 확인 필요):** `makeRejectReceipt` 반환을
+    `EntwurfV2RejectReceipt`로 좁힘(cast 회피) · `metaCapabilityFor` param `MetaBackend→MetaBackendV2`(registry가
+    이미 4개 커버). frozen contract 건드린 지점이라 검수 포인트로 명시함.
+  - **게이트:** check-entwurf-v2-decider **82**(신규, 10 invariant + lock acquire/release 호출수 추적으로
+    reject⇒no-plan-no-lock 증명), check-socket-discovery 31→**42**. **full `pnpm check` EXIT=0, check-pack 128 files.**
+  - **검수 상태:** GPT힣(`20260612T102411-d9fa7d`)에 1차 검수 전송(설계 1차=조건부 GO 6개 반영본). **응답 대기 —
+    다음 세션이 inbox_read로 회수.** 순차 규율대로 Fable(`20260612T102534-ed0ebd`)은 **GPT 통과 후에만**.
+  - **설계 SSOT:** `.agent-reports/5b-decider-design.md`(gitignored, v2=조건부 GO 반영본, 6개 부록 체크).
+- **2026-06-12 구현 세션 #2: 진입① + 5a 완료·커밋·푸시·검수통과**.
   - **S1 = GLG 해소(2026-06-12):** nested spawn은 **코드레벨에서 차별 안 함**(다 열어둠), **지침으로 가드**. 5c
     launcher가 `--entwurf-control` 붙여 손자 spawn이 코드상 가능해지는 걸 수용. depth-cap 기계 가드 안 만듦. 인터페이스는
     뚫어두되 "사용자가 허락하는 경우에만" = 정책/지침 레벨. → **S1 BLOCKER 해소, 5c 진행 가능.** (재귀 dispatch 안전:
@@ -50,17 +71,16 @@
 
 ## Next moves — read order
 
-1. **Step 5 — 진입①·5a done, ◀ NOW = 5b pure decider.** 통합 7단계 순서(SSOT 동결, LEDGER "### step 5 물음표 닫힘"
-   "통합 decider 순서"): ① `requireGardenId`(path/lock/socket 계산 전 F2-P1) → ② meta identity lookup + address-conflict
-   precheck(probe 없음; 시민없음=`bad-target`, quarantine=`target-address-conflict`) → ③ backend → ④ `isLivenessSupported`이면
-   `acquireLock`(in-domain만 ？7) **before** lstat/connect → ⑤ in-domain: lock 아래 `inspectTargetControlSocket`
-   (lstat-then-connect ？2) → `resolveDispatch` → resume verdict이면 **그때** `preflight(cwd)`(deny→nonce-owned release
-   후 `untrusted-fail-fast`) 1B → plan → ⑥ unsupported: lock 없음, `resolveMailboxDeliverability`(wakeMode==="self-fetch"
-   fail-closed) → `resolveDispatch` → ⑦ send-fail fallback=같은 nonce 1회 재resolve. **반환=`DispatchDecision`
-   (reject|execute+plan+lock), transport 실행 없음.** **모든 reject는 `makeRejectReceipt` 경유(우회 0).** decider 게이트에
-   "reject ⇒ no-plan AND no-lock-retained" + receipt↔plan transport round-trip. `inspectTargetControlSocket`(신규 helper,
-   lstat→ENOENT만 absent→symlink면 connect 금지→socket이면 probe) + conflict predicate `socketGids ∪ symlinkedGardenIds`
-   공유 추출은 ↓ "### step 5 물음표 닫힘" ？2/？7/F3 블록. step 4 규율: regression gate 먼저 → pure-before-IO → 연결.
+1. **Step 5 — 5b 구현 done(local 커밋 `b1adec1`+`91e5665`), ◀ NOW = GPT 1차 응답 회수·반영 → Fable 2차 → push → 5c.**
+   - **다음 세션 첫 동작:** `entwurf_inbox_read`로 GPT힣(`20260612T102411-d9fa7d`) 1차 검수 응답 회수. GO면
+     Fable(`20260612T102534-ed0ebd`)에 2차 던지고(순차 — GPT 통과분만), 조건부면 라인레벨 반영 후 재-1차. **둘 다 GO여야
+     GLG가 push**(현재 local-only, 미push). 검수 포인트(전송 메시지에 박음): lock lifecycle 누락 경로 / 타입 정밀화 2건이
+     frozen contract 건드린 게 적절한가 / inspectTargetControlSocket P1 / plan 완결성(5c 재유도 잔여) / pure-orchestration.
+   - **구현된 7단계(검증됨, check-entwurf-v2-decider 82):** ① `requireGardenId`(F2-P1) → ② `resolveTarget`(probe-free;
+     없음=`bad-target`, quarantine=`target-address-conflict`) → ③ backend → ④ in-domain만 `acquireLock` before lstat →
+     ⑤ lock 아래 `inspectTargetControlSocket`(？2) → `resolveDispatch` → resume verdict이면 `preflight`(deny→nonce-owned
+     release→`untrusted-fail-fast`, 1B) → plan → ⑥ unsupported: 무락, `resolveMailboxDeliverability`(self-fetch) →
+     `resolveDispatch`. ⑦ send-fail fallback은 **5c 소관**(decider 1회 결정). 반환 `DispatchDecision`, transport 0.
    - 이후: **5c** transport hand(control-socket/meta-mailbox/spawn-bg=`--no-extensions` 빼고 `--entwurf-control --approve`
      A1; releaseWhen=`socket-alive ∨ child-exited(any code)` A2; **release-after-observation 게이트 = Fable 3**;
      send-fail fallback 같은 nonce 1회; 실패 전달 경로 명시) → **5d** MCP `entwurf_v2` additive 등록 + release-gate matrix
