@@ -76,8 +76,8 @@
   `opts.prefixRoots ?? parse()`로 양 surface 공통 배선, agentDir undefined 유지, doctor는 env display only(parser 재구현 X).
   gate 25→**32**. 둘 다 GPT GO. `pnpm check` EXIT=0, check-pack 150. **doctor 전체는 기존 installed-writer-stale로 FAIL
   (install-meta-bridge 재배포 영역, 세션 #8 변경 무관) — 새 v2 섹션 5/5 OK.**
-- **지금 할 일:** ◀ NOW = **deploy hygiene**(`./run.sh install-meta-bridge` → doctor PASS) → **5d-5 LIVE matrix**.
-  **5d-5-pre hardening 배치 DONE·push 완료(`7a4ed48..88b679a`, 매 슬라이스 GPT design→code GO).** 트리오 근거: G1을
+- **지금 할 일:** ◀ NOW = **5d-5 LIVE matrix**. (그 앞단 **5d-5-pre hardening + deploy hygiene 둘 다 DONE** — 아래 참조.)
+  **5d-5-pre hardening 배치 DONE·push 완료(`7a4ed48..ec7c688`, 매 슬라이스 GPT design→code GO).** 트리오 근거: G1을
   먼저 닫아야 LIVE 실패 원인이 "실 lifecycle"인지 "MCP boot/schema 회귀"인지 분리되고, doctor PASS가 release-gate를
   깨끗하게 한다. **5d-5-pre 커밋(전부 push):**
   1. `27bef33` `docs`: G3 prefixRoots-seam 주석 3곳(`index.ts:559`·`entwurf-control.ts:1484-85`·`surface.ts:58-61`)
@@ -91,8 +91,8 @@
      emptiness가 기존 `[[ -z ]]`/`[[ != ]]` 진단 가드로 흐름(성공 경로 no-op). oracle doctor :153/:89 idiom.
   4. `88b679a` `fix(doctor)`: A3b — installed `CACHE_HOOKS` 존재 + BAKED command parse 불가 = drift → `warn`에서 `bad`로
      승격(store-churn guard blind = verify-impossible은 fail-loud); hooks.json 부재(설치 전)는 `warn` 유지. parse 성공 시 무변경.
-  5. ◀ **NOW(ops, commit 아님):** `./run.sh install-meta-bridge` → doctor PASS(`deployed writer STALE` 해소) 확인.
-     **GLG 환경 손 필요** — LIVE 5d-5의 전제(5d-2b가 추가한 `metaRecordExistsByGardenId`만큼 deployed writer가 source보다 뒤짐).
+  5. **ops DONE(commit 아님):** `./run.sh install-meta-bridge` 실행 완료 → `doctor-meta-bridge` **PASS**(ok 26, FAIL 0,
+     `deployed writer matches source (v2) e132bc98` — G2 해소). v2 dispatch surface 섹션 ok. **deploy hygiene 닫힘.**
   **그다음 5d-5 LIVE matrix(headline):** (a) MCP in-process spawn-bg path 실증(부팅·schema 절반은 G1 boot gate가 이미
   닫음), (b) pi-native dynamic import path 실증, (c) release-gate matrix — sender surface(pi-native tool / MCP verb) ×
   target kind(alive pi / dormant pi / unsupported citizen) × direction에서 lock acquire→release ×1, lock-retained 진단
