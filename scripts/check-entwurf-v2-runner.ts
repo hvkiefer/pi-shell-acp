@@ -22,6 +22,14 @@
  *  (exactly ONE hand runs per execute — the other two are never called — is asserted
  *   inline in cases 2/3/4.)
  *
+ * 5d-2a adds the `runEntwurfV2` COMPOSITION gate (cases 10–14): `decide → execute` joined
+ * over a FAKE `decide` (not the real decider — that is check-entwurf-v2-decider's job):
+ *  10. decide called EXACTLY once, with the SAME input.
+ *  11. reject decision  → no executor hand called, the rejected result returned.
+ *  12. execute decision → the matching executor hand ran (control/spawn/mailbox).
+ *  13. decide THROWS    → propagates (no decision = no receipt to wrap).
+ *  14. executeDispatch result returned VERBATIM (passthrough, no re-wrapping).
+ *
  * No real IO — fake hands record (plan, lock) so "the decided plan + lock reach the
  * matching hand, and only that hand" is asserted structurally.
  */
@@ -29,12 +37,18 @@
 import assert from "node:assert/strict";
 import type {
 	DispatchDecision,
+	DispatchInput,
 	ExecutionPlan,
 	RejectReceipt,
 	SuccessReceipt,
 } from "../pi-extensions/lib/entwurf-v2-decider.ts";
 import type { LockClaim } from "../pi-extensions/lib/entwurf-v2-lock.ts";
-import { type DispatchExecutorDeps, executeDispatch } from "../pi-extensions/lib/entwurf-v2-runner.ts";
+import {
+	type DispatchExecutorDeps,
+	type EntwurfV2RunDeps,
+	executeDispatch,
+	runEntwurfV2,
+} from "../pi-extensions/lib/entwurf-v2-runner.ts";
 import type {
 	ControlSocketPlan,
 	ControlSocketSendResult,
@@ -308,6 +322,127 @@ async function main(): Promise<void> {
 		ok(
 			"9: mailbox success:false → execution-failed (not a silent success)",
 			res.kind === "execution-failed" && res.transport === "meta-mailbox" && res.retrySafe === false,
+		);
+	}
+
+	// ── 10–14: runEntwurfV2 composition (5d-2a) over a FAKE decide ─────────────
+	const DISPATCH_INPUT: DispatchInput = {
+		target: GID,
+		intent: "fire-and-forget",
+		mode: "follow_up",
+		wantsReply: false,
+		message: "m",
+	};
+
+	// A fake decide records how it was called and returns a scripted decision (or throws).
+	function makeRunDeps(
+		decideSpec: { decision: DispatchDecision } | { throw: unknown },
+		execSpec: FakeSpec,
+	): { deps: EntwurfV2RunDeps; decideCalls: DispatchInput[]; trace: Trace } {
+		const { deps: executor, trace } = makeDeps(execSpec);
+		const decideCalls: DispatchInput[] = [];
+		const deps: EntwurfV2RunDeps = {
+			decide(input) {
+				decideCalls.push(input);
+				if ("throw" in decideSpec) throw decideSpec.throw;
+				return decideSpec.decision;
+			},
+			executor,
+		};
+		return { deps, decideCalls, trace };
+	}
+
+	// ── 10: decide called exactly once, with the same input ───────────────────
+	{
+		const decision: DispatchDecision = { kind: "reject", receipt: REJECT_RECEIPT };
+		const { deps, decideCalls } = makeRunDeps({ decision }, {});
+		await runEntwurfV2(DISPATCH_INPUT, deps);
+		ok("10: decide called exactly once", decideCalls.length === 1);
+		ok("10: decide got the SAME input", decideCalls[0] === DISPATCH_INPUT);
+	}
+
+	// ── 11: reject decision → no hand called, rejected result returned ────────
+	{
+		const decision: DispatchDecision = { kind: "reject", receipt: REJECT_RECEIPT };
+		const { deps, trace } = makeRunDeps({ decision }, {});
+		const res = await runEntwurfV2(DISPATCH_INPUT, deps);
+		ok("11: reject → rejected result", res.kind === "rejected" && res.receipt === REJECT_RECEIPT);
+		ok("11: reject → NO executor hand called", trace.calls.length === 0);
+	}
+
+	// ── 12: execute decision → the matching hand ran (per transport) ──────────
+	{
+		const lock = lockClaim();
+		const ctl = makeRunDeps(
+			{ decision: executeDecision(CONTROL_PLAN, lock) },
+			{ control: { result: { outcome: "sent" } } },
+		);
+		const rc = await runEntwurfV2(DISPATCH_INPUT, ctl.deps);
+		ok(
+			"12: control execute → sendControl ran, executed{control-socket}",
+			ctl.trace.calls.length === 1 &&
+				ctl.trace.calls[0] === "sendControl" &&
+				rc.kind === "executed" &&
+				rc.outcome.transport === "control-socket",
+		);
+
+		const spw = makeRunDeps(
+			{ decision: executeDecision(SPAWN_PLAN, lock) },
+			{ spawn: { result: { kind: "socket-alive", released: true, pid: 7 } } },
+		);
+		const rsp = await runEntwurfV2(DISPATCH_INPUT, spw.deps);
+		ok(
+			"12: spawn execute → resumeSpawnBg ran, executed{spawn-bg}",
+			spw.trace.calls.length === 1 &&
+				spw.trace.calls[0] === "resumeSpawnBg" &&
+				rsp.kind === "executed" &&
+				rsp.outcome.transport === "spawn-bg",
+		);
+
+		const mbx = makeRunDeps(
+			{ decision: executeDecision(MAILBOX_PLAN, null) },
+			{ mailbox: { result: { success: true } } },
+		);
+		const rmb = await runEntwurfV2(DISPATCH_INPUT, mbx.deps);
+		ok(
+			"12: mailbox execute → sendMailbox ran, executed{meta-mailbox}",
+			mbx.trace.calls.length === 1 &&
+				mbx.trace.calls[0] === "sendMailbox" &&
+				rmb.kind === "executed" &&
+				rmb.outcome.transport === "meta-mailbox",
+		);
+	}
+
+	// ── 13: decide THROWS → propagates (no decision = no receipt to wrap) ─────
+	{
+		const boom = new Error("decider boom");
+		const { deps, trace } = makeRunDeps({ throw: boom }, {});
+		let caught: unknown;
+		try {
+			await runEntwurfV2(DISPATCH_INPUT, deps);
+		} catch (err) {
+			caught = err;
+		}
+		ok("13: decide throw → propagates the SAME error", caught === boom);
+		ok("13: decide throw → NO executor hand called", trace.calls.length === 0);
+	}
+
+	// ── 14: executeDispatch result returned VERBATIM (passthrough) ────────────
+	// A control hand throwing the N1 error must surface AS execution-failed{...} through
+	// runEntwurfV2 unchanged — the runner adds no wrapping over executeDispatch's mapping.
+	{
+		const releaseErr = new Error("release boom");
+		const { deps } = makeRunDeps(
+			{ decision: executeDecision(CONTROL_PLAN, lockClaim()) },
+			{ control: { throw: new SendDeliveredReleaseFailedError("sent", releaseErr) } },
+		);
+		const res = await runEntwurfV2(DISPATCH_INPUT, deps);
+		ok(
+			"14: N1 surfaces verbatim → execution-failed{finalizedOutcome,releaseFailed,retrySafe:false}",
+			res.kind === "execution-failed" &&
+				res.finalizedOutcome === "sent" &&
+				res.releaseFailed === true &&
+				res.retrySafe === false,
 		);
 	}
 

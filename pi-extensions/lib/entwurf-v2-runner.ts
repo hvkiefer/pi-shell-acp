@@ -1,7 +1,9 @@
 /**
- * entwurf-v2-runner — the 5d-1 pure EXECUTE-router for the unified `entwurf_v2` verb.
- * It takes a `DispatchDecision` the 5b decider ALREADY produced and routes it to the
- * right 5c transport hand, returning ONE outcome-rich `EntwurfV2RunResult`. It performs
+ * entwurf-v2-runner — the pure EXECUTE-router (5d-1, `executeDispatch`) AND the top-level
+ * decide→execute join (5d-2a, `runEntwurfV2`) for the unified `entwurf_v2` verb, both in
+ * this one file because they share the `EntwurfV2RunResult` vocabulary and neither does IO.
+ * `executeDispatch` takes a `DispatchDecision` the 5b decider ALREADY produced and routes it
+ * to the right 5c transport hand, returning ONE outcome-rich `EntwurfV2RunResult`. It performs
  * ZERO IO of its own and makes ZERO routing decisions — `decideDispatch` chose the plan,
  * this only DISPATCHES it. Each hand is an injected dep (the gate fakes them; 5d-2 wires
  * the production `executeControlSocketSend` / `executeSpawnBgResume` / production
@@ -29,6 +31,7 @@
 
 import type {
 	DispatchDecision,
+	DispatchInput,
 	ExecutionPlan,
 	RejectDiagnostic,
 	RejectReceipt,
@@ -162,4 +165,32 @@ export async function executeDispatch(
 			}
 		}
 	}
+}
+
+/**
+ * 5d-2a: the deps `runEntwurfV2` joins. `decide` is the WHOLE decider as ONE injected
+ * function — NOT `DispatchDeciderDeps`. The runner does not re-validate the 5b decider
+ * logic (that is `check-entwurf-v2-decider`'s job); it proves only the decide→execute
+ * COMPOSITION contract over a fake `decide`. Production wraps the real decider as
+ * `decide: (input) => decideDispatch(input, productionDeciderDeps)` (assembled in 5d-2b),
+ * so the runner stays gate-provable without any decider IO seam leaking in.
+ */
+export interface EntwurfV2RunDeps {
+	decide: (input: DispatchInput) => DispatchDecision | Promise<DispatchDecision>;
+	executor: DispatchExecutorDeps;
+}
+
+/**
+ * The top-level `entwurf_v2` runner: decide → execute, joined. It runs the injected
+ * decider to a `DispatchDecision`, then routes that decision through `executeDispatch`.
+ * That is the WHOLE body — there is no extra branching, lock re-judgement, or transport
+ * decision here (the decider owns routing, `executeDispatch` owns dispatch + the N1/N3
+ * result mapping). A `decide` THROW PROPAGATES untouched: a decision was never produced,
+ * so there is no receipt to wrap and no `EntwurfV2RunResult` to honestly return — the 5d-3
+ * surface top-level catch renders it. A reject/execute decision flows straight into
+ * `executeDispatch`, whose `EntwurfV2RunResult` is returned verbatim.
+ */
+export async function runEntwurfV2(input: DispatchInput, deps: EntwurfV2RunDeps): Promise<EntwurfV2RunResult> {
+	const decision = await deps.decide(input);
+	return executeDispatch(decision, deps.executor);
 }
