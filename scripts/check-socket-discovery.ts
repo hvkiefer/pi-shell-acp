@@ -32,6 +32,7 @@ import {
 	controlSocketPath,
 	inspectTargetControlSocket,
 	type LstatLike,
+	mapInspectionToLiveness,
 	SOCKET_SUFFIX,
 	type SocketDirEntry,
 	scanSocketProbes,
@@ -273,6 +274,61 @@ async function main(): Promise<void> {
 		// symlink is decided BEFORE socket — a symlink that also reports isSocket is still a conflict.
 		const symSock = await inspectTargetControlSocket(GID_LIVE, DIR2, async () => stat({ sym: true, sock: true }));
 		ok("inspect: symlink wins over isSocket (never connect a symlink)", symSock.kind === "address-conflict");
+	}
+
+	// mapInspectionToLiveness — the shared inspection→liveness mapper (SSOT for the 5b
+	// decider AND the 5c-2b dead-control-send resolver). Proves the 4-way mapping that
+	// both callers depend on, so a drift between them is impossible: absent→dead,
+	// socket-file→(probe result), indeterminate→indeterminate, address-conflict→conflict.
+	{
+		const SP = "/fake/ctl/m.sock";
+		const absent = await mapInspectionToLiveness({ kind: "absent", socketPath: SP }, async () => "alive");
+		ok(
+			"map: absent → dead (ENOENT = honest dormant), carries socketPath",
+			!("addressConflict" in absent) && absent.liveness === "dead" && absent.socketPath === SP,
+		);
+
+		let probed = "";
+		const live = await mapInspectionToLiveness({ kind: "socket-file", socketPath: SP }, async (p) => {
+			probed = p;
+			return "alive";
+		});
+		ok(
+			"map: socket-file → probe result (the ONLY case that connects)",
+			!("addressConflict" in live) && live.liveness === "alive" && probed === SP,
+		);
+
+		const stall = await mapInspectionToLiveness({ kind: "socket-file", socketPath: SP }, async () => "indeterminate");
+		ok(
+			"map: socket-file + probe indeterminate → indeterminate (never folded to dead)",
+			!("addressConflict" in stall) && stall.liveness === "indeterminate",
+		);
+
+		let connectedOnIndet = false;
+		const indet = await mapInspectionToLiveness(
+			{ kind: "indeterminate", socketPath: SP, error: "EACCES" },
+			async () => {
+				connectedOnIndet = true;
+				return "alive";
+			},
+		);
+		ok(
+			"map: inspect indeterminate → indeterminate, NEVER connects",
+			!("addressConflict" in indet) && indet.liveness === "indeterminate" && connectedOnIndet === false,
+		);
+
+		let connectedOnConflict = false;
+		const conflict = await mapInspectionToLiveness(
+			{ kind: "address-conflict", socketPath: SP, reason: "symlink" },
+			async () => {
+				connectedOnConflict = true;
+				return "alive";
+			},
+		);
+		ok(
+			"map: address-conflict → {addressConflict:true}, NEVER connects",
+			"addressConflict" in conflict && connectedOnConflict === false,
+		);
 	}
 
 	console.log(`\n[check-socket-discovery] ${passed} assertions ok`);

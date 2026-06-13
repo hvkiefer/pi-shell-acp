@@ -125,6 +125,36 @@ export async function inspectTargetControlSocket(
 	return { kind: "address-conflict", socketPath, reason: "not-socket" };
 }
 
+/**
+ * Map a target's socket inspection to a measured `SocketLiveness` (to feed
+ * resolveDispatch) or a pre-probe address-conflict signal. `absent` (ENOENT only) is
+ * the honest `dead` (the citizen is dormant; its canonical socket is the path a resume
+ * will create). `socket-file` is the only case that connects. `address-conflict`
+ * (symlink / not-a-socket) and `indeterminate` never connect.
+ *
+ * Shared SSOT for the v2 decider (5b, decideDispatch) AND the dead-control-send
+ * fallback resolver (5c-2b): both must map an inspection the SAME way, or one could
+ * route a stalled socket where the other reclaims it — exactly the F3 split this lib
+ * exists to prevent. A per-caller copy would drift; this is the single mapper.
+ */
+export async function mapInspectionToLiveness(
+	inspection: TargetSocketInspection,
+	probeSocket: (socketPath: string) => Promise<SocketLiveness>,
+): Promise<{ liveness: SocketLiveness; socketPath: string } | { addressConflict: true }> {
+	switch (inspection.kind) {
+		case "absent":
+			return { liveness: "dead", socketPath: inspection.socketPath };
+		case "socket-file": {
+			const liveness = await probeSocket(inspection.socketPath);
+			return { liveness, socketPath: inspection.socketPath };
+		}
+		case "indeterminate":
+			return { liveness: "indeterminate", socketPath: inspection.socketPath };
+		case "address-conflict":
+			return { addressConflict: true };
+	}
+}
+
 /** One control-socket directory entry, with the single bit the scan needs from
  * the filesystem beyond its name: whether it is a symlink (P1 forgery guard).
  * The real wiring maps `fs.readdir(dir, {withFileTypes:true})` Dirents to this. */

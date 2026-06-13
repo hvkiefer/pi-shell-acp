@@ -61,7 +61,7 @@ import {
 	metaCapabilityFor,
 } from "./meta-session.ts";
 import { isValidSessionId } from "./session-id.js";
-import { controlSocketPath, type TargetSocketInspection } from "./socket-discovery.ts";
+import { controlSocketPath, mapInspectionToLiveness, type TargetSocketInspection } from "./socket-discovery.ts";
 import type { SocketLiveness } from "./socket-probe.ts";
 
 // Re-export the shared conflict predicate so producers of a TargetResolution have a
@@ -211,31 +211,6 @@ export function resolveMailboxDeliverability(
 }
 
 /**
- * Map an in-domain target's socket inspection to either a measured `SocketLiveness`
- * (to feed resolveDispatch) or a pre-probe address-conflict signal. `absent` (ENOENT
- * only) is the honest `dead` (the citizen is dormant; its canonical socket is the
- * path a resume will create). `socket-file` is the only case we connect on.
- * `address-conflict` (symlink / not-a-socket) and `indeterminate` never connect.
- */
-async function livenessFromInspection(
-	inspection: TargetSocketInspection,
-	probeSocket: (socketPath: string) => Promise<SocketLiveness>,
-): Promise<{ liveness: SocketLiveness; socketPath: string } | { addressConflict: true }> {
-	switch (inspection.kind) {
-		case "absent":
-			return { liveness: "dead", socketPath: inspection.socketPath };
-		case "socket-file": {
-			const liveness = await probeSocket(inspection.socketPath);
-			return { liveness, socketPath: inspection.socketPath };
-		}
-		case "indeterminate":
-			return { liveness: "indeterminate", socketPath: inspection.socketPath };
-		case "address-conflict":
-			return { addressConflict: true };
-	}
-}
-
-/**
  * The pure dispatch decider. See the module header for the 7-step contract. Async
  * only because the socket inspection/probe are async; it touches the filesystem
  * ONLY through injected deps.
@@ -310,7 +285,7 @@ export async function decideDispatch(input: DispatchInput, deps: DispatchDecider
 	try {
 		// 5. under the lock: inspect the socket (lstat-then-connect), then route.
 		const inspection = await inspectSocket(gardenId);
-		const mapped = await livenessFromInspection(inspection, probeSocket);
+		const mapped = await mapInspectionToLiveness(inspection, probeSocket);
 		if ("addressConflict" in mapped) {
 			return rejectAfterRelease(makeRejectReceipt("target-address-conflict", null));
 		}

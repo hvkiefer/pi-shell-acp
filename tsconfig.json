@@ -86,6 +86,12 @@
 		// imports that pull the excluded decider/lock/release into the program, same
 		// fence. Typechecked by scripts/tsconfig.json via its gate
 		// (check-entwurf-v2-send.ts).
-		"pi-extensions/lib/entwurf-v2-send.ts"
+		"pi-extensions/lib/entwurf-v2-send.ts",
+		// entwurf-v2-send-fallback.ts is the 5c-2b same-lock re-resolve resolver — a
+		// lib→lib VALUE importer (resolveDispatch / resolveMailboxDeliverability /
+		// mapInspectionToLiveness / defaultMetaMailboxDir) with explicit `.ts`-extension
+		// imports, same fence. Typechecked by scripts/tsconfig.json via its gate
+		// (check-entwurf-v2-send-fallback.ts).
+		"pi-extensions/lib/entwurf-v2-send-fallback.ts"
 	]
 }

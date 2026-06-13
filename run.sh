@@ -69,6 +69,7 @@ Usage:
   ./run.sh check-entwurf-v2-decider    # deterministic gate (0.11 Stage 0 step 5b): PURE dispatch decider decideDispatch — frozen 7-step order over injected fakes, lock acquire+release tracked so reject⇒no-plan-no-lock proven; pre-probe rejects observedLiveness=null, send/resume execute keep lock + mailbox no-lock (？7), resume plan no mode/provider/model, invalid gid throws (F2-P1); pure, no IO
   ./run.sh check-entwurf-v2-release    # deterministic gate (0.11 Stage 0 step 5c-1): PURE release-policy reducer (decideReleasePolicy + reduceRelease) — Fable-3 release-after-observation as a state machine; spawn-started is NOT a release event, release on first socket-alive ∨ child-exited (any code) or failed start, socket↔exit race idempotent (single release), lock-nullness invariant enforced; pure, no IO
   ./run.sh check-entwurf-v2-send       # deterministic gate (0.11 Stage 0 step 5c-2a): control-socket SEND hand (executeControlSocketSend) wiring transport IO onto the 5c-1 reducer — ack→sent, in-band reject→rejected (no fallback), dead→same-lock one-shot re-resolve (control retry / mailbox enqueue), indeterminate→failed+rethrow with NO fallback (no double-delivery); release exactly once, releaseLock throw never masks the send error; IO-via-dep
+  ./run.sh check-entwurf-v2-send-fallback # deterministic gate (0.11 Stage 0 step 5c-2b): same-lock re-resolve RESOLVER (resolveDeadControlSendFallback) — fire-and-forget re-resolve: alive→control retry, dead→reject (NEVER spawn-bg), indeterminate→reject, unsupported+deliverable→mailbox plan, undeliverable/bad-target/conflict→reject; resolver never releases, mis-wire fails loud, inspect/probe throws propagate; no IO (fakes)
   ./run.sh check-entwurf-facts         # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 1+2): PURE PeerFact core + resolveFactList union — R1 out-of-domain→unsupported, R3b pi 4-value, facts-only keyset; union: PeerFact+SocketOnlyFact by gardenId, dormant→dead, F3 indeterminate preserved, non-pi+socket fail-loud; pure, no IO
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
@@ -1366,6 +1367,19 @@ check_entwurf_v2_send() {
   # double-delivery on an alive-but-stalled socket). Release fires exactly once per
   # send-final; a releaseLock throw never masks the send failure (5b). IO-via-dep.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-send.ts)
+}
+
+check_entwurf_v2_send_fallback() {
+  # Deterministic gate for 0.11 Stage 0 step 5c-2b: the same-lock re-resolve RESOLVER
+  # (resolveDeadControlSendFallback) the 5c-2a hand calls on a dead connect. Proves the
+  # fire-and-forget re-resolve routing over injected fakes (no filesystem): alive->
+  # control-socket retry (inspected socketPath) / dead(absent)->reject (dormant-fire-
+  # forget-unsupported, NEVER spawn-bg) / indeterminate->reject / unsupported+deliverable
+  # ->meta-mailbox plan (mini-table, no inspect/probe) / unsupported+undeliverable->reject
+  # / bad-target + address-conflict->reject pre-probe. Mis-wire (plan/lock gid) fails loud
+  # before IO; inspect/probe throws PROPAGATE (the hand owns failed+release); the resolver
+  # has NO release seam; every execute plan keeps the held gid and is never spawn-bg.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-send-fallback.ts)
 }
 
 check_entwurf_facts() {
@@ -4444,6 +4458,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-send)
     check_entwurf_v2_send
+    ;;
+  check-entwurf-v2-send-fallback)
+    check_entwurf_v2_send_fallback
     ;;
   check-entwurf-facts)
     check_entwurf_facts
