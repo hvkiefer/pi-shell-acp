@@ -71,6 +71,7 @@ Usage:
   ./run.sh check-entwurf-v2-send       # deterministic gate (0.11 Stage 0 step 5c-2a): control-socket SEND hand (executeControlSocketSend) wiring transport IO onto the 5c-1 reducer — ack→sent, in-band reject→rejected (no fallback), dead→same-lock one-shot re-resolve (control retry / mailbox enqueue), indeterminate→failed+rethrow with NO fallback (no double-delivery); release exactly once, releaseLock throw never masks the send error; IO-via-dep
   ./run.sh check-entwurf-v2-send-fallback # deterministic gate (0.11 Stage 0 step 5c-2b): same-lock re-resolve RESOLVER (resolveDeadControlSendFallback) — fire-and-forget re-resolve: alive→control retry, dead→reject (NEVER spawn-bg), indeterminate→reject, unsupported+deliverable→mailbox plan, undeliverable/bad-target/conflict→reject; resolver never releases, mis-wire fails loud, inspect/probe throws propagate; no IO (fakes)
   ./run.sh check-entwurf-v2-spawn      # deterministic gate (0.11 Stage 0 step 5c-3a): spawn-bg RESUME watcher hand (executeSpawnBgResume) wiring spawn + socket-observe IO onto the 5c-1 reducer — Fable-3: TIMEOUT IS NOT A RELEASE (bare observeTimeout→killChild, release 0; bounded killGrace then real socket-alive ∨ child-exited releases ×1); spawnChild throw→spawn-start-failed; no observation obtainable (grace elapses / post-spawn watch dep throws)→lock-retained fail-closed (released:false, evidence surfaced), NO direct-release hatch; IO-via-dep, controlled promises
+  ./run.sh check-entwurf-resume-args   # deterministic gate (0.11 Stage 0 step 5c-3b): resume-argv SSOT (buildResumePiArgs) shared by the legacy async worker and the v2 spawn-bg resident citizen — A1: legacy=--no-extensions + no --entwurf-control (one-shot pi -p exits), v2-control=--entwurf-control + no --no-extensions (keep-alive is the goal, resumed session stays addressable); BOTH keep --mode json -p + prompt-as-turn (-p NOT dropped in v2); explicitExtensionArgs preserved once (#29); v2 includes plan.launchArgs (--approve); null provider→no --provider; no cross-contamination
   ./run.sh check-entwurf-facts         # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 1+2): PURE PeerFact core + resolveFactList union — R1 out-of-domain→unsupported, R3b pi 4-value, facts-only keyset; union: PeerFact+SocketOnlyFact by gardenId, dormant→dead, F3 indeterminate preserved, non-pi+socket fail-loud; pure, no IO
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
@@ -1395,6 +1396,19 @@ check_entwurf_v2_spawn() {
   # observed) -> lock-retained fail-closed (released:false, pid/socket/lockPath surfaced) —
   # there is NO direct-release hatch; deps.releaseLock is reached ONLY via reduceRelease.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-spawn.ts)
+}
+
+check_entwurf_resume_args() {
+  # Deterministic gate for 0.11 Stage 0 step 5c-3b: the resume-argv SSOT
+  # (buildResumePiArgs) that the legacy async worker AND the v2 spawn-bg resident citizen
+  # share so their launch shapes never drift. Pins the load-bearing A1 difference: legacy =
+  # `--no-extensions` + NO `--entwurf-control` (one-shot `pi -p` can exit); v2-control =
+  # `--entwurf-control` + NO `--no-extensions` (the keep-alive legacy avoided is the goal —
+  # resumed session stands its socket up and stays addressable). BOTH keep `--mode json -p`
+  # and the prompt-as-turn positional (`-p` NOT dropped in v2); explicitExtensionArgs
+  # preserved exactly once (provider-resolution footgun #29); v2 includes plan.launchArgs
+  # (--approve) before the prompt; null provider emits no --provider; no cross-contamination.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-resume-args.ts)
 }
 
 check_entwurf_facts() {
@@ -4479,6 +4493,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-spawn)
     check_entwurf_v2_spawn
+    ;;
+  check-entwurf-resume-args)
+    check_entwurf_resume_args
     ;;
   check-entwurf-facts)
     check_entwurf_facts

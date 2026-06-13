@@ -31,6 +31,7 @@ import {
 	mirrorChildStderr,
 	readSessionIdentity,
 } from "./entwurf-core.js";
+import { buildResumePiArgs } from "./entwurf-resume-args.js";
 
 // Local copy of the POSIX-safe quoter — must match the reference body in
 // `scripts/check-shell-quote.ts` and the production sites in entwurf.ts and
@@ -308,17 +309,17 @@ export async function spawnEntwurfResumeAsync(
 		);
 	}
 
-	const piArgs = [
-		"--mode",
-		"json",
-		"-p",
-		"--no-extensions",
-		...explicitExtensions.args,
-		"--session-id",
-		params.sessionId,
-	];
-	if (resumeProvider) piArgs.push("--provider", resumeProvider);
-	piArgs.push("--model", explicitExtensions.modelOverride ?? resumeModel, params.prompt);
+	// SSOT (5c-3b): the resume argv lives in entwurf-resume-args so the legacy worker and the
+	// v2 spawn-bg resident citizen can never drift. Legacy variant = the verbatim prior shape
+	// (`--no-extensions`, no control socket — so this one-shot `pi -p` can exit).
+	const piArgs = buildResumePiArgs({
+		variant: "legacy",
+		sessionId: params.sessionId,
+		explicitExtensionArgs: explicitExtensions.args,
+		provider: resumeProvider,
+		model: explicitExtensions.modelOverride ?? resumeModel,
+		prompt: params.prompt,
+	});
 
 	const runId = crypto.randomUUID().slice(0, 8);
 
