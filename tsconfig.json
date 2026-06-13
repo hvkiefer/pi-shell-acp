@@ -98,6 +98,11 @@
 		// `.ts`-extension imports that pull the excluded decider/lock/release into the
 		// program, same fence. Typechecked by scripts/tsconfig.json via its gate
 		// (check-entwurf-v2-spawn.ts).
-		"pi-extensions/lib/entwurf-v2-spawn.ts"
+		"pi-extensions/lib/entwurf-v2-spawn.ts",
+		// entwurf-v2-spawn-production.ts is the 5c-3c PRODUCTION SpawnBgResumeDeps factory — a
+		// lib→lib VALUE importer (spawn child / socket inspect+probe / lock release / resume-argv
+		// builder / identity helpers) with explicit `.ts`-extension imports, same fence.
+		// Typechecked by scripts/tsconfig.json via its gate (check-entwurf-v2-spawn-production.ts).
+		"pi-extensions/lib/entwurf-v2-spawn-production.ts"
 	]
 }
