@@ -21,6 +21,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EntwurfV2RunResult } from "../pi-extensions/lib/entwurf-v2-runner.ts";
 import {
+	ENTWURF_PREFIX_ROOTS_ENV,
+	parseEntwurfPrefixRootsEnv,
 	renderEntwurfV2Result,
 	type SurfaceEntwurfV2Params,
 	toDispatchInput,
@@ -200,6 +202,23 @@ async function main(): Promise<void> {
 			retrySafe: false,
 		};
 		ok("2: plain execution-failed → isError", renderEntwurfV2Result(failed).isError);
+	}
+
+	// ── 6: parseEntwurfPrefixRootsEnv (5d-4b operator-policy SSOT) ─────────────
+	{
+		const D = path.delimiter;
+		ok("6: env name is PI_ENTWURF_PREFIX_ROOTS", ENTWURF_PREFIX_ROOTS_ENV === "PI_ENTWURF_PREFIX_ROOTS");
+		ok("6: undefined → [] (no prefix promotion)", parseEntwurfPrefixRootsEnv(undefined).length === 0);
+		ok("6: empty string → []", parseEntwurfPrefixRootsEnv("").length === 0);
+		ok("6: delimiters-only → []", parseEntwurfPrefixRootsEnv(`${D}${D}`).length === 0);
+		const two = parseEntwurfPrefixRootsEnv(`/repos/gh${D}/repos/work`);
+		ok("6: delimiter-separated → entries", two.length === 2 && two[0] === "/repos/gh" && two[1] === "/repos/work");
+		const trimmed = parseEntwurfPrefixRootsEnv(`  /a ${D} ${D} /b  `);
+		ok("6: trims + drops empty segments", trimmed.length === 2 && trimmed[0] === "/a" && trimmed[1] === "/b");
+		// A nonexistent/typo path is KEPT verbatim (no throw, no validation) — preflight's
+		// normalize handles it, and a typo must never broaden approve nor fail the dispatch.
+		const typo = parseEntwurfPrefixRootsEnv("/this/does/not/exist");
+		ok("6: nonexistent path kept verbatim (no throw)", typo.length === 1 && typo[0] === "/this/does/not/exist");
 	}
 
 	// ── 3: surface source guard — ctx-free ────────────────────────────────────

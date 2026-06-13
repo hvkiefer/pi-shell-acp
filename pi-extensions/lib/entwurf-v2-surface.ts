@@ -19,10 +19,31 @@
  *     surface never needs to name the `EntwurfV2RunResult` union (it only sees `{text,isError}`).
  */
 
+import * as path from "node:path";
 import type { SenderEnvelope } from "./entwurf-control-rpc.ts";
 import type { DispatchInput, EntwurfV2Mode } from "./entwurf-v2-decider.ts";
 import { makeProductionEntwurfV2Deps, type ProductionEntwurfV2Opts } from "./entwurf-v2-production.ts";
 import { type EntwurfV2RunResult, runEntwurfV2 } from "./entwurf-v2-runner.ts";
+
+/** The operator-policy SSOT for v2 dispatch's preflight prefix-auto-approve roots (5d-4b).
+ * ONE shared env var feeds BOTH surfaces (pi-native + MCP) — a pi session and an MCP child
+ * both inherit it, so there is no per-surface config fork. `prefixRoots` is operator policy,
+ * not session-local UX, so it is an env var, not a pi flag. */
+export const ENTWURF_PREFIX_ROOTS_ENV = "PI_ENTWURF_PREFIX_ROOTS";
+
+/** Parse `PI_ENTWURF_PREFIX_ROOTS` into the preflight's `prefixRoots`. `path.delimiter`-
+ * separated (`:` on Linux/macOS); entries are trimmed, empty segments dropped. Unset / empty
+ * / delimiters-only ⇒ `[]` (no prefix promotion — frozen decision 7, no package default).
+ * It does NOT throw on a nonexistent/typo path: `preflight`'s normalize keeps an absolute
+ * fallback, so a bad root simply never matches (a typo must not broaden approve, and must not
+ * turn every owned-outcome dispatch into a loud failure). `~` is left for preflight to expand. */
+export function parseEntwurfPrefixRootsEnv(raw: string | undefined = process.env[ENTWURF_PREFIX_ROOTS_ENV]): string[] {
+	if (!raw) return [];
+	return raw
+		.split(path.delimiter)
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
 
 /** The raw shape a surface (pi tool / MCP verb) collects. `wants_reply` is snake_case to
  * match the external `entwurf_send` convention; the runner sees `wantsReply`. */
@@ -147,7 +168,8 @@ export async function runAndRenderEntwurfV2FromSurface(
 	const prodOpts: ProductionEntwurfV2Opts = {
 		senderProvider: opts.senderProvider,
 		agentDir: opts.agentDir,
-		prefixRoots: opts.prefixRoots,
+		// Explicit opts win (test / future surface override); otherwise the shared env SSOT.
+		prefixRoots: opts.prefixRoots ?? parseEntwurfPrefixRootsEnv(),
 	};
 	const result = await runEntwurfV2(toDispatchInput(params), makeProductionEntwurfV2Deps(prodOpts));
 	return renderEntwurfV2Result(result);

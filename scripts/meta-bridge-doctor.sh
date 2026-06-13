@@ -290,6 +290,14 @@ if [ -f "$V2_SURFACE_SRC" ] && (cd "$REPO" && node --experimental-strip-types sc
 else
   bad "check-entwurf-v2-surface gate FAILED or surface adapter missing — run: ./run.sh check-entwurf-v2-surface"
 fi
+# prefixRoots operator policy (5d-4b): the shared env SSOT both v2 surfaces read. Display
+# ONLY — the parser SSOT lives in entwurf-v2-surface.ts (proven by check-entwurf-v2-surface);
+# the doctor does NOT re-implement parsing. Unset ⇒ no prefix promotion (the safe default).
+if [ -z "${PI_ENTWURF_PREFIX_ROOTS:-}" ]; then
+  ok "PI_ENTWURF_PREFIX_ROOTS unset → no prefix auto-approve (preflight default trust)"
+else
+  ok "PI_ENTWURF_PREFIX_ROOTS set → operator prefix-approve roots: $PI_ENTWURF_PREFIX_ROOTS"
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then echo "meta-bridge doctor: PASS"; else echo "meta-bridge doctor: FAIL (see above)"; exit 1; fi
