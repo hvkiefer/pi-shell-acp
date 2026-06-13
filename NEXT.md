@@ -30,15 +30,24 @@
   `check-entwurf-control-rpc` **11**(소스가드+round-trip+close-before-response). (3) **5d-2b** `makeProductionEntwurfV2Deps`
   `7a0414e` — ctx-free production 조립, gate **18**. 셋 다 GPT design GO → code GO. **5d-2b는 GPT 코드검수서 실 blocker
   B1(pi target pre-lock lstat) 잡혀 봉합 후 GO.** `pnpm check` EXIT=0, check-pack 144→**148**.
-- **지금 할 일:** ◀ NOW = **5d-3 MCP `entwurf_v2` additive 등록 + pi-native surface**. 5d-2가 `runEntwurfV2` +
-  `makeProductionEntwurfV2Deps`(ctx-free)를 닫았으니, 5d-3 = (a) entwurf-control.ts 표면에서 `senderProvider =
-  ()=>decorate(buildLocalSenderEnvelope(ctx))`(`{origin:"pi-session",replyable:true}`) 만들어 `makeProductionEntwurfV2Deps`
-  주입 → `runEntwurfV2(input, deps)` 호출하는 pi-native surface, (b) MCP `entwurf_v2` 동사 additive 등록(TypeBox 스키마,
-  fail-closed, gid 검증은 decider가 재검증). **표면 파일 손대는 슬라이스라 코드 전에 GPT랑 design부터**(특히 senderProvider
-  decorate 위치·agentDir/prefixRoots 주입원·MCP 스키마 shape·기존 entwurf_send와의 공존). 그 다음 **5d-4** doctor
-  `--entwurf-control` flag 체크 + prefixRoots operator-policy 주입원 배선 → **5d-5** release-gate matrix smoke(sender
-  surface × target kind × direction). **5d 전 실행 기록(D5, 완료): `LIVE=1 ./run.sh smoke-entwurf-v2-spawn-live → 7
-  passed`.** 상세 = `## Next moves` 1번.
+- **세션 #8 5d-3 done(두 surface, 로컬 커밋 — push 대기):** 5d-3a pi-native `bc3743e` + 5d-3b MCP `562f10e`. 통합 경계
+  발견·봉합: entwurf-control.ts(root tsc, emit-capable)가 fence `runEntwurfV2`를 static import하면 fence의 `.ts` import가
+  root program에 끌려와 **TS5097** → GPT와 **Option A** 잠금: surface glue를 ctx-free fence `lib/entwurf-v2-surface.ts`
+  (`toDispatchInput`/`renderEntwurfV2Result`/`runAndRenderEntwurfV2FromSurface`)에 두고, pi-native는 **non-literal dynamic
+  import**(`const M="./lib/entwurf-v2-surface.ts"; await import(M)`)로 root tsc static pull 회피(TS5097 닫힘 유지), MCP는
+  fence 소비자라 static import. 두 surface 다 같은 surface adapter 소비. senderProvider: pi-native=`buildLocalSenderEnvelope(ctx)`
+  +`{origin:pi-session,replyable:true}` decorate / MCP=`buildSendSenderEnvelope()` verbatim(replyable gate 없음). MCP는
+  in-process(Q1) — decider가 transport 결정, legacy rpcCall/enqueue 직접 호출 안 함. gate `check-entwurf-v2-surface` **25**
+  (map/render/ctx-free + case4 pi-native wiring + case5 MCP wiring). 둘 다 GPT design GO → code GO. `pnpm check` EXIT=0,
+  check-pack 148→**150**.
+- **지금 할 일:** ◀ NOW = **5d-4 doctor `--entwurf-control` flag 체크 + prefixRoots operator-policy 주입원 배선**. 5d-3가
+  surface 두 개를 닫았고 `ProductionEntwurfV2Opts`에 `agentDir?`/`prefixRoots?` seam을 열어뒀다(현재 undefined=preflight
+  기본/no prefix promotion). 5d-4 = (a) doctor가 `--entwurf-control` flag/socket 상태를 점검(v2 surface가 의존), (b)
+  operator-policy `prefixRoots` 주입원을 surface 양쪽(`registerEntwurfV2Tool` opts / MCP handler opts)에 배선해
+  `makeProductionEntwurfV2Deps`로 흘려보냄(frozen decision 7: no package default). 그 다음 **5d-5** release-gate matrix
+  smoke(sender surface × target kind × direction) — **여기서 MCP in-process spawn-bg path를 실제로 한 번 밟아** runtime
+  static import + production runner path 실증(GPT 5d-3b 비차단 관찰). **5d 전 실행 기록(D5, 완료): `LIVE=1 ./run.sh
+  smoke-entwurf-v2-spawn-live → 7 passed`.** 상세 = `## Next moves` 1번.
 - **5d-1 done 요약(`e0c6e75` 5d-1a + `97704c9` 5d-1b, GPT GO):** 5d-1a = send-hand result에 N3 `rejectReason`(dead
   fallback resolver reason carry; in-band refuse는 reason 없음) + N1 `SendDeliveredReleaseFailedError`(non-failed
   outcome 후 releaseLock throw = delivered+lock-dirty 구조화, bare rethrow 대체; `failed`는 original error 우선 유지).
