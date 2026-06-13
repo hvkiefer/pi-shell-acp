@@ -5,41 +5,53 @@
 
 ## 전달지침 — 새 담당자(2026-06-13 세션 #6 → 다음 세션)
 
-- **지금 할 일:** ◀ NOW = **5c-3b launcher arg builder/adapter(production spawn 배선)**. 5c-3a watcher
-  hand(`222f4d0`, GPT design+code GO·Fable 2차 GO)까지 끝났다 — `executeSpawnBgResume`가 spawn/observe IO를
-  dep으로 받아 5c-1 reducer 위에서 timeout≠release를 모든 순서로 지키고, 관측 불능은 lock-retained로 fail-closed한다.
-  **남은 건 그 watcher의 `spawnChild` dep을 실제 pi 자식으로 잇는 production launcher다.** `spawnEntwurfResumeAsync`
-  (entwurf-async.ts:311 piArgs)는 `--no-extensions` 하드코딩이라 무수정 호출 금지 — **v2 spawn은 `--entwurf-control`이
-  살아야 socket 관측이 가능(A1)**. piArgs builder를 추출해 legacy(`--no-extensions`)와 v2(`--entwurf-control` + `--approve`/
-  launchArgs 보존, provider/model read는 기존 identity authority 공유) 두 변형이 SSOT를 공유하게 하라. GPT 컷라인 명령:
-  **5c-3b를 5d로 미루지 말 것** — `--no-extensions` 문제를 안 닫은 채 MCP 표면을 얹으면 live path가 거짓 green.
-  상세 = `## Next moves` 1번 + 5c-3a 커밋 `222f4d0` 본문.
-- **5c-3b 진입 시 이월 계약(이번 세션 검수에서 도출):**
+- **검수 라인 변화(세션 #6 중반):** Fable5가 Anthropic 쪽 이슈로 응답 불가(GLG 조사 중). 이전 GPT힣
+  세션(`063959-cfdcff`)은 컨텍스트 90% 차서 **새 GPT힣 `20260613T121021-03a5d7`(live pi, direct)**로 인계.
+  Fable 복귀 전까지는 **GPT힣 + 실무자 페어**(Fable 합류 전 원래 모드)로 더 촘촘히 본다. 실무자가 판단 중심을 잡고
+  GPT를 1차+사실상 2차로 같이 돌린다. 천천히.
+- **지금 할 일:** ◀ NOW = **5c-3c production SpawnBgResumeDeps adapter(실 spawn/observe IO 배선)**. 5c-3a watcher
+  hand(`222f4d0`, GPT design+code GO·Fable 2차 GO) + 5c-3b resume-argv SSOT(`buildResumePiArgs`, 새 GPT GO·local
+  커밋)까지 끝났다. **남은 건 5c-3a watcher의 6개 IO dep을 실제 pi 자식/소켓/타이머에 잇는 production factory다.**
+  GPT 5c-3c 설계(아래 `## Next moves` 1번에 전문 박음): dep factory로 5c-3a pure watcher 무수정 유지 ·
+  `spawnChild`=identity authority(readSessionIdentity/getEntwurfExplicitExtensions) 재사용 + `buildResumePiArgs(v2-control)`
+  + detached unref spawn · `awaitSocketAlive`=**lstat(non-symlink isSocket)+connect probe alive만 alive, file-exists는 NO,
+  symlink=forged reject** · `awaitChildExit`=close/exit 1회 + abort listener cleanup · `awaitTimeout`=setTimeout+clearTimeout
+  (bounded-return 핵심) · `killChild`=SIGTERM(SIGKILL escalator는 분리, 넣으면 smoke). **게이트 불가 실 IO라 smoke로**:
+  v2 argv smoke / socket-alive connectable(symlink 금지) / loser abort teardown / timeout→kill→exit·killGrace retained / child
+  early-exit→child-exited release.
+  상세 = `## Next moves` 1번 + 5c-3a 커밋 `222f4d0` + 5c-3b 커밋 본문.
+- **5c-3c 진입 시 이월 계약(세션 #6 검수에서 도출):**
   - **(Fable, bounded-return)** watcher의 bounded return은 `awaitTimeout` dep이 실제로 settle한다는 계약에 의존한다.
-    5c-3b 얇은 wrapper에서 `awaitTimeout`을 setTimeout 기반으로 잇고, `awaitSocketAlive`/`awaitChildExit`는 AbortSignal을
-    존중해 teardown 되게 하라(게이트로 증명 불가한 실 IO 영역 — smoke로 박을 것).
+    5c-3c에서 `awaitTimeout`을 setTimeout 기반(+abort 시 clearTimeout)으로 잇고, `awaitSocketAlive`/`awaitChildExit`는
+    AbortSignal을 존중해 teardown 되게 하라(게이트로 증명 불가한 실 IO 영역 — smoke로 박을 것).
   - **(GPT, 비차단)** 현재 5c-3a 게이트는 AbortSignal을 타입/호출 형태로만 강제하고 `controller.abort()` 호출 자체는
-    카운트하지 않는다. 5c-3b 실 watcher 붙일 때 **loser watcher가 abort를 존중하는 smoke/gate**를 별도로 둬라.
+    카운트하지 않는다. 5c-3c 실 watcher 붙일 때 **loser watcher가 abort를 존중하는 smoke/gate**를 별도로 둬라.
   - **(5c-3a 설계 계약)** killGraceMs는 plan이 아니라 watcher dep config(라우팅 결정 아님 → decider plan 무수정). retained
     진단은 gid/pid/expectedSocketPath/lockPath/observeTimeoutMs/killGraceMs를 싣는다 — 5d surface가 이걸 렌더해 운영자가
     target-locked lock을 관측·정리하게 해야 한다(F2-P2).
+  - **(5c-3b 이월, GPT 비차단)** `--no-extensions` 제거로 v2 자식은 settings extensions + `-e <self>`가 같이 들어갈 수
+    있다. 지금은 #29 provider-resolution footgun이 더 load-bearing이라 양 variant `explicitExtensionArgs` verbatim 보존이
+    옳음. 5c-3c adapter smoke에서 실제 중복 로드가 provider registration conflict를 만들면 builder가 아니라
+    `getEntwurfExplicitExtensions`에 dedup/intent를 넣어 풀 것(builder는 verbatim spread 유지).
 - **트리오로 밀어라(GLG 지침, 세션 #5·#6 입증). GLG + GPT힣 1차 + Fable5 2차 = 셋이 계속 밀고 가면 엇나갈 일이 없다.**
   세션 #6는 5c-3a를 이 트리오로 통과시켰다 — GPT가 내 초안의 "직접 release backstop"을 거부(관측 없는 release=double-spawn
   창 재개방)하고 retained fail-closed로 잠갔고, Fable이 sync-throw silent-leak(S1)을 잡았다. 둘 다 혼자였으면 못 봤다. 너도
   혼자 짜고 끝내지 말고 **매 슬라이스 1차→2차 검수를 반드시 거쳐라.** 아래 두 분신은 이 세션 끝 시점에 건재하다.
 - **검수 분신(살아있는 세션, 순차 호출 — 동시 같은 질문 금지):**
-  - **GPT힣 1차** = garden id `20260613T063959-cfdcff` (live pi control socket, direct 도달). **설계/코드 1차.**
-    `entwurf_send`로 garden id에 직접 보냄.
-  - **Fable5 2차** = garden id `20260613T064858-0dc14b` (claude-code, meta-mailbox + doorbell). **1차 통과분만 2차.**
-    `entwurf_send`로 보내면 doorbell이 깨움.
+  - **GPT힣(현재) = garden id `20260613T121021-03a5d7`** (live pi control socket, direct 도달). 이전 GPT(`063959-cfdcff`)
+    컨텍스트 만료로 인계받음. **설계/코드 1차 + (Fable 부재 동안) 사실상 2차.** `entwurf_send`로 직접 보냄.
+  - **Fable5 2차** = garden id `20260613T064858-0dc14b` (claude-code, meta-mailbox + doorbell). **현재 응답 불가
+    (Anthropic 이슈, GLG 조사 중).** 복귀하면 1차 통과분만 2차로. `entwurf_send`로 보내면 doorbell이 깨움.
   - **회신 수신:** 네 garden id mailbox로 doorbell이 와서 너를 깨운다 → `entwurf_inbox_read <네 gid>`로 drain(read-receipt 찍힘).
-  - 둘은 5b·5c-1·5c-2·5c-3a 맥락을 이미 가짐(이 세션에서 검수함). 5c-3a GO 완료 — 5c-3b는 실 launcher IO라
-    **design 1차**부터 권장(A1·piArgs SSOT를 코드 전에 GPT에 먼저 잠근다).
+  - **Fable 부재 동안 운용:** GPT가 새 세션이므로 **실무자가 판단 중심을 잡고** GPT를 1차+2차로 같이 돌린다(Fable 합류
+    전 원래 페어 모드). GPT는 매번 직접 파일을 읽고 게이트를 재실행해 검증한다 — fresh라도 cwd가 같아 self-onboard 가능.
+  - GPT는 5b·5c-1·5c-2·5c-3a·5c-3b 맥락을 이 세션에서 받음. 5c-3a·5c-3b GO 완료 — 5c-3c는 실 IO adapter라
+    **design부터** GPT와 논의 후 진입(socket-alive connectable·abort teardown을 코드 전에 잠근다).
 - **규율:** 매 슬라이스 GPT 1차 → 반영 → Fable 2차 → 둘 다 GO → local 커밋. **push는 GLG.** AI 서명 금지. `--no-verify`·
   `AGENT_ALLOW_UNSAFE_COMMIT` 금지. 공개 repo라 device 호스트명·실명·시크릿을 커밋/푸시 diff에 넣지 말 것(pre-push가 막음).
 - **GLG는 폰에서 tmux 관망, 커밋 시점에만 확인.** 셋이 밀고 나가다 진짜 막힐 때만 호출.
-- **이번 세션(#6) 커밋:** `222f4d0` feat(entwurf) 5c-3a watcher — **local only, push 대기**. GLG가 5c-3b까지 더
-  진행 후 일괄 push 예정.
+- **이번 세션(#6) 커밋:** `222f4d0` feat 5c-3a watcher + `f547464` docs + 5c-3b feat(resume-argv SSOT) + docs.
+  GLG 명시 승인으로 **push 완료**(5c-3b GO 후 일괄). push 후 agenda stamp.
 
 ## North Star — 잊지 말 것
 
@@ -55,7 +67,22 @@
 - **작게 자르고 순차 검수한다.** GPT힣 1차 → 통과분만 Fable 2차. 동시 throw 금지.
 - **5b는 pure decider만.** transport 실행·spawn·smoke·새 표면은 다음 슬라이스로 넘긴다.
 
-## Current state — 2026-06-13 (구현 세션 #6 — 5c-3a done·GPT+Fable GO·local 커밋, push 대기)
+## Current state — 2026-06-13 (구현 세션 #6 — 5c-3a + 5c-3b done·GPT GO·push 완료)
+
+- **2026-06-13 구현 세션 #6 (Opus 실무자): 5c-3b resume-argv SSOT 구현 (`buildResumePiArgs`, GPT design GO →
+  GPT code GO → 새 GPT GO[Fable 부재]). push 완료.** `entwurf-resume-args.ts`(import-free 모듈) = legacy async
+  worker와 v2 spawn-bg resident citizen이 공유하는 pi argv SSOT. variant `legacy`|`v2-control`. **load-bearing A1:
+  legacy launcher는 resume 자식에 `--entwurf-control`을 의도적으로 안 줬다**(entwurf.ts:22 "socket server would keep
+  pi -p from exiting" — one-shot worker). **v2는 정반대로 그 keep-alive가 목적** = resumed session이 RESIDENT
+  addressable citizen으로 떠서 control socket 세움 → 5c-3a watcher가 socket-alive 관측→release(자식 잔존),
+  child-exited→조기실패 release. GPT 보정: **`-p` 드롭 안 함** — v2도 `-p prompt`로 턴 실행하되 `--entwurf-control`로
+  resident. v2-control argv = `--mode json -p --entwurf-control [launchArgs --approve] ...explicitExtensionArgs
+  --session-id gid [--provider p] --model m prompt`. `explicitExtensionArgs` 양 variant verbatim 보존(#29
+  provider-resolution footgun). legacy launcher(entwurf-async.ts:311) 인라인 piArgs를 SSOT 호출로 refactor —
+  바이트동일(`check-async-resume-gate` 19 통과로 무행동변화 증명). 게이트 check-entwurf-resume-args **28**(fixture는
+  실제 production shape `-e <path>`), check-pack 135→**137**, full `pnpm check` EXIT=0.
+  - **5c-3b 컷:** arg builder SSOT만. production `SpawnBgResumeDeps` adapter는 5c-3c(다음). GPT 조건 유지:
+    5d 전 5c-3c까지 닫는다(`--no-extensions`/`--entwurf-control` 안 닫고 MCP 표면 얹으면 live path 거짓 green).
 
 - **2026-06-13 구현 세션 #6 (Opus 실무자): 5c-3a spawn-bg RESUME watcher hand 구현 (`222f4d0`, GPT design GO →
   GPT code GO → Fable 2차 GO). local only, push 대기.** `executeSpawnBgResume(plan, lock, deps)` = 5c-1 reducer의
@@ -168,18 +195,30 @@
 
 ## Next moves — read order
 
-1. **Step 5 — 5b + 5c-1 + 5c-2(a) + 5c-2(b) + 5c-3a DONE(`ff69a3a`(5c-1)+`03add67`(5c-2a)+`1814c5d`(5c-2b)+
-   `222f4d0`(5c-3a), 전부 GPT+Fable GO; 5c-3a는 local only·push 대기), ◀ NOW = 5c-3b launcher arg builder.**
+1. **Step 5 — 5b + 5c-1 + 5c-2(a) + 5c-2(b) + 5c-3a + 5c-3b DONE(`ff69a3a`+`03add67`+`1814c5d`+`222f4d0`(5c-3a)+
+   5c-3b feat, 전부 GPT(+Fable where available) GO·push 완료), ◀ NOW = 5c-3c production SpawnBgResumeDeps adapter.**
    - **5c 분해(GPT design GO):** 5c-1 pure release reducer ✅ → 5c-2(a) control-socket send hand ✅ → 5c-2(b)
-     deadFallback resolver ✅ → 5c-3a spawn-bg watcher hand ✅(`executeSpawnBgResume`, spawnChild 주입) →
-     **5c-3b production launcher arg builder(load-bearing, A1)** → 5c-4 meta-mailbox send. 위험 순, pure-before-IO.
-     send 경로(5c-2)·watcher orchestration(5c-3a) 완료 — 남은 건 watcher의 spawnChild를 실 pi 자식에 잇는
-     launcher(5c-3b)와 mailbox 직송(5c-4).
-   - **5c-3b = `spawnEntwurfResumeAsync`(entwurf-async.ts:311 piArgs)의 `--no-extensions` 하드코딩 분리.** piArgs
-     builder를 추출해 legacy(`--no-extensions`)와 v2(`--entwurf-control` + `--approve`/launchArgs 보존, provider/model
-     read는 기존 identity authority 공유) 두 변형이 SSOT 공유. v2 변형이 5c-3a watcher의 `spawnChild` dep을 채운다.
-     **5d로 미루기 NO(GPT)** — `--no-extensions` 안 닫고 MCP 표면 얹으면 live path 거짓 green. bounded-return·abort-존중
-     smoke는 여기서(실 IO라 게이트 불가, smoke로). design 1차부터 GPT에 A1·piArgs SSOT 잠그고 진입.
+     deadFallback resolver ✅ → 5c-3a spawn-bg watcher hand ✅(`executeSpawnBgResume`, 6 IO dep 주입) →
+     5c-3b resume-argv SSOT ✅(`buildResumePiArgs`, legacy|v2-control) → **5c-3c production deps adapter(실 IO 배선)**
+     → 5c-4 meta-mailbox send. 위험 순, pure-before-IO. watcher orchestration(5c-3a)·argv SSOT(5c-3b) 완료 —
+     남은 건 watcher 6 dep을 실 pi 자식/소켓/타이머에 잇는 adapter(5c-3c)와 mailbox 직송(5c-4).
+   - **5c-3c = production `SpawnBgResumeDeps` factory (GPT 5c-3c 설계, 코드 전 잠금):** dep factory로 5c-3a pure
+     watcher 무수정 유지. ① `spawnChild(plan)` = identity authority 재사용(`readSessionIdentity(plan.sessionId)` +
+     `getEntwurfExplicitExtensions(resumeModel,false,provider)`; cwd=header authority, process.cwd fallback 금지) +
+     `buildResumePiArgs({variant:'v2-control', sessionId:plan.sessionId, explicitExtensionArgs, provider, model:
+     override??resumeModel, prompt:plan.prompt, launchArgs:plan.launchArgs})` + `spawn('pi',args,{cwd,shell:false,
+     detached:true,stdio:['ignore','ignore','pipe']})`+unref+mirrorChildStderr; spawn error→rejection(watcher
+     spawn-start-failed release). ② `awaitSocketAlive(socketPath,signal)` = **lstat(non-symlink isSocket)+connect
+     probe alive만 alive; file-exists는 NO; symlink/not-socket=forged→reject(watcher backstop→retained); absent=대기
+     until abort/timeout; bounded polling + `inspectSocket`/`probeControlSocket` 재사용**. ③ `awaitChildExit(child,
+     signal)` = close/exit 1회 resolve + abort listener cleanup(SpawnedChild를 내부 `{pid,proc}`로 확장, public은 pid만).
+     ④ `awaitTimeout(ms,signal)` = setTimeout + abort 시 clearTimeout(bounded-return 핵심). ⑤ `killChild` = SIGTERM
+     우선(SIGKILL escalator는 분리, 넣으면 smoke). ⑥ adapter 시작부에서 plan.sessionId===plan.targetGardenId assert,
+     expectedSocketPath 재유도 금지(plan 것만 관측). **게이트 불가 실 IO라 smoke**: (1) v2 argv(--entwurf-control,
+     no --no-extensions, -p+prompt final, --approve 보존) (2) socket-alive connectable(plain exists/symlink/non-socket
+     은 alive 금지) (3) loser abort teardown(socket승/exit승/timeout→kill 각 경로 timer·listener cleanup) (4)
+     timeout→kill→exit release · killGrace elapsed→lock-retained (5) child early-exit→child-exited release, no re-spawn.
+     **5d로 미루기 NO(GPT)** — adapter 안 닫고 MCP 표면 얹으면 live path 거짓 green.
    - **5c-3 = spawn-bg plan을 실제로 띄우고 5c-1 `release-after-spawn-observation`을 실 watcher로 구동.**
      load-bearing 계약(Fable, 위 전달지침에도): **timeout은 release event 아님** — watcher가 observeTimeoutMs 만료를
      관측으로 해소(kill child→`child-exited(null)`→release, 또는 hold+증거). bare timeout release 금지(double-spawn
