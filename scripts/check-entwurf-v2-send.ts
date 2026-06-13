@@ -5,10 +5,12 @@
  *
  *   1. ack success            → outcome `sent`, release ×1, deadFallback NOT called.
  *   2. in-band reject (success:false) → outcome `rejected`, release ×1, NO fallback
- *      (deadFallback + mailbox NOT called — the receiver was reached and refused).
+ *      (deadFallback + mailbox NOT called — the receiver was reached and refused); NO
+ *      rejectReason (an in-band refusal has no resolver taxonomy — N3 boundary).
  *   3. dead → re-resolve(control-socket) → success → `fallback-sent`, release ×1,
  *      deadFallback called EXACTLY once and UNDER the still-held lock (before release).
- *   4. dead → re-resolve reject → `rejected`, release ×1.
+ *   4. dead → re-resolve reject → `rejected`, release ×1, and the resolver's reason is
+ *      CARRIED on the result as `rejectReason` (N3 — no longer dropped at the boundary).
  *   5. dead → re-resolve(control-socket) retry THROWS → `failed`, release ×1, original
  *      retry error rethrown; the retry is one-shot (deadFallback called once only).
  *   6. dead → deadFallback THROWS → `failed`, release ×1, rethrow.
@@ -29,8 +31,9 @@
  *      BEFORE any retry send (no retry, no mailbox, release ×1).
  *  15. mis-route: a re-resolve returning a DIFFERENT-target mailbox plan fails loud
  *      BEFORE enqueue (no mailbox, release ×1).
- *  16. non-failed releaseLock throw (sent): the delivery already happened, so the
- *      release error propagates honestly (caller must not re-send) — release ×1.
+ *  16. non-failed releaseLock throw (sent): the delivery already happened, so a re-send
+ *      would double-deliver — thrown as a STRUCTURED SendDeliveredReleaseFailedError
+ *      (finalizedOutcome + releaseError), NOT a bare rethrow (N1) — release ×1.
  *  17. mailbox fallback enqueue THROW → failed + rethrow, helper called once, release ×1.
  *
  * No real IO — fakes record call order so "release happens after re-resolve, exactly
@@ -45,6 +48,7 @@ import {
 	type DeadFallbackResolution,
 	executeControlSocketSend,
 	type RpcSendResult,
+	SendDeliveredReleaseFailedError,
 } from "../pi-extensions/lib/entwurf-v2-send.ts";
 
 let passed = 0;
@@ -207,6 +211,9 @@ async function main(): Promise<void> {
 		const { result, trace } = await run({ firstSend: { result: { success: false, error: "refused" } } });
 		ok("in-band reject → rejected", result.outcome === "rejected");
 		ok("in-band reject → release ×1", trace.releases.length === 1);
+		// N3 boundary: an in-band RPC refusal has NO resolver reason (only a dead-path
+		// re-resolve reject carries one) — the field stays undefined here.
+		ok("in-band reject → no rejectReason (in-band has no resolver taxonomy)", result.rejectReason === undefined);
 		ok(
 			"in-band reject → no deadFallback, no mailbox",
 			trace.deadFallbackCalls === 0 && trace.mailboxSends.length === 0,
@@ -238,6 +245,8 @@ async function main(): Promise<void> {
 		});
 		ok("dead → re-resolve reject → rejected", result.outcome === "rejected");
 		ok("dead → reject → release ×1, no retry send", trace.releases.length === 1 && trace.socketSends.length === 1);
+		// N3: the resolver's reason is carried out on the result (not dropped at the hand boundary).
+		ok("dead → re-resolve reject → rejectReason carried (N3)", result.rejectReason === "no-route");
 	}
 
 	// ── 5: dead → re-resolve(control) retry throws → failed + rethrow ──────────
@@ -397,16 +406,26 @@ async function main(): Promise<void> {
 		ok("mis-route (mailbox) → no enqueue, release ×1", trace.mailboxSends.length === 0 && trace.releases.length === 1);
 	}
 
-	// ── 16: non-failed releaseLock throw — the delivery already HAPPENED, so the
-	//        release error propagates honestly (caller must NOT re-send; this is the
-	//        counterpart to case 10's failed-masking guard). Release still attempted ×1.
-	//        (Fable N1: 5d surface must distinguish "send failed" from "delivered +
-	//        release failed" — tracked in NEXT.md 5c-2(b)/5d contract list.)
+	// ── 16: non-failed releaseLock throw — the delivery already HAPPENED, so a re-send
+	//        would double-deliver. N1 (5d-1a): this is now a STRUCTURED
+	//        SendDeliveredReleaseFailedError carrying the finalized outcome + the release
+	//        error, NOT a bare release throw — the 5d runner renders "finalized + lock
+	//        dirty, retry-unsafe" distinctly from "send failed" (counterpart to case 10's
+	//        failed-masking guard). Release still attempted ×1.
 	{
 		const releaseErr = new Error("release boom after delivery");
 		const { deps, trace } = makeDeps({ firstSend: { result: { success: true } }, releaseThrows: releaseErr });
 		const err = await rejects(() => executeControlSocketSend(CONTROL_PLAN, lockClaim(), deps));
-		ok("sent + releaseLock throw → release error propagates (delivery already done)", err === releaseErr);
+		ok(
+			"sent + releaseLock throw → SendDeliveredReleaseFailedError (N1)",
+			err instanceof SendDeliveredReleaseFailedError,
+		);
+		ok(
+			"sent + releaseLock throw → carries finalizedOutcome 'sent' + releaseError",
+			err instanceof SendDeliveredReleaseFailedError &&
+				err.finalizedOutcome === "sent" &&
+				err.releaseError === releaseErr,
+		);
 		ok("sent + releaseLock throw → release ×1 attempted", trace.releases.length === 1);
 	}
 

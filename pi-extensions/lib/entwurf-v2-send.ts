@@ -91,13 +91,22 @@ export interface ControlSocketSendDeps {
 
 export interface ControlSocketSendResult {
 	outcome: SendFinalOutcome;
+	/** Present ONLY on a `rejected` outcome that came from the dead-path re-resolve
+	 * (5c-2b): the resolver's machine-readable reason (dormant-fire-forget-unsupported /
+	 * mailbox-undeliverable / indeterminate-no-spawn / bad-target / target-address-conflict).
+	 * An in-band RPC refusal carries NO reason (there is no resolver taxonomy for it). The
+	 * 5d runner carries this verbatim so the surface can tell "in-band refusal" from
+	 * "no live route" — the N3 carry-over the hand boundary used to drop. */
+	rejectReason?: string;
 }
 
 // A drive step's verdict: the terminal outcome, plus the original error to RETHROW on
-// a `failed` (the hand releases first, then rethrows — never swallows the failure).
+// a `failed` (the hand releases first, then rethrows — never swallows the failure), plus
+// the optional resolver reject reason to carry on a re-resolve `rejected` (N3).
 interface SendDrive {
 	outcome: SendFinalOutcome;
 	error?: unknown;
+	rejectReason?: string;
 }
 
 /**
@@ -130,7 +139,7 @@ export async function executeControlSocketSend(
 		drive = { outcome: "failed", error: err };
 	}
 	finalizeRelease(policy, deps, held, drive);
-	return { outcome: drive.outcome };
+	return { outcome: drive.outcome, rejectReason: drive.rejectReason };
 }
 
 /** Drive the 1차 send and route a connect failure through the F3 split. */
@@ -170,7 +179,9 @@ async function driveDeadFallback(
 		return { outcome: "failed", error: err };
 	}
 	if (resolution.kind === "reject") {
-		return { outcome: "rejected" };
+		// N3: carry the resolver's reason out so the runner/surface can distinguish a
+		// dormant-fire-forget / undeliverable / no-route reject from an in-band refusal.
+		return { outcome: "rejected", rejectReason: resolution.reason };
 	}
 	const rePlan = resolution.plan;
 	// Same-lock re-resolve invariant: the fallback plan MUST target the SAME gid the lock
@@ -210,10 +221,35 @@ async function driveDeadFallback(
 }
 
 /**
+ * N1: a release failure AFTER a non-`failed` final outcome. The send already reached a
+ * terminal result (`sent` / `fallback-sent` / `rejected`) — the delivery (or in-band
+ * refusal) HAPPENED — but `releaseLock` then threw, so the lock is dirty. This is NOT a
+ * send failure, and the caller MUST NOT re-dispatch (a re-send would double-deliver). A
+ * structured error (not a bare rethrow) lets the 5d runner render "finalized + lock
+ * dirty, retry-unsafe" distinctly from "send failed". For a `failed` outcome the original
+ * send error still wins — that path never builds this error.
+ */
+export class SendDeliveredReleaseFailedError extends Error {
+	readonly finalizedOutcome: Exclude<SendFinalOutcome, "failed">;
+	readonly releaseError: unknown;
+	constructor(finalizedOutcome: Exclude<SendFinalOutcome, "failed">, releaseError: unknown) {
+		const detail = releaseError instanceof Error ? releaseError.message : String(releaseError);
+		super(
+			`entwurf-v2-send: ${finalizedOutcome} delivered but releaseLock failed (lock dirty, do NOT re-send): ${detail}`,
+		);
+		this.name = "SendDeliveredReleaseFailedError";
+		this.finalizedOutcome = finalizedOutcome;
+		this.releaseError = releaseError;
+	}
+}
+
+/**
  * Fold the single send-final event into the reducer and release the lock if (and only
  * if) the reducer says so. On a `failed` outcome the lock is released FIRST and then
  * the original error is rethrown — and if `releaseLock` itself throws, the original
- * send error still wins (a release failure must not MASK the send failure; 5b).
+ * send error still wins (a release failure must not MASK the send failure; 5b). On a
+ * NON-`failed` outcome a release failure throws a `SendDeliveredReleaseFailedError` (N1):
+ * the delivery happened, so the runner must surface "finalized + lock dirty", not "failed".
  */
 function finalizeRelease(policy: ReleasePolicy, deps: ControlSocketSendDeps, lock: LockClaim, drive: SendDrive): void {
 	const initial: ReleaseState = initialReleaseState();
@@ -226,7 +262,9 @@ function finalizeRelease(policy: ReleasePolicy, deps: ControlSocketSendDeps, loc
 		} catch (releaseErr) {
 			// A release failure must not swallow a real send failure.
 			if (drive.outcome === "failed") throw original;
-			throw releaseErr;
+			// N1: the delivery/refusal already happened — surface it as a structured,
+			// retry-unsafe error rather than a bare release throw.
+			throw new SendDeliveredReleaseFailedError(drive.outcome, releaseErr);
 		}
 	}
 	if (drive.outcome === "failed") throw original;
