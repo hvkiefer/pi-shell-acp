@@ -261,4 +261,35 @@ check_registry_dep "$ASM_MS" "assembled" "${ASM_REG:-}" "$asm_reg_h"
 check_registry_dep "$INST_MS" "installed" "${INST_REG:-}" "$inst_reg_h"
 
 echo
+echo "[entwurf-control / v2 dispatch surface]"
+# The entwurf_v2 verb (0.11 step 5d-3) rides two surfaces: the pi-native tool (which
+# depends on the --entwurf-control flag) and the MCP verb. These are SOURCE/static +
+# single-gate checks — a live `pi --entwurf-control` model turn is 5d-5 matrix / live-smoke
+# territory (it takes auth/model state), NOT the doctor's job. `pi --help | grep` is also
+# avoided: flag exposure depends on extension-load conditions, so source+gate is the honest signal.
+V2_CONTROL_SRC="$REPO/pi-extensions/entwurf-control.ts"
+V2_SURFACE_SRC="$REPO/pi-extensions/lib/entwurf-v2-surface.ts"
+V2_MCP_SRC="$REPO/mcp/pi-tools-bridge/src/index.ts"
+if [ -f "$V2_CONTROL_SRC" ] && grep -q 'ENTWURF_FLAG = "entwurf-control"' "$V2_CONTROL_SRC" && grep -q 'registerFlag(ENTWURF_FLAG' "$V2_CONTROL_SRC"; then
+  ok "pi-native --entwurf-control flag registered (ENTWURF_FLAG)"
+else
+  bad "pi-native --entwurf-control flag not found in entwurf-control.ts — the v2 pi tool depends on it"
+fi
+if [ -f "$V2_CONTROL_SRC" ] && grep -q 'registerEntwurfV2Tool' "$V2_CONTROL_SRC" && grep -q 'name: "entwurf_v2"' "$V2_CONTROL_SRC"; then
+  ok "pi-native entwurf_v2 tool registered"
+else
+  bad "pi-native entwurf_v2 tool not found in entwurf-control.ts"
+fi
+if [ -f "$V2_MCP_SRC" ] && grep -q 'server.tool(' "$V2_MCP_SRC" && grep -q '"entwurf_v2"' "$V2_MCP_SRC"; then
+  ok "MCP entwurf_v2 verb registered"
+else
+  bad "MCP entwurf_v2 verb not found in pi-tools-bridge"
+fi
+if [ -f "$V2_SURFACE_SRC" ] && (cd "$REPO" && node --experimental-strip-types scripts/check-entwurf-v2-surface.ts >/dev/null 2>&1); then
+  ok "check-entwurf-v2-surface gate passes (surface adapter + pi-native/MCP wiring)"
+else
+  bad "check-entwurf-v2-surface gate FAILED or surface adapter missing — run: ./run.sh check-entwurf-v2-surface"
+fi
+
+echo
 if [ "$fail" -eq 0 ]; then echo "meta-bridge doctor: PASS"; else echo "meta-bridge doctor: FAIL (see above)"; exit 1; fi
