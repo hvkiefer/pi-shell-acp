@@ -45,6 +45,7 @@ Usage:
   ./run.sh smoke-model-switch [project-dir] # strict model-switch lock gate — same-backend + cross-backend reuse mismatch must throw ModelSwitchLockedError (issue #14)
   ./run.sh smoke-entwurf-resume [project-dir] # bridge-level entwurf-style continuity gate (Claude=resume, Codex=load)
   ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + protocol/negative-path test.sh (backend tool-callability lives in smoke-async-resume + sentinel)
+  ./run.sh check-pi-tools-bridge-boot # deterministic gate (5d-5-pre, G1a/G1b, IN pnpm check): boot start.sh under strip-types + assert v2 fence graph loads + entwurf_v2 registered/schema; tools/list only, no auth/side-effect
   ./run.sh check-native-async         # pi-native async entwurf spawn smoke (pi -e pi-extensions/entwurf.ts)
   ./run.sh sentinel [args...]         # entwurf 6-cell diagonal matrix (sync+resume × parent×target)
   ./run.sh session-messaging [args...] # 4-case session-messaging smoke (native/ACP cross-matrix)
@@ -1428,6 +1429,17 @@ check_entwurf_v2_surface() {
   # registers entwurf_v2 + reaches the fence via a NON-LITERAL dynamic import (no static fence
   # import → TS5097 stays closed) + decorates sender origin:pi-session/replyable:true.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-surface.ts)
+}
+
+check_pi_tools_bridge_boot() {
+  # Deterministic gate for 0.11 step 5d-5-pre (G1a/G1b): boots the pi-tools-bridge MCP server
+  # as it ships (start.sh → node --experimental-strip-types, no build) and asserts what the
+  # source-shape gate check-entwurf-v2-surface cannot — that the whole v2 fence graph LOADS at
+  # boot under strip-types (G1a: a parseable tools/list proves it) and that entwurf_v2 is
+  # registered on the runtime surface with its schema (G1b). tools/list only → no tools/call,
+  # no lock/fs side effect, no auth → safe in pnpm check. Broad protocol/negative suite stays
+  # in check-bridge/test.sh (D1=A안).
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-pi-tools-bridge-boot.ts)
 }
 
 check_entwurf_v2_production() {
@@ -3997,7 +4009,7 @@ function finishOk(trimmed) {
     process.exit(1);
   }
   const names = tools.map((t) => t?.name).sort();
-  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send', 'entwurf_self', 'entwurf_inbox_read'];
+  const expected = ['entwurf', 'entwurf_resume', 'entwurf_peers', 'entwurf_send', 'entwurf_self', 'entwurf_inbox_read', 'entwurf_v2'];
   for (const name of expected) {
     if (!names.includes(name)) {
       console.error(`missing MCP tool: ${name}`);
@@ -4602,6 +4614,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-surface)
     check_entwurf_v2_surface
+    ;;
+  check-pi-tools-bridge-boot)
+    check_pi_tools_bridge_boot
     ;;
   check-entwurf-v2-spawn)
     check_entwurf_v2_spawn

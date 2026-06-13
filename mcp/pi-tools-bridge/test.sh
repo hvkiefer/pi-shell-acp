@@ -27,7 +27,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-EXPECTED_TOOLS=("entwurf_send" "entwurf_peers" "entwurf" "entwurf_resume" "entwurf_self" "entwurf_inbox_read")
+EXPECTED_TOOLS=("entwurf_send" "entwurf_peers" "entwurf" "entwurf_resume" "entwurf_self" "entwurf_inbox_read" "entwurf_v2")
 PASS=0
 FAIL=0
 
