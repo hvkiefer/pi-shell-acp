@@ -1481,8 +1481,8 @@ This is additive to entwurf_send; the decider — not this surface — chooses t
 						mode: params.mode,
 						wants_reply: params.wants_reply,
 					},
-					// agentDir / prefixRoots stay undefined here — 5d-4 wires the doctor flag
-					// + operator-policy prefix roots through this opts seam.
+					// agentDir / prefixRoots intentionally omitted here: the surface adapter falls back
+					// to the PI_ENTWURF_PREFIX_ROOTS env SSOT for prefixRoots (5d-4); agentDir stays undefined.
 					{ senderProvider },
 				);
 				return {

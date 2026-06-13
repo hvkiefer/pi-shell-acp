@@ -556,7 +556,8 @@ server.tool(
 			const sender = buildSendSenderEnvelope();
 			const rendered = await runAndRenderEntwurfV2FromSurface(
 				{ target, intent, message, mode, wants_reply },
-				// agentDir / prefixRoots stay undefined until 5d-4 wires the operator policy.
+				// agentDir / prefixRoots intentionally omitted: runAndRenderEntwurfV2FromSurface falls
+				// back to the PI_ENTWURF_PREFIX_ROOTS env SSOT for prefixRoots (5d-4); agentDir stays undefined.
 				{ senderProvider: () => sender },
 			);
 			return rendered.isError ? textErr(rendered.text) : textOk(rendered.text);

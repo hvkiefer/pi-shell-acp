@@ -56,9 +56,10 @@ export interface SurfaceEntwurfV2Params {
 }
 
 /** ctx-free run options. The caller (entwurf-control.ts / MCP bridge) builds `senderProvider`
- * from its own envelope source — this module never touches `ExtensionContext`. `agentDir` /
- * `prefixRoots` stay undefined in 5d-3 (preflight default / no prefix promotion); 5d-4 wires
- * the doctor flag + operator-policy roots through here. */
+ * from its own envelope source — this module never touches `ExtensionContext`. Both surfaces
+ * leave `agentDir`/`prefixRoots` undefined by design: `runAndRenderEntwurfV2FromSurface` falls
+ * back to the `PI_ENTWURF_PREFIX_ROOTS` env SSOT for `prefixRoots` (5d-4), and `agentDir` stays
+ * undefined (no surface sets it). Explicit opts still win — kept for tests / a future surface. */
 export interface EntwurfV2SurfaceRunOptions {
 	senderProvider: () => SenderEnvelope | undefined;
 	agentDir?: string;
