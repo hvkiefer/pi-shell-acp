@@ -89,12 +89,14 @@ if [ -n "$CACHE_HOOKS" ]; then
   # `[ -n "$CACHE_HOOKS" ]` proves the file EXISTS, not that the pattern matches.
   # If a future hooks.json drifts the command format, grep finds nothing, exits 1,
   # and under `set -euo pipefail` the doctor would abort here instead of reaching
-  # the `warn "could not parse baked node path"` fallback below. Swallow grep's
-  # nonzero in-pipe (same idiom as line 158) so BAKED="" routes to that warn.
+  # the parse-drift diagnostic below. Swallow grep's nonzero in-pipe (same idiom as
+  # line 158) so BAKED="" routes to that bad(...): an installed hooks.json exists but
+  # the doctor cannot read its load-bearing hook command, so the store-churn guard is
+  # blind — a verify-impossible state must fail loud, not pass as a soft warn (A3b).
   BAKED="$({ grep -oE '"command": "[^ ]+ \$\{CLAUDE_PLUGIN_ROOT\}/meta-bridge-hook.ts"' "$CACHE_HOOKS" || true; } | head -1 | sed -E 's/.*"command": "([^ ]+) .*/\1/')"
   if [ -n "$BAKED" ] && [ -x "$BAKED" ]; then ok "baked node exists + executable: $BAKED"
   elif [ -n "$BAKED" ]; then bad "baked node path is DEAD (nix GC / version bump?): $BAKED — re-run ./run.sh install-meta-bridge"
-  else warn "could not parse baked node path from $CACHE_HOOKS"; fi
+  else bad "could not parse baked node path from $CACHE_HOOKS — hook command format drift; doctor cannot verify the NixOS store-churn guard. Re-run ./run.sh install-meta-bridge or update the doctor parser."; fi
 else
   warn "no installed hooks.json in cache (plugin not installed?)"
 fi
