@@ -5,16 +5,25 @@
 
 ## 전달지침 — 새 담당자(2026-06-13 세션 #5 → 다음 세션)
 
-- **지금 할 일:** ◀ NOW = **5c-2(b) deadFallback resolver 구현**. 5c-2(a) send hand는 `03add67`로 GPT+Fable 둘 다 GO·
-  local 커밋(push 전). 5c-2(a)가 `deps.deadFallback`을 인터페이스로만 박아뒀으니, 이제 그 안의 **same-lock re-resolve
-  resolver**를 채운다: 5b `resolveTarget`/`inspectSocket`/`resolveDispatch`/`resolveMailboxDeliverability`를 재사용하되
-  **release는 하지 않고** `{kind:"execute",plan}|{kind:"reject"}`만 반환. 반환 plan은 반드시 같은 targetGardenId(5c-2a가
-  이미 assert). `decideDispatch` 통째 재호출 금지(acquire/release lifecycle 꼬임). 상세 = `## Next moves` 1번 + 커밋 `03add67` 본문.
+- **지금 할 일:** ◀ NOW = **5c-3 spawn-bg + 실 socket-alive watcher(load-bearing)**. 5c-2(a) send hand(`03add67`)
+  + 5c-2(b) dead resolver(`1814c5d`) 모두 GPT+Fable GO·push 완료. send 경로는 끝났다. 이제 resume 경로:
+  `spawn-bg` plan을 실제로 띄우고, 5c-1 reducer의 `release-after-spawn-observation`을 실 watcher로 구동한다.
+  **⚠ load-bearing 계약(Fable, 절대 어기지 말 것):** **timeout은 release event가 아니다.** watcher는 observeTimeoutMs
+  만료를 **관측으로 해소**해야 한다 — kill child→`child-exited(null)`→release, 또는 hold+증거 표면화. bare timeout
+  release 금지(child가 늦게 socket 띄우면 double-spawn 창 재개방). `spawnEntwurfResumeAsync`는 `--no-extensions`
+  하드코딩이라 무수정 호출 금지 — v2는 `--entwurf-control` 살려야 socket 관측 가능(A1), 옵션/wrapper 추가하되 piArgs SSOT 공유.
+  상세 = `## Next moves` 1번 + 5c-1 커밋 `ff69a3a` 본문(reduceRelease spawn 경로).
+- **트리오로 밀어라(GLG 지침, 세션 #5 입증). GLG + GPT힣 1차 + Fable5 2차 = 셋이 계속 밀고 가면 엇나갈 일이 없다.**
+  세션 #5는 5c-2(a)·5c-2(b)를 이 트리오로 매끄럽게 통과시켰다(설계 오독·lock-leak·mis-route를 검수가 다 잡음). 너도
+  혼자 짜고 끝내지 말고, **매 슬라이스 1차→2차 검수를 반드시 거쳐라.** 아래 두 분신은 이 세션 끝 시점에 건재하다.
 - **검수 분신(살아있는 세션, 순차 호출 — 동시 같은 질문 금지):**
-  - **GPT힣 1차** = garden id `20260613T063959-cfdcff` (live pi control socket, direct 도달). 설계/코드 1차.
-  - **Fable5 2차** = garden id `20260613T064858-0dc14b` (claude-code, meta-mailbox + doorbell). 1차 통과분만 2차.
-  - 둘은 5b·5c-1·5c-2(a)구현 맥락을 이미 가짐(이 세션에서 검수함). `entwurf_send`로 garden id에 보내고, 회신은 네 mailbox
-    doorbell로 온다(`entwurf_inbox_read <네 gid>`). 5c-2(a)는 GPT+Fable GO 완료 — 다음은 **5c-2(b) resolver 코드 1차**부터.
+  - **GPT힣 1차** = garden id `20260613T063959-cfdcff` (live pi control socket, direct 도달). **설계/코드 1차.**
+    `entwurf_send`로 garden id에 직접 보냄.
+  - **Fable5 2차** = garden id `20260613T064858-0dc14b` (claude-code, meta-mailbox + doorbell). **1차 통과분만 2차.**
+    `entwurf_send`로 보내면 doorbell이 깨움.
+  - **회신 수신:** 네 garden id mailbox로 doorbell이 와서 너를 깨운다 → `entwurf_inbox_read <네 gid>`로 drain(read-receipt 찍힘).
+  - 둘은 5b·5c-1·5c-2(a)·5c-2(b) 맥락을 이미 가짐(이 세션에서 검수함). 5c-2 전부 GO 완료 — 5c-3는 IO+watcher라
+    **design 1차**부터 권장(risk 높은 슬라이스는 코드 전에 설계를 GPT에 먼저 잠근다).
 - **규율:** 매 슬라이스 GPT 1차 → 반영 → Fable 2차 → 둘 다 GO → local 커밋. **push는 GLG.** AI 서명 금지. `--no-verify`·
   `AGENT_ALLOW_UNSAFE_COMMIT` 금지. 공개 repo라 device 호스트명·실명·시크릿을 커밋/푸시 diff에 넣지 말 것(pre-push가 막음).
 - **GLG는 폰에서 tmux 관망, 커밋 시점에만 확인.** 셋이 밀고 나가다 진짜 막힐 때만 호출.
@@ -33,8 +42,27 @@
 - **작게 자르고 순차 검수한다.** GPT힣 1차 → 통과분만 Fable 2차. 동시 throw 금지.
 - **5b는 pure decider만.** transport 실행·spawn·smoke·새 표면은 다음 슬라이스로 넘긴다.
 
-## Current state — 2026-06-13 (구현 세션 #5 — 5c-2(a) send hand done·GPT+Fable GO·local 커밋, push 전)
+## Current state — 2026-06-13 (구현 세션 #5 — 5c-2(a)+5c-2(b) done·GPT+Fable GO·push 완료)
 
+- **2026-06-13 구현 세션 #5 (Opus 실무자): 5c-2(b) dead-control-send resolver 구현 (`1814c5d`, GPT design GO(길 B)
+  → GPT 코드 1차 GO → Fable 2차 GO).** `resolveDeadControlSendFallback(plan, lock, deps)` = 5c-2(a) hand가 dead
+  연결에서 호출하는 same-lock re-resolve. 5b dispatch를 lock lifecycle만 빼고 1회 재실행. **intent=fire-and-forget 고정**
+  → `resolveDispatch("fire-and-forget", liveness, deliverable)` 재호출이 라우팅 전담. fire-and-forget row엔 **resume 셀
+  없음**(live→send, dormant→reject "dormant-fire-forget-unsupported", indeterminate→reject) → send-dead→resume 승격
+  구조적 불가(+hand spawn-bg throw +resolver transport-drift throw 이중 격리). N2 asymmetry: in-domain dormant pi=reject,
+  unsupported+deliverable=mailbox. `DeadFallbackDeps`에 **release seam 없음**(타입 차원 구조). inspect/probe throw는
+  propagate(hand backstop이 failed+release). **`mapInspectionToLiveness`를 socket-discovery로 추출**(공유 SSOT, decider
+  내부 livenessFromInspection verbatim 이동 — decider 게이트 100 유지). 게이트 check-entwurf-v2-send-fallback **24**,
+  check-socket-discovery 42→**47**(helper 4-way), check-pack 131→**133**, full `pnpm check` EXIT=0.
+  - **⚠ 5c-4/5d로 이월할 계약 2개(load-bearing):**
+    - **(Fable N3) reject reason이 hand 경계에서 소실.** resolver는 풍부한 reason(bad-target / dormant-fire-forget-
+      unsupported / indeterminate-no-spawn / mailbox-undeliverable / target-address-conflict) 반환하는데, 5c-2(a)
+      driveDeadFallback이 `{kind:"reject"}`를 outcome "rejected"로 접으며 reason 폐기. 5d/호출자가 "in-band 거부"·
+      "dormant"·"소멸"을 구분 못 함(F2-P2 "관측 가능해야 수용"과 같은 결). SendDrive/ControlSocketSendResult에 optional
+      `rejectReason` 실어 5d 렌더 — 5c-4/5d에서 박을 것.
+    - **(GPT+Fable) layering 위생:** `resolveMailboxDeliverability`를 resolver가 decider module에서 value import 중.
+      순수 exported helper 재사용이라 지금은 수용. 나중에 mailbox deliverability를 contract/meta-session 쪽으로 옮겨
+      resolver의 decider 의존을 얇게. 비차단.
 - **2026-06-13 구현 세션 #5 (Opus 실무자): 5c-2(a) control-socket send hand 구현 (`03add67`, GPT 1차 GO →
   Fable 2차 GO).** `executeControlSocketSend(plan, lock, deps)` = 5c-1 release reducer 위에 control-socket send IO 배선.
   IO 전부 dep 주입(게이트 fake, 라이브 소켓 없이 send→outcome→release 순서 증명). outcome 매핑: ack→sent / in-band
@@ -104,11 +132,17 @@
 
 ## Next moves — read order
 
-1. **Step 5 — 5b DONE + 5c-1 DONE + 5c-2(a) DONE(local `…ff69a3a`(5c-1)+`03add67`(5c-2a send hand), 전부 GPT+Fable GO),
-   ◀ NOW = 5c-2(b) deadFallback resolver.**
-   - **5c 분해(GPT design GO):** 5c-1 pure release reducer ✅ → 5c-2(a) control-socket send hand ✅ → **5c-2(b)
-     deadFallback resolver(same-lock re-resolve, no-release)** → 5c-3 spawn-bg + 실 socket-alive watcher(load-bearing) →
-     5c-4 meta-mailbox send. 위험 순, pure-before-IO.
+1. **Step 5 — 5b + 5c-1 + 5c-2(a) + 5c-2(b) DONE(`ff69a3a`(5c-1)+`03add67`(5c-2a)+`1814c5d`(5c-2b), 전부 GPT+Fable GO),
+   ◀ NOW = 5c-3 spawn-bg + 실 socket-alive watcher.**
+   - **5c 분해(GPT design GO):** 5c-1 pure release reducer ✅ → 5c-2(a) control-socket send hand ✅ → 5c-2(b)
+     deadFallback resolver ✅ → **5c-3 spawn-bg + 실 socket-alive watcher(load-bearing)** → 5c-4 meta-mailbox send.
+     위험 순, pure-before-IO. send 경로(5c-2) 완료 — 남은 건 resume 경로(5c-3)와 mailbox 직송(5c-4).
+   - **5c-3 = spawn-bg plan을 실제로 띄우고 5c-1 `release-after-spawn-observation`을 실 watcher로 구동.**
+     load-bearing 계약(Fable, 위 전달지침에도): **timeout은 release event 아님** — watcher가 observeTimeoutMs 만료를
+     관측으로 해소(kill child→`child-exited(null)`→release, 또는 hold+증거). bare timeout release 금지(double-spawn
+     창 재개방). `spawnEntwurfResumeAsync` `--no-extensions` 하드코딩 무수정 호출 금지 — `--entwurf-control` 살려야
+     socket 관측 가능(A1), piArgs SSOT 공유. reduceRelease(spawn-started=hold, socket-alive∨child-exited=release)는
+     5c-1에 이미 있음 — 5c-3는 실 spawn/probe IO를 그 위에 배선 + watcher가 이벤트 공급.
    - **5c-2(b) = `deps.deadFallback(plan, lock)` 실구현.** 5c-2(a) hand가 dead 연결에서 held lock 아래 1회 호출하는
      resolver 본체. 재사용(정찰됨, 재구현 금지): 5b `resolveTarget`/`inspectSocket`(socket-discovery)/`resolveDispatch`/
      `resolveMailboxDeliverability`. **release 절대 안 함**(release는 hand 단독 책임). 반환 = `{kind:"execute",plan}|
