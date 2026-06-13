@@ -37,6 +37,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, "..");
 const SURFACE_SRC = path.join(REPO, "pi-extensions/lib/entwurf-v2-surface.ts");
 const CONTROL_SRC = path.join(REPO, "pi-extensions/entwurf-control.ts");
+const MCP_SRC = path.join(REPO, "mcp/pi-tools-bridge/src/index.ts");
 
 const GID = "20260613T100000-aaaaaa";
 const SUCCESS_RECEIPT = {
@@ -209,24 +210,54 @@ async function main(): Promise<void> {
 		ok("3: surface is ctx-free — no ExtensionAPI", !code.includes("ExtensionAPI"));
 	}
 
-	// ── 4: control wiring guard ───────────────────────────────────────────────
+	// ── 4: pi-native control wiring guard ─────────────────────────────────────
 	{
 		const src = await fs.readFile(CONTROL_SRC, "utf8");
 		const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-		ok("4: entwurf-control registers entwurf_v2", /name:\s*"entwurf_v2"/.test(src));
+		ok("4: pi-native — entwurf-control registers entwurf_v2", /name:\s*"entwurf_v2"/.test(src));
 		ok(
-			"4: reaches the fence via a NON-LITERAL dynamic import (string-const specifier)",
+			"4: pi-native — reaches the fence via a NON-LITERAL dynamic import (string-const specifier)",
 			/const ENTWURF_V2_SURFACE_MODULE\s*=/.test(code) && /await import\(ENTWURF_V2_SURFACE_MODULE\)/.test(code),
 		);
 		// The whole point of the dynamic import: NO static import of the fence v2 chain into the
 		// emit-capable root program (those literal `.ts` imports would be TS5097).
 		ok(
-			"4: NO static import of the v2 fence (runner/production/surface) — TS5097 stays closed",
+			"4: pi-native — NO static import of the v2 fence (runner/production/surface) — TS5097 stays closed",
 			!/import[^;]*from\s*"\.\/lib\/entwurf-v2-(runner|production|surface)\.(js|ts)"/.test(code),
 		);
 		ok(
-			"4: senderProvider decorates origin:'pi-session' + replyable:true",
+			"4: pi-native — senderProvider decorates origin:'pi-session' + replyable:true",
 			/origin:\s*"pi-session"/.test(code) && /replyable:\s*true/.test(code),
+		);
+	}
+
+	// ── 5: MCP bridge wiring guard ────────────────────────────────────────────
+	// The MCP bridge is a `.ts`-import fence consumer (mcp/tsconfig allowImportingTsExtensions),
+	// so it STATICALLY imports the surface adapter (no dynamic import). The v2 handler runs the
+	// production runner IN-PROCESS via runAndRenderEntwurfV2FromSurface — it does NOT route the
+	// v2 dispatch through legacy rpcCall/enqueueMetaMessage (those stay for the entwurf_send body).
+	{
+		const src = await fs.readFile(MCP_SRC, "utf8");
+		ok("5: MCP — registers entwurf_v2 server.tool", /server\.tool\(\s*"entwurf_v2"/.test(src));
+		ok(
+			"5: MCP — static imports runAndRenderEntwurfV2FromSurface from the surface fence module",
+			/import\s*\{[^}]*runAndRenderEntwurfV2FromSurface[^}]*\}\s*from\s*"[^"]*entwurf-v2-surface\.ts"/.test(src),
+		);
+		// Isolate the entwurf_v2 server.tool(...) block: from its name literal to the NEXT
+		// server.tool( registration. The v2 handler must build the sender + call the surface
+		// adapter, and must NOT itself reach for a legacy transport (the decider routes).
+		const v2Start = src.indexOf('"entwurf_v2"');
+		const after = src.indexOf("server.tool(", v2Start + 1);
+		const v2Block = src.slice(v2Start, after === -1 ? undefined : after);
+		ok("5: MCP — v2 handler builds buildSendSenderEnvelope()", /buildSendSenderEnvelope\(\)/.test(v2Block));
+		ok("5: MCP — v2 handler passes senderProvider: () => sender", /senderProvider:\s*\(\)\s*=>\s*sender/.test(v2Block));
+		ok(
+			"5: MCP — v2 handler calls runAndRenderEntwurfV2FromSurface",
+			/runAndRenderEntwurfV2FromSurface\(/.test(v2Block),
+		);
+		ok(
+			"5: MCP — v2 handler routes through the runner, NOT legacy rpcCall/enqueueMetaMessage",
+			!/\brpcCall\(/.test(v2Block) && !/\benqueueMetaMessage\(/.test(v2Block),
 		);
 	}
 

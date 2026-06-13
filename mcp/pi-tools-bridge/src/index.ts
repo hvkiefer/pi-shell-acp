@@ -93,6 +93,7 @@ import {
 } from "../../../pi-extensions/lib/entwurf-core.ts";
 import { listEntwurfFacts } from "../../../pi-extensions/lib/entwurf-fact-provider.ts";
 import { renderEntwurfPeers } from "../../../pi-extensions/lib/entwurf-peers-render.ts";
+import { runAndRenderEntwurfV2FromSurface } from "../../../pi-extensions/lib/entwurf-v2-surface.ts";
 import { formatMetaMailboxBody } from "../../../pi-extensions/lib/meta-mailbox-body.ts";
 import {
 	defaultMetaMailboxDir,
@@ -515,6 +516,52 @@ server.tool(
 			return textOk(summary);
 		} catch (err) {
 			return textErr(`entwurf_send error: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	},
+);
+
+// entwurf_v2 — the unified additive dispatch verb (0.11 step 5d-3b). Unlike entwurf_send
+// (which picks control-socket vs mailbox itself), entwurf_v2 hands the target + intent to
+// the 5b decider, which chooses the transport (live control-socket send / spawn-bg resume /
+// meta-mailbox enqueue) under a single per-target lock, and reports one outcome. It runs
+// IN-PROCESS here (the same production runner pi-native uses) — NOT a delegating RPC — so
+// control, mailbox, AND spawn-bg all flow through `runEntwurfV2`. Additive: entwurf_send is
+// untouched. The sender envelope is `buildSendSenderEnvelope()` verbatim (origin/replyable
+// as resolved) — v2 does NOT gate on replyability (a `wants_reply` from an external/
+// non-replyable caller is surfaced honestly, not rejected; the decider routes on target +
+// intent, not sender replyability).
+server.tool(
+	"entwurf_v2",
+	"Dispatch to a garden citizen through the unified entwurf_v2 verb. You give the target " +
+		"garden id + your intent; the decider picks the transport from the target's liveness " +
+		"(live pi → control-socket send; dormant pi → spawn-bg resume; unsupported deliverable " +
+		"citizen → meta-bridge mailbox) under a single per-target lock, and reports ONE outcome " +
+		"(delivered / rejected / lock-retained / delivered-but-lock-dirty). Additive to " +
+		"entwurf_send; the decider — not this surface — chooses the transport. " +
+		"intent: fire-and-forget (a send with no owned result) or owned-outcome (you own the " +
+		"result). mode/wants_reply apply to a live send. Use entwurf_peers to discover targets.",
+	{
+		target: z.string().min(1).describe("Target garden id (use entwurf_peers to discover)"),
+		intent: z
+			.enum(["fire-and-forget", "owned-outcome"])
+			.describe("Ownership intent: fire-and-forget (send) or owned-outcome (dispatcher owns the result)"),
+		message: z.string().min(1).describe("Message / prompt to dispatch"),
+		mode: z.enum(["steer", "follow_up"]).optional().describe("Delivery mode for a live send"),
+		wants_reply: z.boolean().optional().describe("Human-conversation reply hint (default false)"),
+	},
+	async ({ target, intent, message, mode, wants_reply }) => {
+		try {
+			// Resolved ONCE so the dispatch-moment timestamp is fixed and the control RPC sender
+			// + the mailbox body sender share one envelope. No replyability gate (see above).
+			const sender = buildSendSenderEnvelope();
+			const rendered = await runAndRenderEntwurfV2FromSurface(
+				{ target, intent, message, mode, wants_reply },
+				// agentDir / prefixRoots stay undefined until 5d-4 wires the operator policy.
+				{ senderProvider: () => sender },
+			);
+			return rendered.isError ? textErr(rendered.text) : textOk(rendered.text);
+		} catch (err) {
+			return textErr(`entwurf_v2 error: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	},
 );
