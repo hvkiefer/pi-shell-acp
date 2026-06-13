@@ -70,6 +70,7 @@ Usage:
   ./run.sh check-entwurf-v2-release    # deterministic gate (0.11 Stage 0 step 5c-1): PURE release-policy reducer (decideReleasePolicy + reduceRelease) — Fable-3 release-after-observation as a state machine; spawn-started is NOT a release event, release on first socket-alive ∨ child-exited (any code) or failed start, socket↔exit race idempotent (single release), lock-nullness invariant enforced; pure, no IO
   ./run.sh check-entwurf-v2-send       # deterministic gate (0.11 Stage 0 step 5c-2a): control-socket SEND hand (executeControlSocketSend) wiring transport IO onto the 5c-1 reducer — ack→sent, in-band reject→rejected (no fallback), dead→same-lock one-shot re-resolve (control retry / mailbox enqueue), indeterminate→failed+rethrow with NO fallback (no double-delivery); release exactly once, releaseLock throw never masks the send error; IO-via-dep
   ./run.sh check-entwurf-v2-send-fallback # deterministic gate (0.11 Stage 0 step 5c-2b): same-lock re-resolve RESOLVER (resolveDeadControlSendFallback) — fire-and-forget re-resolve: alive→control retry, dead→reject (NEVER spawn-bg), indeterminate→reject, unsupported+deliverable→mailbox plan, undeliverable/bad-target/conflict→reject; resolver never releases, mis-wire fails loud, inspect/probe throws propagate; no IO (fakes)
+  ./run.sh check-entwurf-v2-spawn      # deterministic gate (0.11 Stage 0 step 5c-3a): spawn-bg RESUME watcher hand (executeSpawnBgResume) wiring spawn + socket-observe IO onto the 5c-1 reducer — Fable-3: TIMEOUT IS NOT A RELEASE (bare observeTimeout→killChild, release 0; bounded killGrace then real socket-alive ∨ child-exited releases ×1); spawnChild throw→spawn-start-failed; no observation obtainable (grace elapses / post-spawn watch dep throws)→lock-retained fail-closed (released:false, evidence surfaced), NO direct-release hatch; IO-via-dep, controlled promises
   ./run.sh check-entwurf-facts         # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 1+2): PURE PeerFact core + resolveFactList union — R1 out-of-domain→unsupported, R3b pi 4-value, facts-only keyset; union: PeerFact+SocketOnlyFact by gardenId, dormant→dead, F3 indeterminate preserved, non-pi+socket fail-loud; pure, no IO
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
@@ -1380,6 +1381,20 @@ check_entwurf_v2_send_fallback() {
   # before IO; inspect/probe throws PROPAGATE (the hand owns failed+release); the resolver
   # has NO release seam; every execute plan keeps the held gid and is never spawn-bg.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-send-fallback.ts)
+}
+
+check_entwurf_v2_spawn() {
+  # Deterministic gate for 0.11 Stage 0 step 5c-3a: the spawn-bg RESUME watcher hand
+  # (executeSpawnBgResume) wiring spawn + socket-observe IO onto the 5c-1 reducer. Proves
+  # Fable-3 over injected deferred promises (no real child/socket/timer): TIMEOUT IS NOT A
+  # RELEASE — a bare observeTimeout escalates to killChild (release 0), then a BOUNDED
+  # killGrace waits for a real socket-alive / child-exited to release. socket-alive ∨
+  # child-exited(any code incl. null) -> release exactly once; the loser settling later is a
+  # no-op. spawnChild throw -> spawn-start-failed (release, nothing to watch). No observation
+  # obtainable (grace elapses, or a post-spawn watch dep throws and the exit can't be
+  # observed) -> lock-retained fail-closed (released:false, pid/socket/lockPath surfaced) —
+  # there is NO direct-release hatch; deps.releaseLock is reached ONLY via reduceRelease.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-spawn.ts)
 }
 
 check_entwurf_facts() {
@@ -4461,6 +4476,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-send-fallback)
     check_entwurf_v2_send_fallback
+    ;;
+  check-entwurf-v2-spawn)
+    check_entwurf_v2_spawn
     ;;
   check-entwurf-facts)
     check_entwurf_facts

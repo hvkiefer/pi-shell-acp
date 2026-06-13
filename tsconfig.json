@@ -92,6 +92,12 @@
 		// mapInspectionToLiveness / defaultMetaMailboxDir) with explicit `.ts`-extension
 		// imports, same fence. Typechecked by scripts/tsconfig.json via its gate
 		// (check-entwurf-v2-send-fallback.ts).
-		"pi-extensions/lib/entwurf-v2-send-fallback.ts"
+		"pi-extensions/lib/entwurf-v2-send-fallback.ts",
+		// entwurf-v2-spawn.ts is the spawn-bg RESUME watcher hand (step 5c-3a) — it WIRES
+		// spawn + socket-observe IO onto the release reducer and carries explicit
+		// `.ts`-extension imports that pull the excluded decider/lock/release into the
+		// program, same fence. Typechecked by scripts/tsconfig.json via its gate
+		// (check-entwurf-v2-spawn.ts).
+		"pi-extensions/lib/entwurf-v2-spawn.ts"
 	]
 }
