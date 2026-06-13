@@ -109,6 +109,11 @@
 		// enqueueMetaMessage) with explicit `.ts`-extension imports that pull the excluded
 		// send hand into the program, same fence. Typechecked by scripts/tsconfig.json via
 		// its gate (check-entwurf-v2-mailbox.ts).
-		"pi-extensions/lib/entwurf-v2-mailbox.ts"
+		"pi-extensions/lib/entwurf-v2-mailbox.ts",
+		// entwurf-v2-runner.ts is the 5d-1 execute-router — a lib→lib VALUE importer
+		// (SendDeliveredReleaseFailedError from entwurf-v2-send) with explicit `.ts`-extension
+		// imports that pull the excluded send/decider/spawn into the program, same fence.
+		// Typechecked by scripts/tsconfig.json via its gate (check-entwurf-v2-runner.ts).
+		"pi-extensions/lib/entwurf-v2-runner.ts"
 	]
 }

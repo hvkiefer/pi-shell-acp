@@ -70,6 +70,7 @@ Usage:
   ./run.sh check-entwurf-v2-release    # deterministic gate (0.11 Stage 0 step 5c-1): PURE release-policy reducer (decideReleasePolicy + reduceRelease) — Fable-3 release-after-observation as a state machine; spawn-started is NOT a release event, release on first socket-alive ∨ child-exited (any code) or failed start, socket↔exit race idempotent (single release), lock-nullness invariant enforced; pure, no IO
   ./run.sh check-entwurf-v2-send       # deterministic gate (0.11 Stage 0 step 5c-2a): control-socket SEND hand (executeControlSocketSend) wiring transport IO onto the 5c-1 reducer — ack→sent, in-band reject→rejected (no fallback), dead→same-lock one-shot re-resolve (control retry / mailbox enqueue), indeterminate→failed+rethrow with NO fallback (no double-delivery); release exactly once, releaseLock throw never masks the send error; IO-via-dep
   ./run.sh check-entwurf-v2-send-fallback # deterministic gate (0.11 Stage 0 step 5c-2b): same-lock re-resolve RESOLVER (resolveDeadControlSendFallback) — fire-and-forget re-resolve: alive→control retry, dead→reject (NEVER spawn-bg), indeterminate→reject, unsupported+deliverable→mailbox plan, undeliverable/bad-target/conflict→reject; resolver never releases, mis-wire fails loud, inspect/probe throws propagate; no IO (fakes)
+  ./run.sh check-entwurf-v2-runner     # deterministic gate (0.11 Stage 0 step 5d-1): execute-router (executeDispatch) routing an already-decided DispatchDecision to its 5c transport hand → one outcome-rich EntwurfV2RunResult. reject→rejected (no hand) / control/spawn/mailbox→matching hand with decision.lock verbatim / spawn lock-retained rides executed (fail-closed) / N3 rejectReason carried / N1 SendDeliveredReleaseFailedError→execution-failed{finalizedOutcome,releaseFailed,retrySafe:false}; fake hands, no IO
   ./run.sh check-entwurf-v2-mailbox    # deterministic gate (0.11 Stage 0 step 5c-4, LAST 5c transport slice): ENQUEUE-ONLY meta-mailbox SEND body (executeMetaMailboxSend) + production sendViaMailbox adapter — sender→formatMetaMailboxBody with plan.wantsReply threaded (divergence from legacy hard false), sender absent→raw plan.message, enqueue opts EXACTLY {gardenId,body,sessionsDir,mailboxDir}, enqueue throw PROPAGATES (no success:false fold — mailbox has no in-band refuse); adapter NEVER touches lock (release is the hand's job); source guard: no release/routing seam
   ./run.sh check-entwurf-v2-spawn      # deterministic gate (0.11 Stage 0 step 5c-3a): spawn-bg RESUME watcher hand (executeSpawnBgResume) wiring spawn + socket-observe IO onto the 5c-1 reducer — Fable-3: TIMEOUT IS NOT A RELEASE (bare observeTimeout→killChild, release 0; bounded killGrace then real socket-alive ∨ child-exited releases ×1); spawnChild throw→spawn-start-failed; no observation obtainable (grace elapses / post-spawn watch dep throws)→lock-retained fail-closed (released:false, evidence surfaced), NO direct-release hatch; IO-via-dep, controlled promises
   ./run.sh check-entwurf-resume-args   # deterministic gate (0.11 Stage 0 step 5c-3b): resume-argv SSOT (buildResumePiArgs) shared by the legacy async worker and the v2 spawn-bg resident citizen — A1: legacy=--no-extensions + no --entwurf-control (one-shot pi -p exits), v2-control=--entwurf-control + no --no-extensions (keep-alive is the goal, resumed session stays addressable); BOTH keep --mode json -p + prompt-as-turn (-p NOT dropped in v2); explicitExtensionArgs preserved once (#29); v2 includes plan.launchArgs (--approve); null provider→no --provider; no cross-contamination
@@ -1402,6 +1403,20 @@ check_entwurf_v2_mailbox() {
   # and NO routing seam (no releaseLock / inspect / probe / resolve) — a lock leak or
   # re-route is structurally impossible.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-mailbox.ts)
+}
+
+check_entwurf_v2_runner() {
+  # Deterministic gate for 0.11 Stage 0 step 5d-1: the execute-router (executeDispatch) that
+  # routes an already-decided DispatchDecision to its 5c transport hand and maps the outcome
+  # to one outcome-rich EntwurfV2RunResult. Proves over injected fake hands (no socket/spawn/
+  # timer): reject -> rejected (receipt+diagnostic carried, NO hand called) / control-socket ->
+  # sendControl(plan, lock) / spawn-bg -> resumeSpawnBg (socket-alive AND lock-retained both
+  # ride `executed`, fail-closed is not a failure) / meta-mailbox -> sendMailbox(plan, NULL
+  # lock, ？7). Carry-overs: N3 control `rejected` carries rejectReason verbatim; N1
+  # SendDeliveredReleaseFailedError -> execution-failed{finalizedOutcome, releaseFailed,
+  # retrySafe:false}; a plain hand throw -> execution-failed{retrySafe:false} with no
+  # finalizedOutcome. Exactly one hand runs per execute.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-runner.ts)
 }
 
 check_entwurf_v2_spawn() {
@@ -4542,6 +4557,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-mailbox)
     check_entwurf_v2_mailbox
+    ;;
+  check-entwurf-v2-runner)
+    check_entwurf_v2_runner
     ;;
   check-entwurf-v2-spawn)
     check_entwurf_v2_spawn
