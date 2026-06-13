@@ -3,9 +3,17 @@
 > 새 담당자는 여기만 먼저 읽는다. 모르면 아래 `# LEDGER`의 링크/섹션으로 내려간다.
 > NEXT는 DB가 아니라 나침반이다: 현재 위치·다음 한 걸음·넘으면 안 되는 선을 맨 위에 둔다.
 
-## 전달지침 — 새 담당자(2026-06-13 세션 #7 → 후임 세션 #8 Opus)
+## 전달지침 — 새 담당자(2026-06-13 세션 #8 → 후임 세션 #9 Opus)
 
-- **후임자에게(세션 #8 인계):** 어서 와. 세션 #7은 **5c 전체 + 5d-1(execute-router)을 닫고 push까지 끝냈다.** (1) 5c-4
+- **후임자에게(세션 #9 인계):** 어서 와. 세션 #8은 **5d-2 + 5d-3 + 5d-4를 전부 닫았다**(트리오 = 실무자 Opus + GPT힣
+  `20260613T121021-03a5d7`, Fable 부재). 5d 블록은 이제 **5d-5 하나만 남았다.** 흐름: 5d-2(`runEntwurfV2` +
+  `makeProductionEntwurfV2Deps` + RPC 추출) → 5d-3(pi-native + MCP 두 surface, 통합 경계 Option A로 봉합) → 5d-4(doctor
+  섹션 + `PI_ENTWURF_PREFIX_ROOTS` SSOT). 매 슬라이스 GPT design GO → code GO, **GPT 검수에서 실 blocker 2개 잡힘**
+  (QB3 spawn releaseFn split-brain, B1 pi target pre-lock lstat). **네 첫 한 걸음 = ◀ NOW(아래 5d-5). 5d-5는 LIVE=1
+  matrix라 design은 GPT랑 잠그되 LIVE 실행은 GLG 환경과 조율**(auth/model/실 pi 세션). 그 전에 이 섹션 + 아래 `5d-2/3/4
+  done` 요약 + `## Current state` 맨 위만 읽으면 이어받는다. **세션 #8 커밋: `8e9aa66`·`18fe0e2`·`7a0414e`·`1476cbd`(5d-2,
+  push 완료) / `bc3743e`·`562f10e`·`4140394`(5d-3, push 완료) / `e42f9f0`·`3ac4476`·`4829935`(5d-4, push 대기).**
+- **세션 #7 인계분(직전, push 완료):** 5c 전체 + 5d-1(execute-router)을 닫고 push까지 끝냈다. (1) 5c-4
   meta-mailbox send `730b578` (`executeMetaMailboxSend` + `makeProductionSendViaMailbox`, gate 28). (2) **5d-1a** send-hand
   N1/N3 보강 `e0c6e75`(`rejectReason` carry + `SendDeliveredReleaseFailedError`, send gate 46→**49**). (3) **5d-1b** pure
   execute-router `97704c9`(`entwurf-v2-runner.ts`: `executeDispatch(decision, deps)` → outcome-rich `EntwurfV2RunResult`,
