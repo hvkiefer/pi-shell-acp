@@ -12,9 +12,9 @@
 - **detour 활성(묶음):** **SE-1**(sibling-equality inbound) + **SE-2**(inactive-receiver mailbox 쓰레기) — 둘 다 같은
   **deliverability-guard 표면**(v1 fallback mcp:459 + v2 meta-mailbox)을 공유하므로 함께 개선. 상세 = 아래 레저.
 - **돌아올 곳:** **5d-5 LIVE matrix** (기존 NOW, 본문 `지금 할 일`·`Next moves` 그대로 유효).
-- **삼형제 역할:** 실무자 = Opus(pi-shell-acp/claude-opus-4-8, `20260614T102907-f77390`) / 자문·리뷰 = GPT5.5
-  (openai-codex/gpt-5.5, `20260614T102904-fe7f37`, live) / 3번째 = CC Opus(native claude-code, `20260614T103037-582512`,
-  다음 턴 합류 예정). **형제 차별 없음 — ACP도 정식 경로, pi 백그라운드/Sonnet 역할 가능.**
+- **삼형제 역할(세션 #11 현재):** 실무자 = 후임 Opus(claude-code, `20260614T141824-d242bf`) / 자문·리뷰 = GPT5.5
+  (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct) / 전임 실무자 Opus(`20260614T122715-6adf55`) 퇴근(인계 완료).
+  **형제 차별 없음 — ACP도 정식 경로, pi 백그라운드/Sonnet 역할 가능.**
 
 ## 🐛 끼어든 버그 레저 (detour ledger) — 줄기와 분리해서 관리
 
@@ -189,22 +189,25 @@
     dynamic import**(root-tsc fence 제약, entwurf-v2-surface 패턴). body는 closure 밖 계산(params.message narrowing). 
     `check-entwurf-send-mailbox-fallback` wiring 갱신(dynamic guarded import, no static import, enqueue가 guard 안). 
     **→ v1 conversational 경로(MCP+pi-native) SE-2 쓰레기 방지 완전 강제.**
-  - **TODO 2d-3(다음, frozen v2 contract — design LOCKED by GPT, required-seam):** active-receiver 차원을 v2 dispatch에.
-    **GPT 권고 = optional default 금지, REQUIRED injected seam(컴파일이 모든 호출자 강제 → SE-2 갭 부활 불가).** 절단:
-    1. `entwurf-v2-decider.ts`: `DispatchDeciderDeps.mailboxDeliverabilityFor: (identity)=>MailboxDeliverabilityResult|Promise` **required** 추가;
-       unsupported path(247)에서 `const m = await deps.mailboxDeliverabilityFor(identity); resolveDispatch(intent,"unsupported",m.deliverable)`;
-       `resolveMailboxDeliverability`(206 wakeMode-only)는 helper로 남기되 **default 자동사용 금지**(이름 `resolveMailboxWakeModeCapability`류로 좁힘).
-    2. `entwurf-v2-send-fallback.ts`(104): 같은 required seam.
-    3. `entwurf-v2-production.ts`: `ProductionEntwurfV2Seams`에 `readReceiverMarker`(default `readMetaReceiverMarker`) 추가;
-       `mailboxDeliverabilityFor(identity)` = wakeMode(capability) + recordBacked:true + **marker를 identity와 일치검증**
-       (marker!==null && gardenId/backend/nativeSessionId 일치 && startKey guard, 불일치→fail-closed). **같은 closure를 decider·send-fallback 양쪽 주입(drift 방지).**
-    4. gates: `check-entwurf-v2-decider`(fake seam true/false + seam 호출·lock/inspect/probe 미호출 행), `check-entwurf-v2-send-fallback`(동일),
-       `check-entwurf-v2-production`(seam이 readReceiverMarker로 active/inactive 구성 wiring 가드), old resolveMailboxDeliverability direct test는 helper로 갱신.
-    - Q2: `check-entwurf-v2-contract`(frozen 6-cell)는 resolveDispatch(deliverable:boolean)만 검증 → 2d-3 무영향. contract 주석 "target/capability/**presence** layer supplies it"로 보정.
-    - Q3: seam 반환=`{deliverable,reason}`; receipt schema엔 reason 추가 안 함(frozen 유지, public reject taxonomy=`mailbox-undeliverable` 유지); reason은 seam/gate/debug용.
-    - 주의: "mailbox has no in-band reject"는 transport hand 말로 유지; 2d-3 reject는 **pre-transport resolver reject**(구분).
-    - 보너스: 2d-1 guard도 marker presence만 보지 말고 identity 일치검증 보강(최소 production seam은 필수).
-  - **TODO 2e:** native `entwurf-control.ts:1471·1695` `{origin:"pi-session",replyable:true}`→computeSelfAddressability 경유
+  - **DONE ✅ 2d-3(로컬, 미커밋 — slice 2 release block, GLG가 커밋. 세션 #11, 실무자 후임 Opus `20260614T141824-d242bf`
+    + GPT5.5 `…122717-bdfe6e` design GO → code GO):** active-receiver 차원을 v2 dispatch에 **REQUIRED injected seam**으로.
+    컴파일이 모든 호출자 강제 → SE-2 갭 부활 불가(=정책으로 막음, 코드 산더미 아님). 한 것:
+    1. `entwurf-deliverability.ts`: NEW PURE `receiverMarkerMatchesIdentity(marker, identity)` — structural `ReceiverIdentityFacts`
+       (gardenId/backend/nativeSessionId, meta-session 타입 import 0, equality-only). null/undefined/drift 전부 fail-closed. **v1·v2 공유 SSOT.**
+    2. `entwurf-v2-decider.ts`: `DispatchDeciderDeps.mailboxDeliverabilityFor:(identity)=>MailboxDeliverabilityResult|Promise` **required**;
+       unsupported path가 `await deps.mailboxDeliverabilityFor(identity)`→resolveDispatch(intent,"unsupported",m.deliverable).
+       `resolveMailboxDeliverability`→**`resolveMailboxWakeModeCapability`** rename(helper만, decider 직접호출 0). **decider의 `capabilityFor` dep 제거**(deliverability seam이 capability 캡슐화 → dead seam 안 남김).
+    3. `entwurf-v2-send-fallback.ts`: 같은 required seam, line 104 → `await deps.mailboxDeliverabilityFor(identity)`. `capabilityFor` dep + metaCapabilityFor import 제거.
+    4. `entwurf-v2-production.ts`: `ProductionEntwurfV2Seams.readReceiverMarker`(default `readMetaReceiverMarker`). closure 1개
+       `mailboxDeliverabilityFor`=metaCapabilityFor(backend).wakeMode + recordBacked:true(by construction, GPT 확인) + `receiverMarkerMatchesIdentity`(marker↔identity) → `mailboxConversationalDeliverable`. **같은 closure를 deciderDeps + controlSendDeps.deadFallback 양쪽 주입(drift 0).**
+    5. `entwurf-mailbox-guard.ts`: `gatherMailboxDeliverabilityFacts`도 같은 helper로 marker↔identity 검증(v1 presence-only 거짓 닫음 — 보너스 동시 적용).
+    6. contract: resolveDispatch(boolean)만 봐서 **무영향**, 주석만 "target/capability/**presence** layer ... required seam"으로 보정. taxonomy=`mailbox-undeliverable` 유지(미확장).
+    - **detour-in-detour:** `check-entwurf-mailbox-guard`의 `liveIdentity`가 `mintMetaIdentity`(랜덤 gid)였는데 marker↔identity 검증 들어가니
+      gid 불일치로 옛 "deliverable" 테스트 깨짐 = presence-only 거짓을 인코딩하던 테스트. 면피 아닌 honest fix(GARDEN 고정 객체 + drift 행). GPT 동의.
+    - **gates(새 파일 0, 기존 5개 확장):** deliverability 18→**24**, mailbox-guard 15→**20**, decider →**107**, send-fallback →**26**, production →**23**.
+      decider SE-2 RED행=self-fetch citizen+seam false→mailbox-undeliverable+seam 1회+no lock/probe. production E2(marker absent→rejected+enqueue 0-call+release1)/E3(drift→rejected).
+    - **검증:** typecheck 3-config / biome clean / `pnpm check` EXIT=0 / check-pack 158 불변. **GPT code GO, blocker 0.**
+  - **TODO 2e(다음):** native `entwurf-control.ts:1471·1695` `{origin:"pi-session",replyable:true}`→computeSelfAddressability 경유
     + meta-self watchArmed 실배선(`buildTrustedMetaSenderEnvelope`/`entwurf_self`가 presence marker로 replyable).
   - **TODO 2f:** 옛거짓 기대 소스가드 갱신 `check-entwurf-v2-surface.ts:249` + `check-entwurf-send-mailbox-fallback.ts:134`.
   - **release block 마감 조건(GPT):** native hardcode·옛 smoke/소스가드가 하나도 안 남아야 함. 그 다음 줄기 5d-5 복귀.
