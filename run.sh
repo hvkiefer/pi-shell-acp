@@ -79,6 +79,7 @@ Usage:
   ./run.sh check-entwurf-resume-args   # deterministic gate (0.11 Stage 0 step 5c-3b): resume-argv SSOT (buildResumePiArgs) shared by the legacy async worker and the v2 spawn-bg resident citizen — A1: legacy=--no-extensions + no --entwurf-control (one-shot pi -p exits), v2-control=--entwurf-control + no --no-extensions (keep-alive is the goal, resumed session stays addressable); BOTH keep --mode json -p + prompt-as-turn (-p NOT dropped in v2); explicitExtensionArgs preserved once (#29); v2 includes plan.launchArgs (--approve); null provider→no --provider; no cross-contamination
   ./run.sh check-entwurf-v2-spawn-production # deterministic gate (0.11 Stage 0 step 5c-3c): production SpawnBgResumeDeps factory (makeProductionSpawnBgResumeDeps) wiring the 5c-3a watcher's 6 IO seams — no real pi/socket/timer (that=opt-in smoke-entwurf-v2-spawn-live, OUT of pnpm check). socketWatchVerdict: address-conflict→forged (reject, never wait)/alive→alive/dead·indeterminate→wait; spawnChild builds v2-control argv (--entwurf-control, no --no-extensions, -p+prompt, --approve, cwd authority); awaitSocketAlive connectable→resolve / symlink→reject without connect / dead→wait→alive / abort-clears; awaitChildExit code + listener cleanup; awaitTimeout schedule + abort-clear; killChild=SIGTERM; proc-less child fails loud
   ./run.sh smoke-entwurf-v2-spawn-live # LIVE phase gate (0.11 Stage 0 step 5c-3c, D5) — OUT of pnpm check, needs LIVE=1. Exercises the production SpawnBgResumeDeps against REAL OS objects: S1 real unix socket → awaitSocketAlive resolves (real lstat+probe), symlink→forged, absent→abort settles; S2 real child → spawn-event resolve + SIGTERM kill + exit-code capture; S3 watcher integration → real timeout→kill→child-exited→release ×1. Does NOT spawn a real pi resume (that=5d matrix). Run before 5d: LIVE=1 ./run.sh smoke-entwurf-v2-spawn-live
+  ./run.sh smoke-entwurf-v2-matrix-live # LIVE sentinel (0.11 Stage 0 step 5d-5, D4-b) — OUT of pnpm check, needs LIVE=1. Drives REAL production runEntwurfV2 deps over REAL OS objects, 3 cells: C1 control-socket (real pi --entwurf-control resident → RPC send → lock acquire→release ×1), C2 meta-mailbox deliverable (armed self-fetch citizen → real .msg enqueue, lock-free), C3 meta-mailbox guard (no armed receiver → reject, no garbage). Model-in-loop OUT (transport/lock/enqueue gate, GPT Q2); negative/timeout stay deterministic. Model: PI_SHELL_ACP_LIVE_TARGET=<provider>/<model> (default openai-codex/gpt-5.4). LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live
   ./run.sh check-entwurf-facts         # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 1+2): PURE PeerFact core + resolveFactList union — R1 out-of-domain→unsupported, R3b pi 4-value, facts-only keyset; union: PeerFact+SocketOnlyFact by gardenId, dormant→dead, F3 indeterminate preserved, non-pi+socket fail-loud; pure, no IO
   ./run.sh check-socket-discovery      # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 3): SOCKET-axis scanSocketProbes — probes (dir sockets) ∪ (in-domain citizen canonical paths) 3-valued; dormant citizen no-file → dead (resumable, not unprobed), stall → indeterminate (F3), dir hygiene/dedup/missing-dir + e2e → resolveFactList; readdir/probe injected, no IO
   ./run.sh check-meta-listing          # deterministic gate (0.11 Stage 0 step 4, fact-provider slice 4a): META-STORE axis listAllMetaIdentities — explicit-partial: parse failure / body-filename drift → explicit {filename,message} error (verbatim, no synthetic fields), valid records still listed (corrupt doesn't blind); mode strict throws / collect partial; entries/readRecord injected, no IO
@@ -1557,6 +1558,25 @@ smoke_entwurf_v2_spawn_live() {
     return 0
   fi
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-entwurf-v2-spawn-live.ts)
+}
+
+smoke_entwurf_v2_matrix_live() {
+  # LIVE sentinel for 0.11 Stage 0 step 5d-5 (D4-b) — kept OUT of `pnpm check`. The deterministic
+  # sibling (check-entwurf-v2-matrix) fixes every (target kind → transport → lock) cell over fakes
+  # with ZERO IO; this drives the REAL production runEntwurfV2 deps against REAL OS objects on the
+  # substrate happy path across 3 cells: C1 control-socket (a real `pi --entwurf-control` resident
+  # → control-socket RPC send → lock acquire→release ×1), C2 meta-mailbox deliverable (armed
+  # self-fetch citizen → real .msg enqueue, lock-free), C3 meta-mailbox guard (no armed receiver →
+  # reject, no garbage). Model-in-loop is OUT (GPT Q2): "does the sender model call entwurf_send"
+  # is a separate behavior test — this is a transport/lock/enqueue gate. Negative/timeout/contention
+  # stay deterministic. Honest skip when LIVE!=1 so the release-gate is runnable unattended.
+  # Model: PI_SHELL_ACP_LIVE_TARGET=<provider>/<model> (default openai-codex/gpt-5.4).
+  #   LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live
+  if [ "${LIVE:-}" != "1" ]; then
+    echo "[smoke-entwurf-v2-matrix-live] skipped — set LIVE=1 to run (spawns a real pi --entwurf-control + opens a real socket)."
+    return 0
+  fi
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-entwurf-v2-matrix-live.ts)
 }
 
 check_entwurf_facts() {
@@ -4713,6 +4733,9 @@ case "$cmd" in
     ;;
   smoke-entwurf-v2-spawn-live)
     smoke_entwurf_v2_spawn_live
+    ;;
+  smoke-entwurf-v2-matrix-live)
+    smoke_entwurf_v2_matrix_live
     ;;
   check-entwurf-facts)
     check_entwurf_facts
