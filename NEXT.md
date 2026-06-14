@@ -37,6 +37,15 @@
    - **환경 고정 선결:** 어떤 모델/백엔드로 실 pi 세션을 띄워 spawn-resume·send를 실증할지(Fable 차단, Opus 복구).
    - **D5(이미 완료):** `LIVE=1 ./run.sh smoke-entwurf-v2-spawn-live → 7 passed`(5c-3c phase gate, real pi resume 아님).
    - **진입 방식:** GPT와 matrix runner design부터 잠그고(별도 smoke vs release_gate step 편입), 슬라이스별 1차 검수.
+   - **GPT design GO(2026-06-14):** Q5 2층 = (A) deterministic 전수 게이트 + (B) live sentinel smoke. 3슬라이스:
+     **D4-a**(deterministic `check-entwurf-v2-matrix`) / **D4-b**(`smoke-entwurf-v2-matrix-live`, 모델 Opus 고정 금지 →
+     registry default + `PI_SHELL_ACP_LIVE_MODEL` override, control-socket 1 + meta-mailbox 1 cell) / **D4-c**(release_gate
+     check-bridge 직후 편입). LIVE는 substrate-still-works happy-path만; negative/timeout은 deterministic이 담당.
+   - **✅ D4-a DONE(로컬 커밋, push 대기 — GPT 구조 GO + call-reach 보강):** NEW `scripts/check-entwurf-v2-matrix.ts` —
+     REAL `decideDispatch`를 minimal fakes로 구동하는 thin coverage gate(decider 재구현 0). 12행 도달성×락 표 +
+     coverage(transport 3 / lock class 5 / reject reason 8) + reach축(pre-probe/unsupported/in-domain별 inspect·probe·
+     mailbox call-count 강제). **82 assertions.** run.sh 함수+dispatcher+help, `pnpm check` 편입(decider 뒤). check-pack
+     158→**159**, typecheck 3-config / biome clean / `pnpm check` EXIT=0. **NOW = D4-b.**
 
 - **삼형제 역할(세션 #12):** 실무자 = 현 Opus(claude-code, garden `20260614T152031-e914f2`) / 자문·리뷰 = **GPT5.5
   (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct — 현행 검수자)**. 아래 line 384~의 옛 GPT id
