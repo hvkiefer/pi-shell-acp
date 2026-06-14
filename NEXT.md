@@ -182,11 +182,14 @@
   - **DONE ✅ 2d-1** `0877099` guarded enqueue wrapper: NEW `entwurf-mailbox-guard.ts` `gatherMailboxDeliverabilityFacts` +
     `guardedMailboxEnqueue`(deliverable일 때만 injected enqueue). gate `check-entwurf-mailbox-guard` 15(pure 0-call +
     tmpdir 스냅샷). **additive — 배선 전.**
-  - **TODO 2d-2(다음, 깨지는 청크):** conversational enqueue 사이트를 guard 경유로 — MCP `entwurf_send` fallback(`mcp/.../index.ts:459`)
-    + pi-native `entwurf_send` fallback(`entwurf-control.ts` transport 2). **옛 모델 smoke 동반 갱신 필수**(둘 다 target에
-    receiver marker 없어 이제 reject됨): `smoke-meta-mailbox` Case A + `smoke-meta-sender-identity` A→B/B→A에 target presence
-    marker 추가 + "dead receiver → reject + no enqueue"(SE-2) 행 추가. low-level `enqueueMetaMessage`는 raw 유지.
-  - **TODO 2d-3:** v2 decider/send-fallback의 `resolveMailboxDeliverability`(decider:206 wakeMode-only)를 injected
+  - **DONE ✅ 2d-2a** `4b934e6` MCP `entwurf_send` fallback → guardedMailboxEnqueue(isError "not conversationally deliverable").
+    consumer wiring 소스가드 + 두 smoke(meta-mailbox·meta-sender-identity) 갱신: 타깃에 active receiver marker(owner=$$) +
+    "record有 marker無 → reject + mailbox 무변이"(SE-2) 행.
+  - **DONE ✅ 2d-2b** `a098669` pi-native `entwurf_send` fallback(`entwurf-control.ts`) → guardedMailboxEnqueue via **non-literal
+    dynamic import**(root-tsc fence 제약, entwurf-v2-surface 패턴). body는 closure 밖 계산(params.message narrowing). 
+    `check-entwurf-send-mailbox-fallback` wiring 갱신(dynamic guarded import, no static import, enqueue가 guard 안). 
+    **→ v1 conversational 경로(MCP+pi-native) SE-2 쓰레기 방지 완전 강제.**
+  - **TODO 2d-3(다음, frozen v2 contract — 신중):** v2 decider/send-fallback의 `resolveMailboxDeliverability`(decider:206 wakeMode-only)를 injected
     `mailboxDeliverabilityFor` seam으로 승격(decider pure-except-deps 유지, production deps가 receiver marker로 facts 구성).
     gate `check-entwurf-v2-decider`/`check-entwurf-v2-send-fallback` 갱신.
   - **TODO 2e:** native `entwurf-control.ts:1471·1695` `{origin:"pi-session",replyable:true}`→computeSelfAddressability 경유
