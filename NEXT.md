@@ -62,7 +62,17 @@
      REAL `decideDispatch`를 minimal fakes로 구동하는 thin coverage gate(decider 재구현 0). 12행 도달성×락 표 +
      coverage(transport 3 / lock class 5 / reject reason 8) + reach축(pre-probe/unsupported/in-domain별 inspect·probe·
      mailbox call-count 강제). **82 assertions.** run.sh 함수+dispatcher+help, `pnpm check` 편입(decider 뒤). check-pack
-     158→**159**, typecheck 3-config / biome clean / `pnpm check` EXIT=0. **NOW = D4-b.**
+     158→**159**, typecheck 3-config / biome clean / `pnpm check` EXIT=0.
+   - **✅ D4-b CODE DONE(로컬 커밋 `ccc7f40`, push 대기 — GPT design GO + code GO 둘 다):** NEW
+     `scripts/smoke-entwurf-v2-matrix-live.ts`(3-cell LIVE sentinel) + run.sh(함수/dispatch/help). C1 control-socket(실
+     `pi --entwurf-control --mode rpc` → RPC send, outcome=`sent`, lock acquire→release ×1) / C2 meta-mailbox deliverable
+     (armed receiver → `.msg`×1 + `inbox.signal`, lock-free) / C3 guard(receiver 없음 → reject `mailbox-undeliverable`,
+     garbage 0). **model-in-loop OUT(programmatic enqueue, GPT Q2)** — "모델이 entwurf_send 부르나"는 별도 behavior 테스트.
+     자동화 seam(terminateChild SIGTERM→SIGKILL, fresh gid+temp, staged timeout, 실패 시 temp 보존). LIVE=1 없으면 honest
+     skip(release_gate 무인 안전). target `PI_SHELL_ACP_LIVE_TARGET` 기본 `openai-codex/gpt-5.4`. GPT 1라운드 상세 리뷰에서
+     B1(non-TTY spawn→`--mode rpc`)·B2(cleanup helper)·B5(reason pin) 등 blocker 8건 잡혀 전부 보정 후 **code GO**.
+     check-pack 160→**161**, `pnpm check` EXIT=0. **NOW = D4-b LIVE 실증(GLG): `LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live`
+     → 통과 시 D4-c(release_gate check-bridge 직후 편입).**
 
 - **삼형제 역할(세션 #12):** 실무자 = 현 Opus(claude-code, garden `20260614T152031-e914f2`) / 자문·리뷰 = **GPT5.5
   (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct — 현행 검수자)**. 아래 line 384~의 옛 GPT id
