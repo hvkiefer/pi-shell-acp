@@ -3,6 +3,23 @@
 > 새 담당자는 여기만 먼저 읽는다. 모르면 아래 `# LEDGER`의 링크/섹션으로 내려간다.
 > NEXT는 DB가 아니라 나침반이다: 현재 위치·다음 한 걸음·넘으면 안 되는 선을 맨 위에 둔다.
 
+## ⇄ 노트북 이관 체크리스트 (2026-06-14 세션 #12 → 노트북) — 여기부터
+
+> 데스크톱에서 origin/main `ec817fc`까지 전부 push 완료. working tree clean. 노트북에서 이어받는 순서:
+>
+> 1. `git pull` (origin/main `ec817fc`까지 — detour SE-1/SE-2 + D1~D4-a 전부 포함).
+> 2. **ops 재실행(머신별, repo로 안 옮겨짐 — 개발버전이라 노트북도 같은 상태일 수 있음):**
+>    - `./run.sh setup:links --force` → entwurf-targets symlink가 repo canonical 가리키는지(D2). 안 하면 entwurf spawn 전부 refuse.
+>    - `./run.sh install-meta-bridge` → Claude 세션 열기 → `./run.sh doctor-meta-bridge` PASS 확인(D1). writer drift면 재배포.
+> 3. **확인:** `pnpm check` EXIT=0 (check-pack 159) / `./run.sh check-entwurf-v2-matrix` 82 ok.
+> 4. **NOW = D4-b** (`smoke-entwurf-v2-matrix-live`) — 아래 D4 항목. 실 pi LIVE 검증 필요(model auth).
+> 5. **미결 GLG 판단 2건:** ① D3 브랜치 `verify/doctor-pipefail-and-pi-0.79.2` 삭제(`git push origin --delete …`, 정보 유실 없음 확인됨)
+>    ② D4-b 모델(GPT 권고 = Opus 고정 금지, registry default + `PI_SHELL_ACP_LIVE_MODEL` override).
+> 6. **D4-b 설계는 GPT 잠금 완료** — gate가 실 `pi --entwurf-control` 직접 spawn+kill(self-contained), control-socket cell +
+>    meta-mailbox cell, LIVE=1 없으면 skip, release_gate는 check-bridge 직후 편입. 상세 = 아래 D4 항목 + 본문 Q5.
+> 7. **doorbell 관측 이슈(경미, 기록):** 세션 #12 후반 GPT(openai-codex)의 D4-b 회신이 meta-mailbox로 안 옴 — GPT가
+>    `entwurf_send` 대신 자기 세션 출력만 했을 가능성. inbox empty 확인됨. 재현되면 추적.
+
 ## ◀ NOW (2026-06-14 세션 #12) — detour SE-1/SE-2 종료(push 완료) → 줄기 5d-5 복귀, 단 진입 전 detour 4건
 
 > **줄기(stem)는 5d-5 LIVE matrix다.** detour SE-1/SE-2 본체는 **종료**(2d-3·2e·body-render 후속까지 push 완료,
