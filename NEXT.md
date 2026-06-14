@@ -71,8 +71,12 @@
      자동화 seam(terminateChild SIGTERM→SIGKILL, fresh gid+temp, staged timeout, 실패 시 temp 보존). LIVE=1 없으면 honest
      skip(release_gate 무인 안전). target `PI_SHELL_ACP_LIVE_TARGET` 기본 `openai-codex/gpt-5.4`. GPT 1라운드 상세 리뷰에서
      B1(non-TTY spawn→`--mode rpc`)·B2(cleanup helper)·B5(reason pin) 등 blocker 8건 잡혀 전부 보정 후 **code GO**.
-     check-pack 160→**161**, `pnpm check` EXIT=0. **NOW = D4-b LIVE 실증(GLG): `LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live`
-     → 통과 시 D4-c(release_gate check-bridge 직후 편입).**
+     check-pack 160→**161**, `pnpm check` EXIT=0.
+   - **✅ D4-b LIVE DONE(2026-06-14 세션 #14, GLG thinkpad 실측):** `LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live`
+     target=`openai-codex/gpt-5.4` → **11/11 checks passed, 첫 실행 보정 0.** C1 실 pi control-socket RPC `outcome=sent` +
+     lock release / C2 meta-mailbox `.msg`×1 + `inbox.signal` + lock-free / C3 guard reject `mailbox-undeliverable` +
+     garbage 0. fixture(pi citizen mint + 실 `pi --mode rpc`)가 실제로 동작 — D4-b LIVE evidence 확보. **NOW = D4-c**
+     (release_gate에 check-bridge 직후 `smoke-entwurf-v2-matrix-live` 편입, LIVE!=1 honest skip 유지) → 그 후 5d-5 close.
 
 - **삼형제 역할(세션 #12):** 실무자 = 현 Opus(claude-code, garden `20260614T152031-e914f2`) / 자문·리뷰 = **GPT5.5
   (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct — 현행 검수자)**. 아래 line 384~의 옛 GPT id
