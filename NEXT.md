@@ -220,11 +220,16 @@
       identity 유지 + replyable:false + wants_reply=true reject(`sender.replyable===false` flag 기반) + ff 통과. regression
       "inactive→external-mcp degrade"를 runtime이 잡음(GPT 권고).
     - **gates(새 파일 0, 기존 3개 확장):** v2-surface 32→**34**, send-mailbox-fallback →**26**, self-address 18→**24**.
-    - **🐛 발견(후속):** `formatMetaMailboxBody`가 `replyable:false`면 origin 무관 항상 `(external, non-replyable)` 렌더 → meta
-      non-replyable이 body에서 "external"로 흐려짐. envelope 자체는 정직(`origin:meta-session`), 렌더만 부정확. 별도 후속(작은 정직성 흠).
+    - **🐛 body-render 후속 DONE ✅(세션 #11, 후임 Opus `…152031-e914f2` + GPT5.5 code GO, 로컬 미커밋 — push 대기):**
+      `formatMetaMailboxBody`가 `replyable:false`면 origin 무관 항상 `(external, non-replyable)` 렌더 → meta non-replyable이 body에서
+      "external"로 흐려지던 흠. envelope(`origin:meta-session`)는 원래 정직, 렌더만 부정확했음. surgical fix(2 files, +17 -3):
+      `meta-mailbox-body.ts` non-replyable 브랜치에서 `isMeta`면 `(meta-session, non-replyable)`, 아니면 `(external, non-replyable)` 유지.
+      external-mcp/pi-session 기존 의미·모든 replyable 브랜치 불변, envelope/taxonomy 변경 0. regression 2행
+      (`send-mailbox-fallback` 26→**28**: meta non-replyable이 `meta-session, non-replyable` 포함 + `external`로 degrade 안 됨).
+      커밋 메시지 = `fix(entwurf): preserve meta origin for non-replyable mailbox senders`.
     - **검증:** typecheck 3-config / biome clean / `pnpm check` EXIT=0 / check-pack 158. **GPT code GO, blocker 0.**
-  - **release block 마감(거의 닫힘):** native hardcode 0 · 옛 소스가드 0 (2e가 2f 흡수). **남은 것 = 위 body-렌더 후속(선택) +
-    줄기 5d-5 LIVE matrix 복귀.** detour SE-1/SE-2 본체 종료 임박.
+  - **release block 마감(닫힘):** native hardcode 0 · 옛 소스가드 0 (2e가 2f 흡수) · body-render 후속까지 닫힘. **다음 = GLG
+    push → 노트북 pull → 줄기 5d-5 LIVE matrix 복귀.** detour SE-1/SE-2 본체 종료.
 
 ## 전달지침 — 새 담당자(2026-06-13 세션 #9 → 후임 세션 #10)
 
