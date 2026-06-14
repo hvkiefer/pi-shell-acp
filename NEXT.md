@@ -284,6 +284,35 @@
   - **release block 마감(닫힘):** native hardcode 0 · 옛 소스가드 0 (2e가 2f 흡수) · body-render 후속까지 닫힘. **다음 = GLG
     push → 노트북 pull → 줄기 5d-5 LIVE matrix 복귀.** detour SE-1/SE-2 본체 종료.
 
+### SE-3 — 정직한 replyable:false가 버그로 오인됨 (silent degraded addressability) — 🟡 OPEN (가독성)
+
+- **출처(2026-06-14 세션 #14, thinkpad 실측):** mid-session에 `./run.sh install-meta-bridge` 재배포 후, 실무자
+  네이티브 CC 세션(`20260614T154633-dee9ef`)의 `entwurf_self`가 `replyable:false`로 떨어짐. GPT에 `entwurf_send`는
+  `✓ delivered`(control-socket direct)인데 **회신을 garden-id로 못 받음** → GLG가 "재배포로 버그 생겼나" 의심.
+- **근본원인(버그 아님 — SE-2가 정직하게 동작):** `replyable`은 SE-2 slice 2e-b(`index.ts:332`)에서 **별도 사실** =
+  "내 receiver watch가 armed인가"(`~/.pi/agent/meta-receivers/<gid>.json` 존재+owner-alive+watch-armed). 재배포가
+  receiver marker를 리셋했고, **재배포 *이전* 시작된 세션은 mid-session이라 re-arm 못 함** → marker 부재 →
+  정직하게 false. **resume(SessionStart 훅 재실행)하면 새 writer로 re-arm → replyable:true 복구**(실측: 같은 gid가
+  false→true, marker 16:49 생성).
+- **왜 detour:** 로직은 맞다. 문제는 **표면이 침묵**해서 일시적 degraded(재배포→unarmed)와 구조적 2등(SE-1)을
+  구분 못 하고 둘 다 그냥 `false` → 사람이 "버그/회귀"로 읽음. **Crash-Don't-Warn의 사촌: 정직한 no인데 *이유*가 없어
+  오진을 부른다.**
+- **GLG 지시:** "뭔가 안 되는 표시를 해야겠다. 🪛를 상태에서 빼버리든가." → 정확히 SE-1 Q4/slice5 방향(🪛=identity/
+  model-lock 유지, **addressability는 별도 glyph**: `control:alive`/`citizen:dormant`/**`no-inbound`**)과 수렴.
+- **제안 fix (SE-1 slice 5에 folding — 별도 메커니즘 만들지 말 것):** ① `entwurf_self`가 replyable:false면 **machine-readable
+  reason code + human hint 둘 다** 동봉(문자열만 주면 나중 gate가 약해짐 — GPT 보강). reason taxonomy:
+  `receiver-unarmed`(resume/new to re-arm after redeploy) / `no-inbound-path`(SE-1: --entwurf-control 또는 meta-bridge로
+  시작) / `owner-dead` / `watch-unarmed`. ② statusbar/세션명 addressability를 **identity glyph `🪛<gid>`(model-lock 전용)와
+  분리**한 별도 라인/필드로: `replyable:true` | `replyable:false (<reason>)`. ③ (운영) 이관 체크리스트 "재배포 → 세션 새로
+  열기/resume → doctor" 순서 강조 — 우리가 "세션 열기"를 빼먹어 재현됨.
+- **검수 잠금(2026-06-14 세션 #14, GPT5.5 `20260614T163106-01a6e2`):** **A + Q2 후자 + D4 영향 없음**으로 GPT GO.
+  Q1=slice 5 folding(단독 B로 D4-b 앞에 surface change 끼지 말 것, 본질이 addressability honesty 렌더라 slice 5 소유물).
+  Q2=lazy re-arm 반대(armed는 수신측 watch/doorbell capability 사실 — 발신 시점에 위조/복구 금지, SE-2가 닫은 "record
+  exists→deliverable 착각"의 재도입 위험). Q3=release_gate/D4-c 무영향(D4-b는 reply round-trip이나 human-readable
+  reason에 의존하면 안 되고 transport/lock/enqueue만 본다). **결론: 버그 아님 = 정직한 degraded state의 설명 부족. 지금은
+  기록만, D4-b 계속 GO.**
+- **자동화 함의:** reply 라운드트립 *행동 테스트*를 짤 땐 수신측이 재배포 후 fresh/resume 세션이어야 함을 전제로 박을 것.
+
 ## 전달지침 — 새 담당자(2026-06-13 세션 #9 → 후임 세션 #10)
 
 - **세션 #9 진행분(재검증 + NEXT 재편, push 완료):** 실무자 Opus(로컬 세션, garden `20260613T154121-c98fc3`) + GPT힣
