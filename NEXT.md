@@ -189,9 +189,21 @@
     dynamic import**(root-tsc fence 제약, entwurf-v2-surface 패턴). body는 closure 밖 계산(params.message narrowing). 
     `check-entwurf-send-mailbox-fallback` wiring 갱신(dynamic guarded import, no static import, enqueue가 guard 안). 
     **→ v1 conversational 경로(MCP+pi-native) SE-2 쓰레기 방지 완전 강제.**
-  - **TODO 2d-3(다음, frozen v2 contract — 신중):** v2 decider/send-fallback의 `resolveMailboxDeliverability`(decider:206 wakeMode-only)를 injected
-    `mailboxDeliverabilityFor` seam으로 승격(decider pure-except-deps 유지, production deps가 receiver marker로 facts 구성).
-    gate `check-entwurf-v2-decider`/`check-entwurf-v2-send-fallback` 갱신.
+  - **TODO 2d-3(다음, frozen v2 contract — design LOCKED by GPT, required-seam):** active-receiver 차원을 v2 dispatch에.
+    **GPT 권고 = optional default 금지, REQUIRED injected seam(컴파일이 모든 호출자 강제 → SE-2 갭 부활 불가).** 절단:
+    1. `entwurf-v2-decider.ts`: `DispatchDeciderDeps.mailboxDeliverabilityFor: (identity)=>MailboxDeliverabilityResult|Promise` **required** 추가;
+       unsupported path(247)에서 `const m = await deps.mailboxDeliverabilityFor(identity); resolveDispatch(intent,"unsupported",m.deliverable)`;
+       `resolveMailboxDeliverability`(206 wakeMode-only)는 helper로 남기되 **default 자동사용 금지**(이름 `resolveMailboxWakeModeCapability`류로 좁힘).
+    2. `entwurf-v2-send-fallback.ts`(104): 같은 required seam.
+    3. `entwurf-v2-production.ts`: `ProductionEntwurfV2Seams`에 `readReceiverMarker`(default `readMetaReceiverMarker`) 추가;
+       `mailboxDeliverabilityFor(identity)` = wakeMode(capability) + recordBacked:true + **marker를 identity와 일치검증**
+       (marker!==null && gardenId/backend/nativeSessionId 일치 && startKey guard, 불일치→fail-closed). **같은 closure를 decider·send-fallback 양쪽 주입(drift 방지).**
+    4. gates: `check-entwurf-v2-decider`(fake seam true/false + seam 호출·lock/inspect/probe 미호출 행), `check-entwurf-v2-send-fallback`(동일),
+       `check-entwurf-v2-production`(seam이 readReceiverMarker로 active/inactive 구성 wiring 가드), old resolveMailboxDeliverability direct test는 helper로 갱신.
+    - Q2: `check-entwurf-v2-contract`(frozen 6-cell)는 resolveDispatch(deliverable:boolean)만 검증 → 2d-3 무영향. contract 주석 "target/capability/**presence** layer supplies it"로 보정.
+    - Q3: seam 반환=`{deliverable,reason}`; receipt schema엔 reason 추가 안 함(frozen 유지, public reject taxonomy=`mailbox-undeliverable` 유지); reason은 seam/gate/debug용.
+    - 주의: "mailbox has no in-band reject"는 transport hand 말로 유지; 2d-3 reject는 **pre-transport resolver reject**(구분).
+    - 보너스: 2d-1 guard도 marker presence만 보지 말고 identity 일치검증 보강(최소 production seam은 필수).
   - **TODO 2e:** native `entwurf-control.ts:1471·1695` `{origin:"pi-session",replyable:true}`→computeSelfAddressability 경유
     + meta-self watchArmed 실배선(`buildTrustedMetaSenderEnvelope`/`entwurf_self`가 presence marker로 replyable).
   - **TODO 2f:** 옛거짓 기대 소스가드 갱신 `check-entwurf-v2-surface.ts:249` + `check-entwurf-send-mailbox-fallback.ts:134`.
