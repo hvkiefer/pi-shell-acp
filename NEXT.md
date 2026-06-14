@@ -75,8 +75,14 @@
    - **✅ D4-b LIVE DONE(2026-06-14 세션 #14, GLG thinkpad 실측):** `LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live`
      target=`openai-codex/gpt-5.4` → **11/11 checks passed, 첫 실행 보정 0.** C1 실 pi control-socket RPC `outcome=sent` +
      lock release / C2 meta-mailbox `.msg`×1 + `inbox.signal` + lock-free / C3 guard reject `mailbox-undeliverable` +
-     garbage 0. fixture(pi citizen mint + 실 `pi --mode rpc`)가 실제로 동작 — D4-b LIVE evidence 확보. **NOW = D4-c**
-     (release_gate에 check-bridge 직후 `smoke-entwurf-v2-matrix-live` 편입, LIVE!=1 honest skip 유지) → 그 후 5d-5 close.
+     garbage 0. fixture(pi citizen mint + 실 `pi --mode rpc`)가 실제로 동작 — D4-b LIVE evidence 확보.
+   - **✅ D4-c DONE(로컬 커밋 `68e6da8`, push 대기 — GPT design GO):** `release_gate`(run.sh)에 **check-bridge 직후**
+     `smoke-entwurf-v2-matrix-live`를 **단일 step**(backend loop 없음 — substrate sentinel)으로 편입. **LIVE!=1이면 PASS가
+     아니라 SKIP으로 카운트**(gemini-availability idiom 차용: `warn`+`results SKIP`+`skip++`) → 무인 release_gate 안전 +
+     summary 거짓 PASS 없음. `--allow-skip-gemini`와 독립축. bash -n OK / skip-path OK. GPT Q1(직후)·Q2(1회)·Q3(SKIP 명시) 반영.
+   - **▶ D4 트리오 완성 = 5d-5 headline (c) release-gate matrix 닫힘** (a=deterministic 전수표 / b=LIVE sentinel 11/11 /
+     c=release wiring). **NOW = 5d-5 close 선언 전 확인 2건:** ① headline (a)MCP spawn-bg·(b)pi-native dynamic-import 실증이
+     G1 boot gate(`check-pi-tools-bridge-boot`)로 충분히 덮였는지 GLG/GPT 확인 ② GLG push(`ae8e4e5`~`68e6da8` 6커밋).
 
 - **삼형제 역할(세션 #12):** 실무자 = 현 Opus(claude-code, garden `20260614T152031-e914f2`) / 자문·리뷰 = **GPT5.5
   (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct — 현행 검수자)**. 아래 line 384~의 옛 GPT id
