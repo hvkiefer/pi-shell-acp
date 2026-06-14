@@ -121,8 +121,47 @@
   - CC ②의 `deliverable/delivered/read` 3단에서 **"deliverable"이 "receiver active"를 포함**해야 함 — 이 둘이 합쳐지는 지점.
 - **슬라이스 영향:** SE-1 slice 2(v1 fallback guard)를 **"wakeMode + active-receiver" 합동 guard**로 확장. slice 1 replyable
   진실성 정의에도 active-receiver 축이 들어감. slice 4 matrix에 "종료된 self-fetch citizen → reject + no enqueue" 행 추가.
-- **상태:** SE-1 설계 합의(GPT GO) + 실측 완료. SE-2 설계 판단 확정(GLG+GPT), active-receiver 신호 설계는 reviewer(GPT/CC)
-  와 잠글 것. **다음 한 걸음 = 실측+SE-2를 양 reviewer에 공유 → 합동 guard 설계 잠금 → 슬라이스 1 failing test.**
+### 묶음 설계 잠금 — GPT 1차 GO + CC Opus 2차 GO (둘 다 실측 기반, 2026-06-14)
+
+- **predicate 협소화(GPT a):** 넓은 `deliverable` 금지. 정확한 이름 = **`mailboxConversationalDeliverable`** /
+  `canEnqueueForDoorbellNow`. "나중에 읽을 archival mailbox"가 아니라 "지금 닫힌 세션에 쓰레기 안 남기는 conversational
+  reply" 계약. v2 기존 `resolveMailboxDeliverability`도 이 의미로 좁힘.
+- **🔴 확정된 살아있는 버그(CC 실측 + 코드 검증):** `pi-extensions/meta-bridge-hook.ts:148`
+  `const senderOwners = [process.ppid, parentPid(process.ppid)]` — sender marker를 **ppid + grandparent 둘 다** 기록.
+  CC 트리 = [claude CLI(starttime 248977), 로그인 bash 42593(202374)]. grandparent(42593)는 ghostty/i3 아래 세션 종료
+  후에도 생존 → claude 죽어도 grandparent 마커가 `processStartKey` 통과 → **"종료 세션 active receiver" false-positive가
+  지금 샌다.** GPT (b)는 가설이 아니라 현재 동작. ⇒ 슬라이스에 **기존 dual-owner sender marker 수정**(ppid 단독)을 같이.
+- **active-receiver 신호 = 별도 `meta-receiver`(presence) marker(GPT b + CC Q1 검증):** sender marker 재사용 금지.
+  담을 것 `{gardenId, backend, nativeSessionId, ownerPid, ownerStartKey, ownerKind, updatedAt, armProvenance}`. owner =
+  **watchPaths 구독을 든 claude CLI(= 훅의 `process.ppid` 단독)**, plugin host 아님(네이티브 트리 직결 확인). 선별 불확실
+  → fail-closed. 검증 = `processStartKey(ownerPid) === ownerStartKey` + record(garden/native/backend) 일치. pid 단독 금지.
+  capability registry 새 축 불요(함수 seam). 부품 이미 존재: `meta-session.ts` `processStartKey()`(1148, field22→
+  `linux:<starttime>`) + `writeMetaSenderMarker`의 `ownerStartKey`(1239) + reader 재사용가드(1288 `liveKey!==ownerStartKey→null`).
+- **cleanup 훅 없음 → startKey가 load-bearing(CC Q2 검증):** hooks.json 이벤트 = SessionStart/CwdChanged/UserPromptSubmit/
+  FileChanged **4개뿐, SessionEnd/Stop 없음.** 종료/SIGKILL 시 record·marker 전부 stale로 남음 → `processStartKey` 일치가
+  **유일한 정직 사망탐지기(optional 아님).** cleanup 훅을 1차 방어로 만들지 말 것(SIGKILL에 안 뜸).
+- **deliverable = 명시 3-conjunct(CC Q4-1):** `self-fetch(정적) AND ownerPid-startKey-alive(런타임) AND watch-armed(런타임)`.
+  ownerPid 살아도 watch 미arm이면 wake 0(UserPromptSubmit-only 경로는 watchPaths 못 냄, SessionStart arm ERROR나도 record는
+  landing). "record-fresh"를 deliverable로 승격 금지.
+- **arm provenance(CC Q4-2):** presence marker에 어느 이벤트가 arm했는지 기록. SessionStart/CwdChanged=arm가능,
+  UserPromptSubmit=record-only(addressability를 active로 올리면 안 됨 — re-arm 불가).
+- **reject 게이트(GPT c + CC Q4-3):** "닫힌 claude-code target(record有/receiver無) → **reject** AND 새 `.msg` 0개 AND
+  **signal poke 0** AND 타깃 mailbox 파일시스템 **무변이**"(기존 미배달 `.msg` + poke = re-ring 위험까지 차단). **GLG 쓰레기
+  방지의 본체.**
+- **슬라이스 순서(잠금):** 1·2 분리하되 **같은 release block**에서 닫음.
+  1. **replyable 진실성:** pi self/envelope가 live socket 검증 없으면 `replyable:false`/`wants_reply` reject, socketPath
+     expected vs alive 구분. **failing test 필수 행(CC ④): "record有+owner-dead(startKey 불일치)→false", "record有+
+     watch-unarmed→false"** (전부-부재 행만으로는 슬라이스 3 착지 후 green인데 regress).
+  2. **합동 mailbox guard:** v1 fallback(mcp:459) + MCP v1 + pi-native v1 + v2 decider/send-fallback이 **같은 pure
+     predicate**(`mailboxConversationalDeliverable`) 사용. self-fetch라도 activeReceiver false면 enqueue 0. + dual-owner
+     sender marker 수정.
+  3. **pi writer:** `gardenId=sessionId` 보존 upsert. `mintMetaIdentity`에 `gardenId?` 추가하되 **non-pi는 기본 generate,
+     pi caller만 explicit id 허용+검증**. idempotent attach, backend drift fail-loud.
+  4. **matrix:** pi record alive/dead v2 cells + "v1 fallback이 pi record에 blind enqueue 안 함" + 위 reject 게이트.
+     golden case = 이 cwd 실측 배치(CC ⑤).
+  5. **UI/status/self 정직성:** identity glyph(🪛<id>) vs addressability glyph 분리.
+- **상태:** **설계 잠금 완료(GPT 1차 + CC 2차 둘 다 GO, 전부 실측 기반).** 다음 한 걸음 = **슬라이스 1 failing test**(replyable
+  진실성, 위 필수 2행 포함). 줄기 5d-5 복귀 잊지 말 것.
 
 ## 전달지침 — 새 담당자(2026-06-13 세션 #9 → 후임 세션 #10)
 
