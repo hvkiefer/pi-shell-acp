@@ -4553,6 +4553,26 @@ release_gate() {
   run_step "smoke-model-switch"             gate bash "$self" smoke-model-switch "$project_dir"
   run_step "smoke-entwurf-resume"           gate bash "$self" smoke-entwurf-resume "$project_dir"
   run_step "check-bridge"                   gate bash "$self" check-bridge
+  # D4-c: the v2 dispatch substrate sentinel (5d-5). A SINGLE run (NOT backend-looped — it proves
+  # production runEntwurfV2 deps + real pi control-socket RPC + real mailbox enqueue + v2 lock, not
+  # per-backend model behavior). Placed right after check-bridge: the MCP/protocol substrate must be
+  # green first so a matrix-live failure reads as "v2 transport/lock/enqueue", not bridge basics.
+  # Opt-in LIVE: it spawns a real `pi --entwurf-control` (needs auth/model), so LIVE!=1 is an HONEST
+  # SKIP (not a PASS) — an unattended release-gate stays runnable without faking coverage. Independent
+  # of --allow-skip-gemini (that gates the three-backend claim; this gates substrate auth).
+  section "release-gate step: smoke-entwurf-v2-matrix-live"
+  if [ "${LIVE:-}" = "1" ]; then
+    if gate env LIVE=1 bash "$self" smoke-entwurf-v2-matrix-live; then
+      ok "smoke-entwurf-v2-matrix-live: PASS"
+      results+=("PASS  smoke-entwurf-v2-matrix-live"); pass=$((pass + 1))
+    else
+      fail "smoke-entwurf-v2-matrix-live: FAIL"
+      results+=("FAIL  smoke-entwurf-v2-matrix-live"); failc=$((failc + 1))
+    fi
+  else
+    warn "smoke-entwurf-v2-matrix-live: LIVE!=1 — skipped (v2 substrate sentinel, opt-in: needs auth/model)"
+    results+=("SKIP  smoke-entwurf-v2-matrix-live (LIVE!=1)"); skip=$((skip + 1))
+  fi
   run_step "check-native-async"             gate bash "$self" check-native-async
   run_step "sentinel"                       gate bash "$self" sentinel
   run_step "session-messaging"              gate bash "$self" session-messaging
