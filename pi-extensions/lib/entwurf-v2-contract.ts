@@ -301,8 +301,10 @@ export function makeRejectReceipt(
  *
  * Two facts in: `liveness` (the 4-value FactLiveness) and `mailboxDeliverable`
  * (F-mailbox — a SEPARATE axis from liveness, NOT a column of either table, NOT
- * an entwurf_peers row field; step 5's target/capability layer supplies it, and
- * unknown deliverability MUST be passed as false = fail-closed). The deliverable
+ * an entwurf_peers row field; step 5's target/capability/presence layer supplies it
+ * via the required mailboxDeliverabilityFor seam — wake-mode capability AND a live
+ * active-receiver (SE-2 2d-3) — and unknown deliverability MUST be passed as false =
+ * fail-closed). The deliverable
  * fact is consulted ONLY on the `unsupported` mailbox path; for an in-domain (pi)
  * backend the liveness-routed table is authoritative and the flag is ignored.
  *

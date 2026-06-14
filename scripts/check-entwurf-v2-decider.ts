@@ -14,7 +14,11 @@
  *   5. control-socket execute lock non-null; meta-mailbox execute lock null (？7).
  *   6. the unsupported (mailbox) path acquires NO lock (？7).
  *   7. a pre-probe address conflict rejects WITHOUT probing (inspectSocket unused).
- *   8. unsupported + fire-and-forget + deliverable=false ⇒ reject only, no plan.
+ *   8. unsupported + fire-and-forget: deliverability comes from the REQUIRED
+ *      mailboxDeliverabilityFor seam (active-receiver), NOT wake-mode alone. seam
+ *      deliverable=true ⇒ meta-mailbox execute; false ⇒ mailbox-undeliverable reject —
+ *      a self-fetch citizen with an INACTIVE receiver is refused (SE-2 2d-3), no plan,
+ *      no lock, no probe; the seam is consulted exactly once on the resolved identity.
  *   9. an invalid garden id throws BEFORE any path/lock is built (F2-P1).
  *  10. no spawn-bg plan carries provider/model (D4: 5c-owned launch identity).
  *  11. (B2) a throw AFTER the lock is acquired (inspect/probe/preflight) releases
@@ -39,7 +43,7 @@ import {
 	decideDispatch,
 	ENTWURF_V2_OBSERVE_TIMEOUT_MS,
 	type ExecutionPlan,
-	resolveMailboxDeliverability,
+	resolveMailboxWakeModeCapability,
 	type TargetResolution,
 } from "../pi-extensions/lib/entwurf-v2-decider.ts";
 import type { AcquireLockResult, LockClaim } from "../pi-extensions/lib/entwurf-v2-lock.ts";
@@ -123,7 +127,10 @@ interface ScenarioOpts {
 	inspection?: TargetSocketInspection;
 	probe?: SocketLiveness;
 	preflight?: PreflightOutcome;
-	wakeMode?: "self-fetch" | "direct-inject";
+	/** SE-2 2d-3: the verdict the injected mailboxDeliverabilityFor seam returns on the
+	 * unsupported path. Default false (fail-closed) — the decider trusts the seam, never
+	 * wake-mode alone, so this is how a test asserts both the deliverable and inactive cells. */
+	mailboxDeliverable?: boolean;
 }
 
 interface Tracked {
@@ -131,6 +138,7 @@ interface Tracked {
 	acquireCalls: string[];
 	releaseCalls: LockClaim[];
 	inspectCalls: string[];
+	mailboxCalls: MetaIdentity[];
 }
 
 // Build injected deps with call tracking. A lock "conflict" returns a failed
@@ -140,6 +148,7 @@ function mkDeps(opts: ScenarioOpts): Tracked {
 	const acquireCalls: string[] = [];
 	const releaseCalls: LockClaim[] = [];
 	const inspectCalls: string[] = [];
+	const mailboxCalls: MetaIdentity[] = [];
 	const deps: DispatchDeciderDeps = {
 		resolveTarget: () => opts.resolution,
 		acquireLock: (gardenId: string): AcquireLockResult => {
@@ -166,11 +175,14 @@ function mkDeps(opts: ScenarioOpts): Tracked {
 		},
 		probeSocket: async (): Promise<SocketLiveness> => opts.probe ?? "dead",
 		preflightForCwd: () => opts.preflight ?? APPROVE,
-		capabilityFor: () => capability(opts.wakeMode ?? "direct-inject"),
+		mailboxDeliverabilityFor: (identity: MetaIdentity) => {
+			mailboxCalls.push(identity);
+			return { deliverable: opts.mailboxDeliverable ?? false, reason: "fake-deliverability" };
+		},
 		mailboxDir: "/fake/mailbox",
 		sessionsDir: "/fake/sessions",
 	};
-	return { deps, acquireCalls, releaseCalls, inspectCalls };
+	return { deps, acquireCalls, releaseCalls, inspectCalls, mailboxCalls };
 }
 
 function isExecute(d: DispatchDecision): d is Extract<DispatchDecision, { kind: "execute" }> {
@@ -250,6 +262,9 @@ async function main(): Promise<void> {
 				},
 				probeSocket: async () => "dead",
 				preflightForCwd: () => APPROVE,
+				mailboxDeliverabilityFor: () => {
+					throw new Error("target-locked(corrupt): in-domain pi never consults the mailbox seam");
+				},
 			},
 		);
 		ok("target-locked(corrupt): reject", d.kind === "reject" && d.receipt.reason === "target-locked");
@@ -441,16 +456,19 @@ async function main(): Promise<void> {
 	}
 
 	// ── 2+5+6: meta-mailbox SEND execute (unsupported claude + ff + deliverable) ─
+	// Deliverability comes from the required seam (active receiver), NOT wake-mode alone.
 	{
 		const t = mkDeps({
 			resolution: { identity: identity("claude-code"), preProbeAddressConflict: false },
-			wakeMode: "self-fetch",
+			mailboxDeliverable: true,
 		});
 		const d = await decideDispatch(
 			{ target: GID, intent: "fire-and-forget", mode: "steer", wantsReply: true, message: "mail" },
 			t.deps,
 		);
 		ok("mailbox-execute: kind execute", isExecute(d));
+		ok("mailbox-execute: deliverability seam consulted exactly once", t.mailboxCalls.length === 1);
+		ok("mailbox-execute: seam asked about the resolved identity", t.mailboxCalls[0]?.gardenId === GID);
 		if (isExecute(d) && d.plan.transport === "meta-mailbox") {
 			ok("mailbox-execute: receipt.transport === plan.transport", d.receipt.transport === "meta-mailbox");
 			ok("mailbox-execute: lock NULL (？7 no lock)", d.lock === null);
@@ -467,11 +485,11 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// ── 8: unsupported + ff + deliverable=false → reject, no plan, no lock ───────
+	// ── 8: unsupported + ff + seam says undeliverable → reject, no plan, no lock ─
 	{
 		const t = mkDeps({
 			resolution: { identity: identity("codex"), preProbeAddressConflict: false },
-			wakeMode: "direct-inject",
+			mailboxDeliverable: false,
 		});
 		const d = await decideDispatch({ target: GID, intent: "fire-and-forget", message: "mail" }, t.deps);
 		ok("mailbox-undeliverable: reject", d.kind === "reject" && d.receipt.reason === "mailbox-undeliverable");
@@ -483,11 +501,34 @@ async function main(): Promise<void> {
 		ok("mailbox-undeliverable: acquireLock NOT called", t.acquireCalls.length === 0);
 	}
 
+	// ── SE-2 2d-3 KEY ROW: a self-fetch CITIZEN whose receiver is INACTIVE (the seam
+	// says not deliverable — terminated session / drifted marker) → mailbox-undeliverable
+	// reject, NO plan, NO lock, NO inspect/probe. This is the v2 closure of the gap slice
+	// 2d-2 closed for v1: the decider no longer trusts wake-mode alone; the required seam's
+	// active-receiver verdict governs, so a reply to a dead claude-code is refused, not
+	// enqueued as mailbox garbage. (Indistinguishable here from the codex case at the
+	// receipt level — that is the point: the seam, not the backend, decides.) ────────────
+	{
+		const t = mkDeps({
+			resolution: { identity: identity("claude-code"), preProbeAddressConflict: false },
+			mailboxDeliverable: false,
+		});
+		const d = await decideDispatch({ target: GID, intent: "fire-and-forget", message: "mail" }, t.deps);
+		ok(
+			"se2-inactive: reject mailbox-undeliverable",
+			d.kind === "reject" && d.receipt.reason === "mailbox-undeliverable",
+		);
+		ok("se2-inactive: no plan (no enqueue plan minted)", !("plan" in d));
+		ok("se2-inactive: acquireLock NOT called (？7)", t.acquireCalls.length === 0);
+		ok("se2-inactive: never inspect/probe (unsupported axis)", t.inspectCalls.length === 0);
+		ok("se2-inactive: deliverability seam consulted exactly once", t.mailboxCalls.length === 1);
+	}
+
 	// ── unsupported + owned-outcome → backend-liveness-unsupported, no lock ──────
 	{
 		const t = mkDeps({
 			resolution: { identity: identity("claude-code"), preProbeAddressConflict: false },
-			wakeMode: "self-fetch",
+			mailboxDeliverable: true,
 		});
 		const d = await decideDispatch({ target: GID, intent: "owned-outcome", message: "x" }, t.deps);
 		ok(
@@ -518,6 +559,7 @@ async function main(): Promise<void> {
 						inspectSocket: async () => ({ kind: "absent", socketPath: "/fake/ctl/s.sock" }),
 						probeSocket: async () => "dead",
 						preflightForCwd: () => APPROVE,
+						mailboxDeliverabilityFor: () => ({ deliverable: false, reason: "in-domain pi: seam unused" }),
 						...over,
 					},
 				);
@@ -571,6 +613,7 @@ async function main(): Promise<void> {
 					inspectSocket: async () => ({ kind: "socket-file", socketPath: "/fake/ctl/s.sock" }),
 					probeSocket: async () => "alive",
 					preflightForCwd: () => APPROVE,
+					mailboxDeliverabilityFor: () => ({ deliverable: false, reason: "in-domain pi: seam unused" }),
 				},
 			);
 		} catch (e) {
@@ -607,6 +650,9 @@ async function main(): Promise<void> {
 				throw new Error("invalid-gid: probeSocket must not be reached");
 			},
 			preflightForCwd: () => APPROVE,
+			mailboxDeliverabilityFor: () => {
+				throw new Error("invalid-gid: mailboxDeliverabilityFor must not be reached");
+			},
 		};
 		try {
 			await decideDispatch({ target: "../etc/passwd", intent: "owned-outcome", message: "x" }, deps);
@@ -616,13 +662,16 @@ async function main(): Promise<void> {
 		ok("invalid-gid: throws", threw);
 		ok("invalid-gid: throws BEFORE resolveTarget (no path/lookup built)", !resolveCalled);
 	}
+	// The wake-mode capability HELPER stays gate-pinned (renamed; the decider no longer
+	// calls it directly — deliverability flows through the required seam). It answers the
+	// capability HALF only; the active-receiver half lives in the production seam.
 	ok(
-		"deliverability: claude-code (self-fetch) → deliverable",
-		resolveMailboxDeliverability(identity("claude-code"), () => capability("self-fetch")),
+		"wakeMode-capability: claude-code (self-fetch) → capability-deliverable",
+		resolveMailboxWakeModeCapability(identity("claude-code"), () => capability("self-fetch")),
 	);
 	ok(
-		"deliverability: codex (direct-inject) → NOT deliverable (fail-closed)",
-		!resolveMailboxDeliverability(identity("codex"), () => capability("direct-inject")),
+		"wakeMode-capability: codex (direct-inject) → NOT capability-deliverable (fail-closed)",
+		!resolveMailboxWakeModeCapability(identity("codex"), () => capability("direct-inject")),
 	);
 }
 

@@ -9,8 +9,8 @@
  *
  * Why a separate pure module (step 4 discipline = gate-first → pure-before-IO →
  * wire): every IO surface the decision needs — the target lookup, the per-gid lock,
- * the lstat/connect socket inspection, the trust preflight, the capability registry
- * — is INJECTED via `DispatchDeciderDeps`, so the gate drives every branch with
+ * the lstat/connect socket inspection, the trust preflight, the mailbox-deliverability
+ * seam — is INJECTED via `DispatchDeciderDeps`, so the gate drives every branch with
  * fakes and the live wrappers wire the real fns. The plan is shaped so 5c's
  * transport hand consumes it WITHOUT re-deriving any path/arg (socketPath,
  * mailboxDir, sessionsDir, launchArgs are all planted here once — 4c "재유도 금지"):
@@ -32,8 +32,10 @@
  *   5. in-domain         — inspectTargetControlSocket (lstat-then-connect, ？2) →
  *      resolveDispatch → on a resume verdict, preflight the target cwd (1B: deny →
  *      nonce-owned release → untrusted-fail-fast) → plan.
- *   6. unsupported       — NO lock; resolveMailboxDeliverability (self-fetch only,
- *      fail-closed) → resolveDispatch → meta-mailbox plan or reject.
+ *   6. unsupported       — NO lock; deps.mailboxDeliverabilityFor (REQUIRED seam: wake-mode
+ *      capability AND a live active-receiver, fail-closed) → resolveDispatch → meta-mailbox
+ *      plan or reject. SE-2 2d-3: a terminated/drifted self-fetch citizen is refused, never
+ *      enqueued as mailbox garbage.
  *   7. send-fail fallback is 5c's job (the decider decides ONCE; the held lock nonce
  *      is what lets 5c re-resolve at most once under the same claim).
  *
@@ -42,6 +44,7 @@
  * be bypassed.
  */
 
+import type { MailboxDeliverabilityResult } from "./entwurf-deliverability.ts";
 import { isNonPiGardenIdSocketConflict } from "./entwurf-facts.ts";
 import type { PreflightOutcome } from "./entwurf-preflight.ts";
 import {
@@ -168,9 +171,11 @@ export interface DispatchInput {
 // makes "pure decider" honest — there is no hidden default that touches `~/.pi`. (B1:
 // the removed `acquireLock` default hardcoded `{ dir: undefined }` → it ignored any
 // injected lock dir and leaked the per-gid lock to the real `~/.pi/entwurf-v2-locks`
-// whenever a caller/test wired the other dirs but relied on the lock default.) Pure
-// config (capability registry read, plan-planted dirs, the observe timeout) keeps a
-// default — it is data, not an IO seam.
+// whenever a caller/test wired the other dirs but relied on the lock default.) The
+// mailbox-deliverability seam is required too (SE-2 2d-3): it carries the active-receiver
+// judgement, so leaving a wake-mode-only default would let a caller skip it and re-open the
+// gap. Only pure config (plan-planted dirs, the observe timeout) keeps a default — it is
+// data, not an IO seam.
 export interface DispatchDeciderDeps {
 	resolveTarget: (gardenId: string) => TargetResolution | Promise<TargetResolution>;
 	acquireLock: (gardenId: string) => AcquireLockResult;
@@ -178,7 +183,18 @@ export interface DispatchDeciderDeps {
 	inspectSocket: (gardenId: string) => Promise<TargetSocketInspection>;
 	probeSocket: (socketPath: string) => Promise<SocketLiveness>;
 	preflightForCwd: (cwd: string) => PreflightOutcome;
-	capabilityFor?: (backend: MetaBackendV2) => MetaCapability;
+	/**
+	 * SE-2 slice 2d-3: the REQUIRED mailbox-deliverability seam (no default). The decider
+	 * does NOT judge deliverability itself — it asks this injected fn, which combines the
+	 * backend wake-mode capability (only self-fetch has a drainable mailbox) with the LIVE
+	 * active-receiver check (a presence marker that matches the target identity). Making it
+	 * required is the whole point: every call site is forced by the compiler to wire the
+	 * active-receiver axis, so no future caller can silently fall back to wake-mode-only and
+	 * reopen the SE-2 "enqueue garbage into a terminated session's mailbox" gap.
+	 */
+	mailboxDeliverabilityFor: (
+		identity: MetaIdentity,
+	) => MailboxDeliverabilityResult | Promise<MailboxDeliverabilityResult>;
 	mailboxDir?: string;
 	sessionsDir?: string;
 	observeTimeoutMs?: number;
@@ -197,13 +213,20 @@ function requireGardenId(target: string): string {
 }
 
 /**
- * Mailbox deliverability (？0 frozen): ONLY a self-fetch backend (claude-code) has a
- * drainable meta-bridge mailbox. direct-inject backends (codex/agy/pi) are
- * fail-closed to `mailbox-undeliverable` — that is intended, not a gap (the 0.10.0
- * mailbox + doorbell is a self-fetch drain; direct-inject drain is an unproven
- * capability). Do NOT widen by deliveryLevel — only by a real per-backend predicate.
+ * Mailbox WAKE-MODE capability (？0 frozen): ONLY a self-fetch backend (claude-code) has a
+ * drainable meta-bridge mailbox. direct-inject backends (codex/agy/pi) are fail-closed —
+ * that is intended, not a gap (the 0.10.0 mailbox + doorbell is a self-fetch drain;
+ * direct-inject drain is an unproven capability). Do NOT widen by deliveryLevel — only by
+ * a real per-backend predicate.
+ *
+ * This is the CAPABILITY HALF of deliverability only. Full mailbox deliverability ALSO
+ * requires a live active-receiver (a presence marker matching the identity) — that
+ * conjunction lives in the required `mailboxDeliverabilityFor` seam (SE-2 slice 2d-3). The
+ * decider NEVER calls this helper directly: deliverability flows exclusively through the
+ * seam so the active-receiver axis can never be skipped. Kept as a named, gate-pinned
+ * helper for the production seam to compose and for capability-only call sites.
  */
-export function resolveMailboxDeliverability(
+export function resolveMailboxWakeModeCapability(
 	identity: MetaIdentity,
 	capabilityFor: (backend: MetaBackendV2) => MetaCapability = metaCapabilityFor,
 ): boolean {
@@ -218,7 +241,6 @@ export function resolveMailboxDeliverability(
 export async function decideDispatch(input: DispatchInput, deps: DispatchDeciderDeps): Promise<DispatchDecision> {
 	// IO seams are required deps (no defaults) — see DispatchDeciderDeps (B1).
 	const { acquireLock, releaseLock, inspectSocket, probeSocket } = deps;
-	const capabilityFor = deps.capabilityFor ?? metaCapabilityFor;
 	const mailboxDir = deps.mailboxDir ?? defaultMetaMailboxDir();
 	const sessionsDir = deps.sessionsDir ?? defaultMetaSessionsDir();
 	const observeTimeoutMs = deps.observeTimeoutMs ?? ENTWURF_V2_OBSERVE_TIMEOUT_MS;
@@ -243,9 +265,12 @@ export async function decideDispatch(input: DispatchInput, deps: DispatchDecider
 
 	// 3. backend.
 	if (!isLivenessSupported(identity.backend)) {
-		// 6. unsupported path — NO lock (？7). mailbox mini-table via resolveDispatch.
-		const deliverable = resolveMailboxDeliverability(identity, capabilityFor);
-		const receipt = resolveDispatch(input.intent, "unsupported", deliverable);
+		// 6. unsupported path — NO lock (？7). Deliverability comes from the REQUIRED seam
+		// (wake-mode capability AND a live active-receiver marker matching this identity),
+		// NOT a wake-mode-only helper — so a terminated self-fetch citizen's mailbox is
+		// fail-closed (SE-2 2d-3). resolveDispatch then routes intent × deliverable.
+		const deliverability = await deps.mailboxDeliverabilityFor(identity);
+		const receipt = resolveDispatch(input.intent, "unsupported", deliverability.deliverable);
 		if (!receipt.ok) return reject(receipt);
 		// the only allow cell here is fire-and-forget → meta-mailbox send.
 		const plan: ExecutionPlan = {

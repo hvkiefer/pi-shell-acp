@@ -7,9 +7,10 @@
  *   1. mis-wire: plan/lock gid mismatch → throws BEFORE any IO (no resolveTarget call).
  *   2. bad-target (identity null) → reject, NO inspect/probe.
  *   3. preProbeAddressConflict → reject, NO inspect/probe.
- *   4. unsupported backend + deliverable (self-fetch) → meta-mailbox plan, NO
- *      inspect/probe; message/wantsReply preserved, same target gid.
- *   5. unsupported backend + undeliverable (direct-inject) → reject, NO inspect/probe.
+ *   4. unsupported backend + seam deliverable → meta-mailbox plan, NO inspect/probe;
+ *      message/wantsReply preserved, same target gid.
+ *   5. unsupported backend + seam undeliverable → reject, NO inspect/probe. A self-fetch
+ *      citizen with an INACTIVE receiver is refused here too (SE-2 2d-3 active-receiver gate).
  *   6. in-domain pi + socket-file + probe alive → control-socket plan with the INSPECTED
  *      socketPath; message/mode/wantsReply preserved, same target gid.
  *   7. in-domain pi + absent (ENOENT → dead) → reject (dormant-fire-forget-unsupported);
@@ -34,7 +35,7 @@ import {
 	type DeadFallbackDeps,
 	resolveDeadControlSendFallback,
 } from "../pi-extensions/lib/entwurf-v2-send-fallback.ts";
-import type { MetaBackendV2, MetaCapability, MetaIdentity } from "../pi-extensions/lib/meta-session.ts";
+import type { MetaBackendV2, MetaIdentity } from "../pi-extensions/lib/meta-session.ts";
 import type { TargetSocketInspection } from "../pi-extensions/lib/socket-discovery.ts";
 import type { SocketLiveness } from "../pi-extensions/lib/socket-probe.ts";
 
@@ -77,10 +78,6 @@ function identity(backend: MetaBackendV2): MetaIdentity {
 	};
 }
 
-function capability(wakeMode: "self-fetch" | "direct-inject"): MetaCapability {
-	return { wakeMode, deliveryLevel: "D6", nativeIdLabel: "session" };
-}
-
 const CONTROL_PLAN = {
 	transport: "control-socket",
 	action: "send",
@@ -98,7 +95,10 @@ interface Trace {
 
 interface FakeSpec {
 	resolution: TargetResolution;
-	wakeMode?: "self-fetch" | "direct-inject";
+	/** SE-2 2d-3: the verdict the injected mailboxDeliverabilityFor seam returns on the
+	 * unsupported path. Default false (fail-closed) — the resolver trusts the seam's
+	 * active-receiver judgement, never wake-mode alone. */
+	mailboxDeliverable?: boolean;
 	inspection?: TargetSocketInspection | { throw: unknown };
 	probe?: SocketLiveness | { throw: unknown };
 }
@@ -121,7 +121,7 @@ function makeDeps(spec: FakeSpec): { deps: DeadFallbackDeps; trace: Trace } {
 			if (typeof spec.probe === "object" && "throw" in spec.probe) throw spec.probe.throw;
 			return spec.probe;
 		},
-		capabilityFor: () => capability(spec.wakeMode ?? "direct-inject"),
+		mailboxDeliverabilityFor: () => ({ deliverable: spec.mailboxDeliverable ?? false, reason: "fake-deliverability" }),
 	};
 	return { deps, trace };
 }
@@ -167,8 +167,9 @@ async function main(): Promise<void> {
 	}
 
 	// ── 4: unsupported + deliverable → meta-mailbox plan, no inspect/probe ─────
+	// Deliverability is the seam's verdict (active receiver), not wake-mode alone.
 	{
-		const { deps, trace } = makeDeps({ resolution: present(identity("claude-code")), wakeMode: "self-fetch" });
+		const { deps, trace } = makeDeps({ resolution: present(identity("claude-code")), mailboxDeliverable: true });
 		const r = await resolveDeadControlSendFallback(CONTROL_PLAN, lockClaim(), deps);
 		ok("unsupported + deliverable → execute", r.kind === "execute");
 		ok(
@@ -182,12 +183,22 @@ async function main(): Promise<void> {
 		ok("unsupported → no inspect/probe (mailbox mini-table)", trace.inspectCalls === 0 && trace.probeCalls === 0);
 	}
 
-	// ── 5: unsupported + undeliverable → reject, no inspect/probe ──────────────
+	// ── 5: unsupported + seam undeliverable → reject, no inspect/probe ─────────
 	{
-		const { deps, trace } = makeDeps({ resolution: present(identity("codex")), wakeMode: "direct-inject" });
+		const { deps, trace } = makeDeps({ resolution: present(identity("codex")), mailboxDeliverable: false });
 		const r = await resolveDeadControlSendFallback(CONTROL_PLAN, lockClaim(), deps);
 		ok("unsupported + undeliverable → reject (mailbox-undeliverable)", r.kind === "reject");
 		ok("unsupported + undeliverable → no inspect/probe", trace.inspectCalls === 0 && trace.probeCalls === 0);
+	}
+
+	// ── 5b: SE-2 2d-3 — a self-fetch CITIZEN with an INACTIVE receiver (seam false) →
+	// reject, NO inspect/probe. The dead-fallback honours the same active-receiver gate as
+	// the decider, so a re-resolve cannot smuggle a reply into a terminated session's mailbox.
+	{
+		const { deps, trace } = makeDeps({ resolution: present(identity("claude-code")), mailboxDeliverable: false });
+		const r = await resolveDeadControlSendFallback(CONTROL_PLAN, lockClaim(), deps);
+		ok("self-fetch citizen + inactive receiver → reject (SE-2 2d-3)", r.kind === "reject");
+		ok("self-fetch citizen + inactive → no inspect/probe", trace.inspectCalls === 0 && trace.probeCalls === 0);
 	}
 
 	// ── 6: in-domain pi + socket-file + probe alive → control-socket retry ─────
@@ -285,7 +296,7 @@ async function main(): Promise<void> {
 	// ── 12: every execute plan targets the held gid, never spawn-bg ───────────
 	{
 		const cases: FakeSpec[] = [
-			{ resolution: present(identity("claude-code")), wakeMode: "self-fetch" },
+			{ resolution: present(identity("claude-code")), mailboxDeliverable: true },
 			{
 				resolution: present(identity("pi")),
 				inspection: { kind: "socket-file", socketPath: "/fake/ctl/a.sock" },

@@ -31,31 +31,33 @@
  * with no socket axis → the mailbox is its honest channel when deliverable.
  */
 
+import type { MailboxDeliverabilityResult } from "./entwurf-deliverability.ts";
 import { isLivenessSupported, resolveDispatch } from "./entwurf-v2-contract.ts";
-import { resolveMailboxDeliverability, type TargetResolution } from "./entwurf-v2-decider.ts";
+import type { TargetResolution } from "./entwurf-v2-decider.ts";
 import type { LockClaim } from "./entwurf-v2-lock.ts";
 import type { ControlSocketPlan, DeadFallbackResolution } from "./entwurf-v2-send.ts";
-import {
-	defaultMetaMailboxDir,
-	defaultMetaSessionsDir,
-	type MetaBackendV2,
-	type MetaCapability,
-	metaCapabilityFor,
-} from "./meta-session.ts";
+import { defaultMetaMailboxDir, defaultMetaSessionsDir, type MetaIdentity } from "./meta-session.ts";
 import { mapInspectionToLiveness, type TargetSocketInspection } from "./socket-discovery.ts";
 import type { SocketLiveness } from "./socket-probe.ts";
 
 /**
  * The resolver's IO seams — the SAME shapes the 5b decider uses, MINUS acquireLock /
- * releaseLock (the resolver runs under a lock it must not touch). Pure config
- * (capabilityFor / dirs) keeps a default; the IO seams (resolveTarget / inspectSocket /
- * probeSocket) are required so the gate drives every branch without a filesystem.
+ * releaseLock (the resolver runs under a lock it must not touch). Plan-planted dirs keep
+ * defaults; mailboxDeliverabilityFor is REQUIRED (SE-2 2d-3 — the same seam the decider
+ * takes, no wake-mode-only fallback), as are the IO seams (resolveTarget / inspectSocket /
+ * probeSocket), so the gate drives every branch without a filesystem.
  */
 export interface DeadFallbackDeps {
 	resolveTarget: (gardenId: string) => TargetResolution | Promise<TargetResolution>;
 	inspectSocket: (gardenId: string) => Promise<TargetSocketInspection>;
 	probeSocket: (socketPath: string) => Promise<SocketLiveness>;
-	capabilityFor?: (backend: MetaBackendV2) => MetaCapability;
+	/** SE-2 slice 2d-3: the SAME required mailbox-deliverability seam the 5b decider takes
+	 * (wake-mode capability AND a live active-receiver marker matching the identity). Required
+	 * (no default) so the dead-control re-resolve can never fall back to wake-mode-only and
+	 * re-open the SE-2 gap on its own path. Production injects the SAME closure into both. */
+	mailboxDeliverabilityFor: (
+		identity: MetaIdentity,
+	) => MailboxDeliverabilityResult | Promise<MailboxDeliverabilityResult>;
 	mailboxDir?: string;
 	sessionsDir?: string;
 }
@@ -82,7 +84,6 @@ export async function resolveDeadControlSendFallback(
 		);
 	}
 	const gardenId = plan.targetGardenId;
-	const capabilityFor = deps.capabilityFor ?? metaCapabilityFor;
 	const mailboxDir = deps.mailboxDir ?? defaultMetaMailboxDir();
 	const sessionsDir = deps.sessionsDir ?? defaultMetaSessionsDir();
 
@@ -101,8 +102,8 @@ export async function resolveDeadControlSendFallback(
 	// intent alone. This is NOT an in-domain dormant (the N2 asymmetry) — a deliverable
 	// citizen's honest channel is its mailbox. No inspect/probe on this axis.
 	if (!isLivenessSupported(identity.backend)) {
-		const deliverable = resolveMailboxDeliverability(identity, capabilityFor);
-		const receipt = resolveDispatch("fire-and-forget", "unsupported", deliverable);
+		const deliverability = await deps.mailboxDeliverabilityFor(identity);
+		const receipt = resolveDispatch("fire-and-forget", "unsupported", deliverability.deliverable);
 		if (!receipt.ok) {
 			return { kind: "reject", reason: receipt.reason };
 		}

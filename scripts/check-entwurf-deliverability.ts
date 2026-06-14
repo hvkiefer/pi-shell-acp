@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import {
 	computeMetaReceiverActive,
 	mailboxConversationalDeliverable,
+	receiverMarkerMatchesIdentity,
 } from "../pi-extensions/lib/entwurf-deliverability.ts";
 
 let passed = 0;
@@ -118,6 +119,30 @@ ok(
 		}).reason,
 	),
 );
+
+// ── receiverMarkerMatchesIdentity: the marker ↔ identity SSOT (SE-2 2d-3) ───
+// A present marker only raises a receiver to active when it agrees with the record on
+// garden/backend/native id. The v1 mailbox guard AND the v2 production deliverability seam
+// both route through this one helper, so presence-only false-positives are closed in both.
+const ID = { gardenId: "20260612T100000-aaaaaa", backend: "claude-code", nativeSessionId: "n-1" };
+ok(
+	"marker matches identity on all three axes → true",
+	receiverMarkerMatchesIdentity(
+		{ gardenId: ID.gardenId, backend: ID.backend, nativeSessionId: ID.nativeSessionId },
+		ID,
+	),
+);
+ok(
+	"garden id drift → false (foreign marker)",
+	!receiverMarkerMatchesIdentity({ ...ID, gardenId: "20260612T999999-bbbbbb" }, ID),
+);
+ok("backend drift → false", !receiverMarkerMatchesIdentity({ ...ID, backend: "pi" }, ID));
+ok(
+	"native session id drift → false (stale/recycled marker)",
+	!receiverMarkerMatchesIdentity({ ...ID, nativeSessionId: "n-2" }, ID),
+);
+ok("null marker → false (fail-closed)", !receiverMarkerMatchesIdentity(null, ID));
+ok("undefined marker → false (fail-closed)", !receiverMarkerMatchesIdentity(undefined, ID));
 
 // ── WIRING: self-addressability shares the SAME atom ────────────────────────
 const selfSrc = readFileSync(path.join(REPO_DIR, "pi-extensions", "lib", "entwurf-self-address.ts"), "utf8");

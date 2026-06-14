@@ -44,13 +44,41 @@ const REPO_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const GARDEN = "20260614T120000-aaaaaa";
 const selfFetch = () => ({ wakeMode: "self-fetch" }) as never;
 const directInject = () => ({ wakeMode: "direct-inject" }) as never;
-const liveIdentity = (): MetaIdentity =>
-	mintMetaIdentity({ backend: "claude-code", nativeSessionId: "n-a", cwd: "/tmp" });
+// The record identity and the marker MUST agree on garden/backend/native id — that
+// agreement is what SE-2 2d-3 now requires (a present marker alone is not enough). Built
+// from a fixed garden id (NOT mintMetaIdentity, which would generate a random gardenId that
+// never matches GARDEN — the old presence-only test silently ignored that mismatch).
+const liveIdentity = (): MetaIdentity => ({
+	schemaVersion: 2,
+	gardenId: GARDEN,
+	backend: "claude-code",
+	nativeSessionId: "n-a",
+	cwd: "/tmp",
+	model: null,
+	transcriptPath: null,
+	parentGardenId: null,
+	isEntwurf: false,
+	createdAt: "2026-06-14T01:00:00.000Z",
+	recordUpdatedAt: "2026-06-14T01:00:00.000Z",
+});
 const liveMarker = () =>
 	({
 		gardenId: GARDEN,
 		backend: "claude-code",
 		nativeSessionId: "n-a",
+		ownerPid: 1,
+		ownerStartKey: "x",
+		ownerKind: "claude-code-cli",
+		armProvenance: "session-start",
+		updatedAt: "t",
+	}) as never;
+// Same shape as liveMarker but with a drifted native id → does NOT match the record
+// identity ("n-a") → SE-2 2d-3 treats it as a stale/foreign marker (inactive receiver).
+const driftMarker = () =>
+	({
+		gardenId: GARDEN,
+		backend: "claude-code",
+		nativeSessionId: "n-OTHER",
 		ownerPid: 1,
 		ownerStartKey: "x",
 		ownerKind: "claude-code-cli",
@@ -97,6 +125,21 @@ const liveMarker = () =>
 	);
 	ok("direct-inject backend → enqueue NOT called (SE-1, 0-call)", calls === 0);
 
+	// SE-2 2d-3: a present marker whose identity has DRIFTED (native session id mismatch) is a
+	// stale/foreign marker — not THIS receiver — so presence alone does not deliver. 0-call.
+	calls = 0;
+	const driftOut = guardedMailboxEnqueue(
+		GARDEN,
+		{
+			readIdentity: liveIdentity,
+			readReceiverMarker: driftMarker,
+			capabilityFor: selfFetch,
+		},
+		enqueue,
+	);
+	ok("marker identity drift (native id) → enqueue NOT called (SE-2 2d-3, 0-call)", calls === 0);
+	ok("marker identity drift → delivered:false", driftOut.delivered === false);
+
 	// no backing record → 0-call.
 	calls = 0;
 	guardedMailboxEnqueue(
@@ -136,6 +179,18 @@ const liveMarker = () =>
 		absent.recordBacked === false && absent.wakeMode === undefined,
 	);
 	ok("facts: absent marker → ownerAlive+watchArmed false", absent.ownerAlive === false && absent.watchArmed === false);
+
+	// A present-but-drifted marker (native id mismatch) is recordBacked (the record is fine)
+	// but the receiver is inactive — the SE-2 2d-3 identity-match gate, not presence alone.
+	const drift = gatherMailboxDeliverabilityFacts(GARDEN, {
+		readIdentity: liveIdentity,
+		readReceiverMarker: driftMarker,
+		capabilityFor: selfFetch,
+	});
+	ok(
+		"facts: drifted marker → recordBacked true but ownerAlive+watchArmed false",
+		drift.recordBacked === true && drift.ownerAlive === false && drift.watchArmed === false,
+	);
 }
 
 // ── TMPDIR SNAPSHOT (real enqueueMetaMessage) ───────────────────────────────

@@ -18,7 +18,11 @@
  * the refusal happens HERE, before transport, not inside it.
  */
 
-import { type MailboxDeliverabilityFacts, mailboxConversationalDeliverable } from "./entwurf-deliverability.ts";
+import {
+	type MailboxDeliverabilityFacts,
+	mailboxConversationalDeliverable,
+	receiverMarkerMatchesIdentity,
+} from "./entwurf-deliverability.ts";
 import {
 	type MetaBackendV2,
 	type MetaCapability,
@@ -44,7 +48,10 @@ export interface MailboxGuardDeps {
  * registry; ownerAlive and watchArmed both derive from the receiver presence marker —
  * at runtime they move together (a verified marker means a live owner that reached the
  * watch-arm path; its absence/dead-owner means neither), but the pure predicate keeps
- * the axes separate so each cause stays nameable.
+ * the axes separate so each cause stays nameable. A present marker only counts when it
+ * actually belongs to THIS identity (garden/backend/native id match via the shared
+ * receiverMarkerMatchesIdentity helper) — a drifted/foreign marker is fail-closed to
+ * inactive, the same SSOT the v2 production mailboxDeliverabilityFor seam uses.
  */
 export function gatherMailboxDeliverabilityFacts(
 	gardenId: string,
@@ -56,17 +63,22 @@ export function gatherMailboxDeliverabilityFacts(
 
 	let recordBacked = false;
 	let wakeMode: string | undefined;
+	let identity: MetaIdentity | null = null;
 	try {
-		const identity = readIdentity(gardenId);
+		identity = readIdentity(gardenId);
 		recordBacked = true;
 		wakeMode = capabilityFor(identity.backend).wakeMode;
 	} catch {
 		recordBacked = false;
+		identity = null;
 	}
 
+	// No record → no identity → never matched (a marker without a record cannot be
+	// verified against one). With a record, the marker must agree on garden/backend/
+	// native id; otherwise it is a stale or foreign marker and the receiver is inactive.
 	const marker = readReceiverMarker(gardenId);
-	const receiverPresent = marker !== null;
-	return { wakeMode, recordBacked, ownerAlive: receiverPresent, watchArmed: receiverPresent };
+	const matched = identity !== null && receiverMarkerMatchesIdentity(marker, identity);
+	return { wakeMode, recordBacked, ownerAlive: matched, watchArmed: matched };
 }
 
 export type GuardedMailboxOutcome<T> = { delivered: true; result: T } | { delivered: false; reason: string };

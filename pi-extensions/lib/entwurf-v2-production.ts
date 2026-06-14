@@ -33,6 +33,11 @@ import {
 	sendRpcCommand as realSendRpc,
 	type SenderEnvelope,
 } from "./entwurf-control-rpc.ts";
+import {
+	type MailboxDeliverabilityResult,
+	mailboxConversationalDeliverable,
+	receiverMarkerMatchesIdentity,
+} from "./entwurf-deliverability.ts";
 import { isNonPiGardenIdSocketConflict } from "./entwurf-facts.ts";
 import { type PreflightInput, type PreflightOutcome, preflight as realPreflight } from "./entwurf-preflight.ts";
 import { isLivenessSupported } from "./entwurf-v2-contract.ts";
@@ -69,9 +74,11 @@ import {
 	type EnqueueMetaMessageResult,
 	enqueueMetaMessage,
 	type MetaIdentity,
+	type MetaReceiverMarker,
 	metaCapabilityFor,
 	metaRecordExistsByGardenId,
 	readMetaIdentityByGardenId,
+	readMetaReceiverMarker,
 } from "./meta-session.ts";
 import {
 	CONTROL_SOCKET_DIR,
@@ -91,6 +98,10 @@ import { classifyConnectError, probeSocketLiveness, type SocketLiveness } from "
 export interface ProductionEntwurfV2Seams {
 	metaRecordExists: (gid: string, sessionsDir: string) => boolean;
 	readIdentity: (gid: string, sessionsDir: string) => MetaIdentity;
+	/** Read the target's receiver presence marker (null = absent / dead owner / corrupt). The
+	 * SE-2 2d-3 active-receiver source; the factory's `mailboxDeliverabilityFor` closure verifies
+	 * its identity match. */
+	readReceiverMarker: (gardenId: string) => MetaReceiverMarker | null;
 	/** Record-side lstat of the EXACT target socket path (no connect) for the pre-probe conflict. */
 	inspectPath: (socketPath: string) => Promise<TargetSocketInspection>;
 	acquireLock: (gid: string, deps: { dir?: string }) => AcquireLockResult;
@@ -166,6 +177,7 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 	const io: ProductionEntwurfV2Seams = {
 		metaRecordExists: s.metaRecordExists ?? metaRecordExistsByGardenId,
 		readIdentity: s.readIdentity ?? readMetaIdentityByGardenId,
+		readReceiverMarker: s.readReceiverMarker ?? ((gid: string) => readMetaReceiverMarker({ gardenId: gid })),
 		inspectPath: s.inspectPath ?? inspectControlSocketPath,
 		acquireLock: s.acquireLock ?? realAcquireLock,
 		releaseLock: s.releaseLock ?? realReleaseLock,
@@ -189,6 +201,26 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 		senderProvider: opts.senderProvider,
 		enqueue: io.enqueue,
 	});
+
+	// ── ONE deliverability seam (SE-2 2d-3): wake-mode capability AND a live active-
+	// receiver (a presence marker that matches THIS identity). The SAME closure is injected
+	// into the decider AND the dead-fallback, so a direct send and a re-resolved fallback
+	// send can never drift to different deliverability verdicts. recordBacked is true by
+	// construction — resolveTarget already proved the record exists before any unsupported-
+	// backend mailbox route, and the closure is only consulted on that route. A null /
+	// dead-owner / identity-mismatched marker is fail-closed to inactive (SE-2): a reply to a
+	// terminated self-fetch citizen is rejected, not enqueued as mailbox garbage. ──────────
+	const mailboxDeliverabilityFor = (identity: MetaIdentity): MailboxDeliverabilityResult => {
+		const wakeMode = metaCapabilityFor(identity.backend).wakeMode;
+		const marker = io.readReceiverMarker(identity.gardenId);
+		const matched = receiverMarkerMatchesIdentity(marker, identity);
+		return mailboxConversationalDeliverable({
+			wakeMode,
+			recordBacked: true,
+			ownerAlive: matched,
+			watchArmed: matched,
+		});
+	};
 
 	// ── target resolution (QB1 + QB2) ─────────────────────────────────────────
 	const resolveTarget = async (gid: string): Promise<TargetResolution> => {
@@ -226,7 +258,7 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 		probeSocket,
 		preflightForCwd: (cwd: string): PreflightOutcome =>
 			io.preflight({ cwd, agentDir: opts.agentDir, prefixRoots: opts.prefixRoots }),
-		capabilityFor: metaCapabilityFor,
+		mailboxDeliverabilityFor,
 		mailboxDir,
 		sessionsDir,
 		observeTimeoutMs: opts.observeTimeoutMs,
@@ -253,7 +285,7 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 				resolveTarget,
 				inspectSocket,
 				probeSocket,
-				capabilityFor: metaCapabilityFor,
+				mailboxDeliverabilityFor,
 				mailboxDir,
 				sessionsDir,
 			}),

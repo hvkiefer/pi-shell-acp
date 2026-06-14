@@ -29,7 +29,7 @@ import {
 } from "../pi-extensions/lib/entwurf-v2-production.ts";
 import type { ControlSocketPlan, MetaMailboxPlan } from "../pi-extensions/lib/entwurf-v2-send.ts";
 import type { SpawnBgPlan } from "../pi-extensions/lib/entwurf-v2-spawn.ts";
-import type { MetaIdentity } from "../pi-extensions/lib/meta-session.ts";
+import type { MetaIdentity, MetaReceiverMarker } from "../pi-extensions/lib/meta-session.ts";
 import type { TargetSocketInspection } from "../pi-extensions/lib/socket-discovery.ts";
 
 let passed = 0;
@@ -58,6 +58,21 @@ function identity(backend: MetaIdentity["backend"], gardenId = GID): MetaIdentit
 		isEntwurf: false,
 		createdAt: "2026-06-13T01:00:00.000Z",
 		recordUpdatedAt: "2026-06-13T01:00:00.000Z",
+	};
+}
+
+/** A receiver presence marker. Matches the record identity (gardenId/backend/nativeSessionId)
+ * unless `nativeSessionId` is overridden to simulate an identity-drifted/foreign marker. */
+function receiverMarker(gid: string, backend: string, nativeSessionId = "n"): MetaReceiverMarker {
+	return {
+		gardenId: gid,
+		backend: backend as MetaReceiverMarker["backend"],
+		nativeSessionId,
+		ownerPid: 1,
+		ownerStartKey: "x",
+		ownerKind: "claude-code-cli",
+		armProvenance: "session-start",
+		updatedAt: "t",
 	};
 }
 
@@ -122,6 +137,9 @@ function makeSpiedFactory(over: {
 	rpc?: "success" | "dead-throw";
 	classifyDead?: boolean;
 	spawnChildThrows?: boolean;
+	/** SE-2 2d-3 — the target's receiver presence marker: "active" (matches identity,
+	 * default), "absent" (terminated/never-armed), or "mismatch" (drifted native id). */
+	receiverMarker?: "active" | "absent" | "mismatch";
 }) {
 	const spies: Spies = { acquire: [], release: [], enqueue: [], rpc: [], inspectPath: [] };
 	const opts: ProductionEntwurfV2Opts = {
@@ -133,6 +151,11 @@ function makeSpiedFactory(over: {
 		seams: {
 			metaRecordExists: () => over.recordExists ?? true,
 			readIdentity: (gid) => identity(over.backend ?? "pi", gid),
+			readReceiverMarker: (gid) => {
+				if (over.receiverMarker === "absent") return null;
+				const nsid = over.receiverMarker === "mismatch" ? "DRIFT" : "n";
+				return receiverMarker(gid, over.backend ?? "pi", nsid);
+			},
 			inspectPath: async (socketPath) => {
 				spies.inspectPath.push({ socketPath });
 				if (over.inspectKind === "indeterminate") {
@@ -289,6 +312,46 @@ async function main(): Promise<void> {
 			"E: dead-path control hand released under the wired lockDir",
 			spies.release.length === 1 && spies.release[0].dir === LOCK_DIR,
 		);
+	}
+
+	// ── E2: SE-2 2d-3 — dead control send to a claude-code citizen whose receiver is
+	// INACTIVE (no presence marker) → the fallback re-resolves to mailbox-undeliverable,
+	// so the SHARED sendViaMailbox enqueue is NEVER called: no garbage in a terminated
+	// session's mailbox. The lock is still released under the wired lockDir. This is the v2
+	// closure of SE-2 — production's mailboxDeliverabilityFor seam gates the fallback the
+	// same way slice 2d-2 gates the v1 path. ───────────────────────────────────────────
+	{
+		const { deps, spies } = makeSpiedFactory({
+			backend: "claude-code",
+			rpc: "dead-throw",
+			classifyDead: true,
+			receiverMarker: "absent",
+		});
+		const res = await deps.executor.sendControl(CONTROL_PLAN, lockClaim());
+		ok(
+			"E2: inactive citizen → rejected (mailbox-undeliverable), not fallback-sent",
+			res.outcome === "rejected" && res.rejectReason === "mailbox-undeliverable",
+		);
+		ok("E2: SE-2 — shared enqueue NEVER called (no mailbox garbage)", spies.enqueue.length === 0);
+		ok(
+			"E2: lock still released under the wired lockDir",
+			spies.release.length === 1 && spies.release[0].dir === LOCK_DIR,
+		);
+	}
+
+	// ── E3: same gate via an identity-MISMATCHED marker (drifted native id) — a present
+	// marker that is not THIS receiver must not raise it to active. Proves the seam checks
+	// identity match, not mere marker presence. ─────────────────────────────────────────
+	{
+		const { deps, spies } = makeSpiedFactory({
+			backend: "claude-code",
+			rpc: "dead-throw",
+			classifyDead: true,
+			receiverMarker: "mismatch",
+		});
+		const res = await deps.executor.sendControl(CONTROL_PLAN, lockClaim());
+		ok("E3: drifted marker → rejected (not active)", res.outcome === "rejected");
+		ok("E3: drifted marker → enqueue NEVER called (presence ≠ identity match)", spies.enqueue.length === 0);
 	}
 
 	console.log(`\ncheck-entwurf-v2-production: ${passed} checks passed`);

@@ -58,6 +58,39 @@ export function computeMetaReceiverActive(facts: MetaReceiverActiveFacts): MetaR
 	return { active: true, reason: "record backed, owner alive, watch armed" };
 }
 
+/**
+ * The identity axes a receiver presence marker must agree on to count as THIS target's
+ * live receiver (SE-2 slice 2d-3). A structural shape — both `MetaReceiverMarker` and
+ * `MetaIdentity` carry these fields, so callers pass either without importing the
+ * meta-session types here (keeps this module pure and dependency-light). `backend` is
+ * compared as a string (equality only); the enum is validated by the meta-session reader.
+ */
+export interface ReceiverIdentityFacts {
+	gardenId: string;
+	backend: string;
+	nativeSessionId: string;
+}
+
+/**
+ * Does this presence marker actually belong to the target identity? A marker that is
+ * absent, or whose garden id / backend / native session id has drifted from the record,
+ * is NOT this receiver — fail-closed (a stale/foreign marker must never raise a dead
+ * target to "active"). The single source of truth for "marker ↔ identity match" shared
+ * by the v1 mailbox guard (gatherMailboxDeliverabilityFacts) and the v2 production
+ * `mailboxDeliverabilityFor` seam, so the two paths cannot drift to different meanings.
+ */
+export function receiverMarkerMatchesIdentity(
+	marker: ReceiverIdentityFacts | null | undefined,
+	identity: ReceiverIdentityFacts,
+): boolean {
+	return (
+		!!marker &&
+		marker.gardenId === identity.gardenId &&
+		marker.backend === identity.backend &&
+		marker.nativeSessionId === identity.nativeSessionId
+	);
+}
+
 export interface MailboxDeliverabilityFacts extends MetaReceiverActiveFacts {
 	/** The target backend's wake mode (from the capability registry). */
 	wakeMode?: WakeMode | string;
