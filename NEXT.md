@@ -3,22 +3,19 @@
 > 새 담당자는 여기만 먼저 읽는다. 모르면 아래 `# LEDGER`의 링크/섹션으로 내려간다.
 > NEXT는 DB가 아니라 나침반이다: 현재 위치·다음 한 걸음·넘으면 안 되는 선을 맨 위에 둔다.
 
-## ⇄ 노트북 이관 체크리스트 (2026-06-14 세션 #12 → 노트북) — 여기부터
+## ⇄ 세션 #14 done (2026-06-14, thinkpad) — 5d-5 CLOSE → NOW = release 컷 준비 — 여기부터
 
-> 데스크톱에서 origin/main `ec817fc`까지 전부 push 완료. working tree clean. 노트북에서 이어받는 순서:
+> 노트북 이관 완료(pull + D1 install-meta-bridge 재배포·D2 symlink 확인 → doctor PASS / pnpm check EXIT0 / matrix 82).
+> **5d-5 = CLOSE**(GPT verdict): D4 트리오 done — a(deterministic 82) / b(LIVE 11/11) / c(release_gate wiring). 상세 = 아래 D4 항목.
 >
-> 1. `git pull` (origin/main `ec817fc`까지 — detour SE-1/SE-2 + D1~D4-a 전부 포함).
-> 2. **ops 재실행(머신별, repo로 안 옮겨짐 — 개발버전이라 노트북도 같은 상태일 수 있음):**
->    - `./run.sh setup:links --force` → entwurf-targets symlink가 repo canonical 가리키는지(D2). 안 하면 entwurf spawn 전부 refuse.
->    - `./run.sh install-meta-bridge` → Claude 세션 열기 → `./run.sh doctor-meta-bridge` PASS 확인(D1). writer drift면 재배포.
-> 3. **확인:** `pnpm check` EXIT=0 (check-pack 159) / `./run.sh check-entwurf-v2-matrix` 82 ok.
-> 4. **NOW = D4-b** (`smoke-entwurf-v2-matrix-live`) — 아래 D4 항목. 실 pi LIVE 검증 필요(model auth).
-> 5. **미결 GLG 판단 2건:** ① D3 브랜치 `verify/doctor-pipefail-and-pi-0.79.2` 삭제(`git push origin --delete …`, 정보 유실 없음 확인됨)
->    ② D4-b 모델(GPT 권고 = Opus 고정 금지, registry default + `PI_SHELL_ACP_LIVE_MODEL` override).
-> 6. **D4-b 설계는 GPT 잠금 완료** — gate가 실 `pi --entwurf-control` 직접 spawn+kill(self-contained), control-socket cell +
->    meta-mailbox cell, LIVE=1 없으면 skip, release_gate는 check-bridge 직후 편입. 상세 = 아래 D4 항목 + 본문 Q5.
-> 7. **doorbell 관측 이슈(경미, 기록):** 세션 #12 후반 GPT(openai-codex)의 D4-b 회신이 meta-mailbox로 안 옴 — GPT가
->    `entwurf_send` 대신 자기 세션 출력만 했을 가능성. inbox empty 확인됨. 재현되면 추적.
+> 1. **GLG push:** `ae8e4e5`~`de207c5` (SE-3 기록 + D4-b/c smoke·wiring + NEXT). working tree clean이면 그대로.
+> 2. **NOW = release 컷 준비**(GPT 권고): `tag-release` 루프 — 닫힌 NEXT 항목 → CHANGELOG → NEXT 정리. 가능하면
+>    `LIVE=1 ./run.sh release-gate <scratch>`로 matrix-live PASS evidence까지 확보(model auth 필요).
+> 3. **hejdev6 보안 묶기 판단(GLG):** secret/외부노출 수준이면 tag **전** 별도 small slice, 아니면 release 후 별도 lane(GPT 권고).
+> 4. **미결 GLG 판단:** ① D3 브랜치 `verify/doctor-pipefail-and-pi-0.79.2` 삭제(`git push origin --delete …`, 정보유실 없음 확인)
+>    ② SE-3는 SE-1 slice 5 folded 후속(5d-5 blocker 아님).
+> 5. **재배포 후 함정(SE-3, 오늘 실측):** `install-meta-bridge` 재배포 시 **수신측 세션을 새로 열기/resume**해야 receiver
+>    armed(`replyable:true`). 재배포 *이전* 시작된 mid-session은 `replyable:false`가 **정직한 동작(버그 아님)** — resume이 복구.
 
 ## ◀ NOW (2026-06-14 세션 #12) — detour SE-1/SE-2 종료(push 완료) → 줄기 5d-5 복귀, 단 진입 전 detour 4건
 
@@ -81,8 +78,15 @@
      아니라 SKIP으로 카운트**(gemini-availability idiom 차용: `warn`+`results SKIP`+`skip++`) → 무인 release_gate 안전 +
      summary 거짓 PASS 없음. `--allow-skip-gemini`와 독립축. bash -n OK / skip-path OK. GPT Q1(직후)·Q2(1회)·Q3(SKIP 명시) 반영.
    - **▶ D4 트리오 완성 = 5d-5 headline (c) release-gate matrix 닫힘** (a=deterministic 전수표 / b=LIVE sentinel 11/11 /
-     c=release wiring). **NOW = 5d-5 close 선언 전 확인 2건:** ① headline (a)MCP spawn-bg·(b)pi-native dynamic-import 실증이
-     G1 boot gate(`check-pi-tools-bridge-boot`)로 충분히 덮였는지 GLG/GPT 확인 ② GLG push(`ae8e4e5`~`68e6da8` 6커밋).
+     c=release wiring).
+   - **✅✅ 5d-5 CLOSE(GPT verdict 2026-06-14 세션 #14):** headline (a)MCP in-process spawn-bg·(b)pi-native dynamic-import는
+     **별도 LIVE 불요 — 합성 증거로 닫힘**(G1 단독 아님): `check-entwurf-v2-surface`(pi-native dynamic-import 등록·MCP
+     in-process 호출·renderer) + `check-pi-tools-bridge-boot`(실 start.sh 부팅 + tools/list `entwurf_v2` runtime schema) +
+     `check-entwurf-v2-production`/`check-entwurf-v2-matrix`(deps 조립·decider matrix·spawn-bg lock 표) + D5
+     `smoke-entwurf-v2-spawn-live`(spawn watcher OS substrate LIVE) + D4-b `smoke-entwurf-v2-matrix-live`(production
+     runEntwurfV2 + 실 control socket + 실 mailbox + lock release LIVE). **= surface wiring + runtime boot + production
+     substrate 합성.** (옵션 미래 D4-d = literal `MCP tools/call entwurf_v2` E2E hardening — 5d-5 blocker 아님.)
+     **남은 것: GLG push(`ae8e4e5`~`de207c5`) + 다음 줄기 = release 컷 준비.**
 
 - **삼형제 역할(세션 #12):** 실무자 = 현 Opus(claude-code, garden `20260614T152031-e914f2`) / 자문·리뷰 = **GPT5.5
   (openai-codex/gpt-5.5, `20260614T122717-bdfe6e`, live direct — 현행 검수자)**. 아래 line 384~의 옛 GPT id
