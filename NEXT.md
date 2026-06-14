@@ -3,6 +3,75 @@
 > 새 담당자는 여기만 먼저 읽는다. 모르면 아래 `# LEDGER`의 링크/섹션으로 내려간다.
 > NEXT는 DB가 아니라 나침반이다: 현재 위치·다음 한 걸음·넘으면 안 되는 선을 맨 위에 둔다.
 
+## ◀ NOW (2026-06-14 세션 #10) — detour: SE-1 형제 동등성 inbound → 복귀하면 5d-5
+
+> **줄기(stem)는 여전히 5d-5 LIVE matrix다.** 지금부터는 줄 세운 것 말고 *하다가 터지는* 버그를 관리하는 국면.
+> 끼어든 버그는 아래 `## 🐛 끼어든 버그 레저` 헤딩에서 따로 관리한다. 잠깐 수리 → 줄기로 복귀.
+> 이 꼬리는 **위임 불가** — 이 프로젝트 성격상 우리(삼형제+GLG)가 직접 따라가야 관련 문제까지 함께 잡힌다.
+
+- **detour 활성:** **SE-1** (sibling-equality inbound) — pi-shell-acp 세션이 inbound 2등 시민. 상세 = 아래 레저.
+- **돌아올 곳:** **5d-5 LIVE matrix** (기존 NOW, 본문 `지금 할 일`·`Next moves` 그대로 유효).
+- **삼형제 역할:** 실무자 = Opus(pi-shell-acp/claude-opus-4-8, `20260614T102907-f77390`) / 자문·리뷰 = GPT5.5
+  (openai-codex/gpt-5.5, `20260614T102904-fe7f37`, live) / 3번째 = CC Opus(native claude-code, `20260614T103037-582512`,
+  다음 턴 합류 예정). **형제 차별 없음 — ACP도 정식 경로, pi 백그라운드/Sonnet 역할 가능.**
+
+## 🐛 끼어든 버그 레저 (detour ledger) — 줄기와 분리해서 관리
+
+> 줄 세운 작업(5d) 밖에서 하다가 터지는 버그를 여기 담는다. 항목별: 증거 → 근본원인 → 설계합의 → 슬라이스 → 상태.
+> 원칙: 잠깐 수리하고 줄기로 복귀. 위임하지 않는다 — 꼬리를 직접 따라가야 연관 문제까지 검토된다.
+
+### SE-1 — pi-shell-acp 세션 inbound 2등 시민 (sibling-equality inbound) — 🔴 OPEN
+
+- **LIVE 증거(2026-06-14):** 실무자 Opus가 `--entwurf-control` **없이**(control socket 없음) garden id(`…102907-f77390`)
+  만 가지고 뜸. 보낸 메시지는 `✓ delivered`인데, GPT/CC가 그 id로 **회신하면 거부**: `no meta-record … not a garden
+  citizen, cannot deliver`. → 같은 id에 `--entwurf-control` 붙여 재기동하니 socket 생성·peers `liveness=alive`·왕복 성공.
+- **거짓 신호 사슬(GLG가 속은 지점):** 하나의 "garden id"가 세 보장을 동시에 암시하는데 실제론 분리됨 —
+  (a) garden id 존재 = 정체성/model-lock 신호(상태바 🪛<id> + statusline이 citizen처럼 보임),
+  (b) live control socket = ALIVE inbound(오직 `--entwurf-control`),
+  (c) meta-record = DORMANT inbound(현재 네이티브 CC SessionStart 훅 전용).
+  상태바는 (a)만 보장하면서 (b)/(c)처럼 보이고, `entwurf_self`도 socket 존재검증 없이 `replyable:true`+합성 socketPath
+  출력. **모든 층이 yes인데 실제 배달만 no = Crash-Don't-Warn 위반.**
+- **근본 메커니즘(실측):** pi-shell-acp claude overlay가 `settings.json`에 `hooks={}`로 훅 strip(Hard Rule #10 memory
+  containment) → meta-bridge SessionStart 훅이 pi 백엔드에선 안 뜸 → **pi 세션은 meta-record를 못 만듦**. 같은 cwd
+  네이티브 CC(`…582512`)는 citizen 등재. ⇒ pi 세션은 구조적 inbound 2등 시민. **fix는 백엔드 훅이 아니라 pi-side 층.**
+- **v1·v2 동일 실패(GLG 핵심):** v2 decider도 같은 fact surface(socket?+meta-record?) 읽음 → socketless·record-less pi
+  세션은 frozen dispatch table 밖 → reject. dormant(소켓 죽은) pi 세션은 `entwurf_peers`에 안 보여 v2 resume 대상으로도
+  안 잡힘. **v2에서 pi-shell-acp를 빼고 가는 게 아님 — alive·dormant 양쪽에서 네이티브 CC와 동등한 도달성 필요.**
+- **GPT5.5 자문 verdict(2026-06-14 01:57):** Q1/Q5 방향 동의, 단 "meta-record 존재=replyable"로 바로 넓히면 v1
+  fallback이 pi record에도 mailbox enqueue를 성공 처리 → **pi는 mailbox drain/wake 없음** → 오늘보다 더 큰 거짓 성공.
+  ⇒ **먼저 mailbox deliverability/replyable 진실성을 막고, 그 위에 pi meta writer를 올린다.**
+  - **Q1(YES):** session_start에서 pi-side v2 MetaIdentity mint/upsert. `backend=pi`, `nativeSessionId=sessionId`,
+    `gardenId=sessionId`(보존 필수), cwd/model/transcriptPath(nullable). 현 `upsertMetaSession`은 create 시
+    `generateSessionId()`로 새 id 민팅 → 그대로 쓰면 안 됨. `MetaIdentityMintInput.gardenId?` 또는 pi 전용 upsert 필요.
+    `--entwurf-control` 독립적으로, garden id 세션이면 동작.
+  - **Q2(YES, socket 우선):** record+live socket→control send / record+dead·absent socket→dormant(owned=spawn-bg
+    resume, fire-forget=reject). **meta-mailbox는 pi 기본 fallback 아님**(pi=direct-inject, drain/wake 없음).
+  - **Q3:** replyable = "PI_SESSION_ID 있음"이 아니라 "지금 이 sender에게 model-visible 회신을 넣을 inbound path가 있음".
+    `mcp/pi-tools-bridge/src/index.ts`의 `buildStrictPiSenderEnvelope()`가 env만 보고 true, `entwurf_self`가 socketPath
+    합성 = 오늘의 거짓. 중앙 `computeSelfAddressability` seam으로 실제 socket probe(미래 pi mailbox drain). **Q1 후에도
+    record만으론 replyable true 아님.**
+  - **Q4:** 상태바 분리. `🪛<id>`=identity/model-lock 유지, addressability는 별도(`control:alive`/`citizen:dormant`/
+    `no-inbound`). socketless running pi는 "record 있음+live inbound 없음"이라 단일 glyph는 또 속임.
+  - **Q5:** classifier 거의 준비됨 — `MetaBackendV2`에 `pi`, `isLivenessSupported('pi')`, `scanSocketProbes`가 absent
+    canonical socket을 `dead`로 → dormant route 열림. 확인할 곳: legacy/in-process `entwurf_peers`가 live-only surface인
+    점, v1 fallback이 capability 없이 `enqueueMetaMessage` 하는 점.
+- **합의 슬라이스 순서(GPT verdict — 면피용 금지, Q1 단독 선행 금지):**
+  1. **Repro/guard 게이트(실패 테스트):** PI_SESSION_ID 있고 socket/record 없는 세션에서 `entwurf_self`/sender envelope가
+     `replyable:true`를 못 말하게.
+  2. **v1 mailbox fallback capability guard:** legacy `entwurf_send` dead-socket fallback이 self-fetch deliverable
+     citizen(claude-code)에만 enqueue하도록. **pi record 도입 전에 먼저** 닫아야 거짓 doorbell wake 방지.
+  3. **pi MetaIdentity writer:** session_start에서 garden id 보존 upsert(늦은 file/model은 turn_end attach refresh).
+     게이트: idempotent / `gardenId=sessionId` / `--entwurf-control` 없어도 생성 / corrupt·drift fail-loud.
+  4. **v2 matrix 게이트:** pi record+alive→fire-forget control send / pi record+absent→owned spawn-bg resume /
+     fire-forget dormant reject / peers·fact surface에 dead pi citizen 노출.
+  5. **entwurf_self·UI 정직성:** socketPath를 canonical/expected vs alive 구분 렌더, statusbar addressability를
+     identity와 분리.
+- **검수 라인:** GPT5.5(자문) = `20260614T102904-fe7f37`(live, direct send). CC Opus(3번째) = `20260614T103037-582512`
+  (native, meta-mailbox+doorbell) — **다음 턴 합류**. 회신은 doorbell→`entwurf_inbox_read`.
+- **상태:** 설계 합의 완료(GPT GO). **다음 한 걸음 = 슬라이스 1 진입 전 read-only 실측 4건**(`upsertMetaSession` id
+  민팅 / `MetaBackendV2`·`isLivenessSupported('pi')`·`scanSocketProbes` 실재 / `buildStrictPiSenderEnvelope`+`entwurf_self`
+  합성 위치 / v1 fallback `enqueueMetaMessage` 호출 지점·capability 검사 유무) → 결과 GPT 공유 → 슬라이스 1 failing test.
+
 ## 전달지침 — 새 담당자(2026-06-13 세션 #9 → 후임 세션 #10)
 
 - **세션 #9 진행분(재검증 + NEXT 재편, push 완료):** 실무자 Opus(로컬 세션, garden `20260613T154121-c98fc3`) + GPT힣
