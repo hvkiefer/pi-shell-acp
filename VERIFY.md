@@ -71,7 +71,7 @@ This document records only **verification intent (what we're looking at) and pas
 
 ### Async resume — separate live gate
 
-The async path is verified by `./run.sh smoke-async-resume` (scripts/smoke-async-resume.sh, added in 0.7.6). The live smoke covers the replyable MCP → `spawn_async_resume` control-RPC → native async launcher path across Claude, Codex, and Gemini (Hard Rule #7 three-backend equality): the backend performs an MCP `entwurf` sync-only spawn, then calls `entwurf_resume(mode="async")`; the gate asserts an immediate async ack and a later successful `🏁 resume … completed` followUp. `❌ resume` is fail-closed, not PASS. The omitted-mode conditional default (replyable → async, external → sync) is pinned by the deterministic `./run.sh check-async-resume-gate` (16 assertions) in the `pnpm check` chain; the live smoke uses explicit `mode="async"` so model prompt-following cannot hide the async branch. Latest focused 0.9.0 repair evidence: `/tmp/psa-smoke-async-resume-090-fix.log` (6 PASS / 0 FAIL) before the full 17/0 release-gate sweep; the earlier 0.8.1 pre-cut artifact remains `/tmp/smoke-async-resume-20260531-181934.json`. It is NOT in the deterministic `pnpm check` chain because it requires live ACP turns and a small token spend (~$0.10–$0.30). Run it before any release that touches the entwurf surface, and after any change to `pi-extensions/lib/entwurf-async.ts`, `mcp/pi-tools-bridge/src/{index,resume-mode}.ts`, or `pi-extensions/entwurf-control.ts` (the entwurf-control RPC dispatcher).
+The async path is verified by `./run.sh smoke-async-resume` (scripts/smoke-async-resume.sh, added in 0.7.6). The live smoke covers the replyable MCP → `spawn_async_resume` control-RPC → native async launcher path; the default collapsed to claude-only as of 0.11.0 (gemini CLI deprecated, codex dropped from the live floor — pass explicit backends to exercise codex/gemini on demand): the backend performs an MCP `entwurf` sync-only spawn, then calls `entwurf_resume(mode="async")`; the gate asserts an immediate async ack and a later successful `🏁 resume … completed` followUp. `❌ resume` is fail-closed, not PASS. The omitted-mode conditional default (replyable → async, external → sync) is pinned by the deterministic `./run.sh check-async-resume-gate` (16 assertions) in the `pnpm check` chain; the live smoke uses explicit `mode="async"` so model prompt-following cannot hide the async branch. Latest focused 0.9.0 repair evidence: `/tmp/psa-smoke-async-resume-090-fix.log` (6 PASS / 0 FAIL) before the full 17/0 release-gate sweep; the earlier 0.8.1 pre-cut artifact remains `/tmp/smoke-async-resume-20260531-181934.json`. It is NOT in the deterministic `pnpm check` chain because it requires live ACP turns and a small token spend (~$0.10–$0.30). Run it before any release that touches the entwurf surface, and after any change to `pi-extensions/lib/entwurf-async.ts`, `mcp/pi-tools-bridge/src/{index,resume-mode}.ts`, or `pi-extensions/entwurf-control.ts` (the entwurf-control RPC dispatcher).
 
 ### Resident garden-native session — separate live gate (0.9.0)
 
@@ -215,7 +215,7 @@ npm run check-mcp
 npm run check-backends
 npm run check-registration
 
-# 5. triple-backend runtime smoke gate (Gemini auto-skips when absent)
+# 5. claude-only runtime smoke (0.11.0 floor; codex/gemini via smoke-codex / smoke-gemini)
 ./run.sh smoke-all /path/to/consumer-project
 ```
 
@@ -249,7 +249,7 @@ cd "$REPO_DIR"
 ./run.sh setup "$PROJECT_DIR"
 ```
 
-`setup` is a convenience that runs `install` + `smoke-all` in sequence, so a green `setup` implies both the settings.json wiring and the triple-backend runtime surface are healthy (with Gemini explicitly skipped when its CLI is absent).
+`setup` is a convenience that runs `install` + `smoke-all` in sequence, so a green `setup` implies both the settings.json wiring and the (claude-only as of the 0.11.0 floor) runtime surface are healthy; verify codex/gemini on demand with `smoke-codex` / `smoke-gemini`.
 
 ### 1.5 Pre-verification snapshot — capture once, before §3
 

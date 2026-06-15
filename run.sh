@@ -33,13 +33,13 @@ usage() {
   cat <<'EOF'
 Usage:
   ./run.sh setup [project-dir]        # pnpm install + sync auth + install + smoke-all + Axis 1 gates (bridge, native async, session-messaging, sentinel)
-  ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + every live per-invariant gate across 3 backends + one PASS/FAIL/SKIP summary. gemini SKIP=FAIL at release (dev override: --allow-skip-gemini). final cut authorization is GLG's.
+  ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + every live per-invariant gate on the claude-only floor (0.11.0; gemini/codex live tests dropped) + one PASS/FAIL/SKIP summary. --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
   ./run.sh xt-tool-surface             # ACP backend exclude-tools policy: -xt <builtin> fail-fast per backend (declared==actual), extension exclusion honored
   ./run.sh smoke [project-dir]        # Claude runtime smoke (backward-compatible default)
   ./run.sh smoke-claude [project-dir] # explicit Claude runtime smoke
   ./run.sh smoke-codex [project-dir]  # explicit Codex runtime smoke
   ./run.sh smoke-gemini [project-dir] # explicit Gemini runtime smoke (requires `gemini` on PATH)
-  ./run.sh smoke-all [project-dir]    # required triple-backend runtime smoke gate (gemini auto-skips if absent)
+  ./run.sh smoke-all [project-dir]    # claude-only runtime smoke (0.11.0 floor; codex/gemini via smoke-codex / smoke-gemini)
   ./run.sh smoke-continuity [project-dir] # strict dual-backend persisted bootstrap gate (Claude=resume, Codex=load)
   ./run.sh smoke-cancel [project-dir] # strict cancel/abort cleanup observability gate (Claude + Codex)
   ./run.sh smoke-model-switch [project-dir] # strict model-switch lock gate — same-backend + cross-backend reuse mismatch must throw ModelSwitchLockedError (issue #14)
@@ -133,7 +133,7 @@ Usage:
 Notes:
   - project-dir defaults to current directory
   - Claude Code login should already exist (e.g. ~/.claude.json)
-  - smoke-all is the operator-facing triple-backend verification path (Gemini auto-skips when absent) and is what setup runs
+  - smoke-all is the operator-facing runtime verification path — claude-only as of the 0.11.0 floor (codex/gemini via smoke-codex / smoke-gemini) — and is what setup runs
   - API key is optional; this bridge is intended to work with Claude Code auth
 EOF
 }
@@ -1758,12 +1758,12 @@ smoke_async_resume() {
   # pinned by `check_async_resume_gate`; this live smoke uses explicit async so
   # model prompt-following cannot hide the async branch.
   #
-  # Hard Rule #7 — three-backend equality. Claude, Codex, and Gemini all
-  # exercise the same MCP → control-RPC → native-launcher chain. Gemini
-  # falls into an honest-skip record when `gemini` CLI is not on PATH
-  # (same convention as smoke-all). A single-backend GREEN does NOT
-  # constitute "release ready" — Codex and Gemini must also land in PASS
-  # (or honest SKIP for Gemini).
+  # Capability dignity across siblings (Hard Rule #7); the live floor is
+  # claude-only as of 0.11.0. Claude, Codex, and Gemini all exercise the same
+  # MCP → control-RPC → native-launcher chain, but the default here collapsed
+  # to claude-only (gemini CLI deprecated, codex live dropped from the release
+  # floor). Pass explicit backends to exercise codex/gemini on demand; they
+  # remain supported surfaces, just not part of the live floor.
   #
   # Cases:
   #   A — MCP replyable async (per backend): tmux pi session with --entwurf-
@@ -4459,13 +4459,15 @@ xt_tool_surface() {
 # release-gate — the single command that, when GREEN, is sufficient to cut
 # release cuts. Runs the full static floor (`pnpm check`, which now folds in
 # check-model-lock + verify-transcript-poison) followed by every live
-# per-invariant gate across all three backends, then emits one PASS/FAIL/SKIP
-# summary. Everything is invoked through run.sh subcommands — never a script in
-# scripts/ directly.
+# per-invariant gate on the claude-only floor (0.11.0), then emits one
+# PASS/FAIL/SKIP summary. Everything is invoked through run.sh subcommands —
+# never a script in scripts/ directly.
 #
 # Design invariants (NEXT Step 1e + GPT-5.5 reviews):
-#   - Gemini SKIP = FAIL at release (backend availability). --allow-skip-gemini
-#     is a DEV override only; the default release path requires all three.
+#   - Claude-only floor (0.11.0): gemini (CLI deprecated) and codex live
+#     tests were dropped from the gate; --allow-skip-gemini is accepted but
+#     ignored (back-compat). Codex/Gemini stay supported surfaces verified by
+#     the deterministic gates + on-demand smoke-codex / smoke-gemini.
 #   - smoke-continuity is intentionally NOT here: smoke-entwurf-resume is its
 #     superset (asserts acpSessionId identity + turn count + blank/invalidate
 #     guards). smoke-continuity stays a dev quick-smoke.
@@ -4557,7 +4559,7 @@ release_gate() {
   run_step "smoke-session-id-name (3a substrate)" gate bash "$self" smoke-session-id-name
   run_step "smoke-resident-garden-guard (3c guard: negative 0-token + positive 1-turn)" gate env SMOKE_RGG_POSITIVE=1 bash "$self" smoke-resident-garden-guard
   run_step "smoke-installed-entwurf-acp (#29)" gate bash "$self" smoke-installed-entwurf-acp
-  run_step "smoke-all (3-backend runtime)"  gate bash "$self" smoke-all "$project_dir"
+  run_step "smoke-all (claude-only floor)"  gate bash "$self" smoke-all "$project_dir"
   run_step "smoke-async-resume"             gate bash "$self" smoke-async-resume
   run_step "smoke-cancel"                   gate bash "$self" smoke-cancel "$project_dir"
   run_step "smoke-model-switch"             gate bash "$self" smoke-model-switch "$project_dir"
@@ -4569,7 +4571,7 @@ release_gate() {
   # green first so a matrix-live failure reads as "v2 transport/lock/enqueue", not bridge basics.
   # Opt-in LIVE: it spawns a real `pi --entwurf-control` (needs auth/model), so LIVE!=1 is an HONEST
   # SKIP (not a PASS) — an unattended release-gate stays runnable without faking coverage. Independent
-  # of --allow-skip-gemini (that gates the three-backend claim; this gates substrate auth).
+  # of --allow-skip-gemini (now a no-op back-compat flag on the claude-only floor; this gates substrate auth).
   section "release-gate step: smoke-entwurf-v2-matrix-live"
   if [ "${LIVE:-}" = "1" ]; then
     if gate env LIVE=1 bash "$self" smoke-entwurf-v2-matrix-live; then

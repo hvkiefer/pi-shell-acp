@@ -105,13 +105,13 @@ Run the official release prerequisite from a fresh scratch project and preserve 
 
 ```bash
 SCRATCH=$(mktemp -d /tmp/psa-release-gate-${VERSION}.XXXXXX)
-./run.sh release-gate "$SCRATCH"
+LIVE=1 ./run.sh release-gate "$SCRATCH"
 ```
 
-Expected summary:
+Expected summary (claude-only floor as of 0.11.0; `LIVE=1` runs the v2 spawn-resume/matrix LIVE steps, else they SKIP → PASS=16 SKIP=2):
 
 ```text
-PASS=15  FAIL=0  SKIP=0
+PASS=18  FAIL=0  SKIP=0
 ```
 
 If the gate fails, stop at the failing axis and fix or explicitly classify it before committing release prep. Do not replace this with `pnpm check`; the live gate is the release floor.
@@ -142,7 +142,7 @@ Report:
 - prepared version
 - commit SHA
 - whether `pnpm check` passed
-- release-gate log/artifact/scratch paths and `PASS=15 FAIL=0 SKIP=0`
+- release-gate log/artifact/scratch paths and `PASS=18 FAIL=0 SKIP=0` (claude-only floor, `LIVE=1`)
 - whether the tree is clean
 - explicit final line:
 

@@ -103,7 +103,7 @@ pi install ./
 
 > **First time on a clean Ubuntu / Debian / macOS host?** See the [clean-host walk-through](./docs/setup-clean-host.md) — Stages 0–4b verified end-to-end: `nvm` + `pnpm` + `pi` install, `pi install git:...`, `run.sh install .`, missing-auth boundary surface, and authenticated runtime smoke for Claude / Codex / Gemini.
 
-> **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude/Codex/Gemini answer). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
+> **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude answers — `smoke-all` is the claude-only floor as of 0.11.0; verify Codex/Gemini on demand with `smoke-codex` / `smoke-gemini`). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
 
 > The OpenClaw plugin sibling at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) is **deprecated and unmaintained** as of 2026-06-10 — Claude and Gemini now support ACP natively, so the wrapper is no longer needed. It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
 
@@ -330,7 +330,7 @@ Pi is the canonical memory authority (semantic-memory + Denote llmlog); Claude, 
 ## Smoke commands
 
 ```bash
-./run.sh smoke-all .        # triple-backend gate (Gemini auto-skips when not on PATH)
+./run.sh smoke-all .        # claude-only floor (0.11.0); codex/gemini via smoke-codex / smoke-gemini below
 ./run.sh smoke-claude .
 ./run.sh smoke-codex .
 ./run.sh smoke-gemini .

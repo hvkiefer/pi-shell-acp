@@ -72,7 +72,7 @@ Warnings make agents blame themselves and flail. Broken tool state must surface 
 4. **MCP injection**: only via `piShellAcpProvider.mcpServers`. No ambient `~/.mcp.json` scanning.
 5. **Config change → session invalidation**: backend or `mcpServers` change automatically invalidates the persisted session. No stale reuse.
 6. **Shutdown → preserve mapping**: ordinary process exit keeps persisted mapping intact.
-7. **Three-backend equality is non-negotiable.** If the repo claims Claude + Codex + Gemini support, each must pass `./run.sh smoke-<backend>` and the relevant slice of `check-backends` / `check-models`. `smoke-all` runs Claude + Codex unconditionally and Gemini when `gemini` is on PATH; absence is documented as an explicit skip, not silent green. Before writing claims about backend behavior, ask explicitly: *have I verified this for all three?* A claim where one backend is implicitly carved out is a regression; either include it or record the skip with a reason. "Both backends" / "dual-backend" framing is a smell. When a live LIVE probe lands for one backend, the equivalent must land for the others in the same PR — even if the outcome is `observed: no native ACP surface for this command`. Recording an honest negative is how the third-backend axis closes.
+7. **Capability dignity across sibling backends is the invariant; the live release-gate floor is claude-only (0.11.0).** The bridge still *supports* Claude + Codex + Gemini — the `codex-acp` dep, the identity carriers, the per-backend overlays, the v2 spawn-bg resident child (a **native Codex** target), and on-demand `./run.sh smoke-codex` / `smoke-gemini` all stay. What changed in 0.11.0: the live `release-gate` floor exercises **Claude (sonnet) only** — Gemini's CLI is deprecated and the Codex live runtime smokes were dropped from the floor, so `smoke-all` is claude-only inside the gate. Codex/Gemini are held instead by the deterministic gates (`check-backends` / `check-models`) plus the native v2 Codex child and on-demand `smoke-codex` / `smoke-gemini`. Do **not** regress this into "the bridge dropped Codex/Gemini" — it dropped them from the *live floor*, not from *support*. Still ask which backends a behavior claim actually covers, and never silently carve one out without saying so.
 8. **This bridge is not a second harness**: no prompt reconstruction, no transcript hydration, no tool result ledger, no Claude Code emulation.
 9. **Auth boundary is deployment-surface-agnostic**. pi-shell-acp does not provide, copy, proxy, decrypt, or otherwise mediate Claude / Codex / Gemini credentials. The bridge spawns the official backend CLI and lets that CLI read whatever auth state is visible in the filesystem of the process that runs it. Whether that process runs natively on a host, inside a Docker container, or over SSH does not move this rule. Adapters under `plugins/*` (e.g. `plugins/openclaw`) inherit it; their job is to wire host-side install and document Docker auth options, not to bend the bridge's behavior around them.
 10. **Identity carrier + whitelist overlay design**: borrow each backend's model/API/tools; shape only the pi-facing surface.
@@ -92,7 +92,7 @@ Two axes, both required.
 ```bash
 ./run.sh setup /path/to/consumer-project    # one-shot install + all gates
 pnpm typecheck && ./run.sh check-backends && ./run.sh check-models && ./run.sh check-mcp && ./run.sh check-dep-versions && ./run.sh check-sdk-surface && ./run.sh check-registration
-./run.sh smoke-all /path/to/project         # Claude + Codex runtime (Gemini joins when `gemini` is on PATH)
+./run.sh smoke-all /path/to/project         # Claude (sonnet) runtime — 0.11.0 claude-only floor (codex/gemini via explicit smoke-codex / smoke-gemini)
 ./run.sh verify-resume /path/to/project     # cross-process continuity
 ./run.sh check-bridge /path/to/project      # MCP bridge visibility + invocation
 ./run.sh sentinel [cells]                   # 6-cell entwurf matrix (omit cells = all 6; no project arg)
@@ -188,7 +188,7 @@ When a future change requires extending the schema-to-type inference (TS2589 pat
 ## Runtime Dependencies
 
 - `@agentclientprotocol/claude-agent-acp` — resolved from this package dependency first; `claude-agent-acp` on PATH is fallback.
-- `@zed-industries/codex-acp` — resolved from this package dependency first; `codex-acp` on PATH is fallback. Three-backend equality (Hard Rule #7) — operators no longer need to globally install `codex-acp` separately when `pi-shell-acp` is installed.
+- `@zed-industries/codex-acp` — resolved from this package dependency first; `codex-acp` on PATH is fallback. Capability dignity / Hard Rule #7 (Codex stays a supported surface) — operators no longer need to globally install `codex-acp` separately when `pi-shell-acp` is installed.
 - `claude` CLI — Claude Code authentication, managed separately.
 
 Versions follow the pins in `package.json` / `run.sh`. Mismatches are caught by `check-dep-versions`.
@@ -197,7 +197,7 @@ Versions follow the pins in `package.json` / `run.sh`. Mismatches are caught by 
 
 - Surgical changes. One thing at a time.
 - Ask: does this belong in pi? In Claude Code? Or here?
-- Three-backend equality is invariant #7 — apply it to every change, not only to release prose.
+- Capability dignity across sibling backends is invariant #7; the live release-gate floor is claude-only (0.11.0) while codex/gemini stay supported via deterministic gates + on-demand smoke — keep that floor-vs-support distinction accurate in every claim.
 - Keep docs calibrated: strong language is fine; unbacked language is not.
 - Resist the urge to make the bridge more magical than necessary.
 
