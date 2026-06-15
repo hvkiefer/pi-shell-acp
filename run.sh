@@ -78,6 +78,7 @@ Usage:
   ./run.sh check-entwurf-v2-spawn      # deterministic gate (0.11 Stage 0 step 5c-3a): spawn-bg RESUME watcher hand (executeSpawnBgResume) wiring spawn + socket-observe IO onto the 5c-1 reducer — Fable-3: TIMEOUT IS NOT A RELEASE (bare observeTimeout→killChild, release 0; bounded killGrace then real socket-alive ∨ child-exited releases ×1); spawnChild throw→spawn-start-failed; no observation obtainable (grace elapses / post-spawn watch dep throws)→lock-retained fail-closed (released:false, evidence surfaced), NO direct-release hatch; IO-via-dep, controlled promises
   ./run.sh check-entwurf-resume-args   # deterministic gate (0.11 Stage 0 step 5c-3b): resume-argv SSOT (buildResumePiArgs) shared by the legacy async worker and the v2 spawn-bg resident citizen — A1: legacy=--no-extensions + no --entwurf-control (one-shot pi -p exits), v2-control=--entwurf-control + no --no-extensions (keep-alive is the goal, resumed session stays addressable); BOTH keep --mode json -p + prompt-as-turn (-p NOT dropped in v2); explicitExtensionArgs preserved once (#29); v2 includes plan.launchArgs (--approve); null provider→no --provider; no cross-contamination
   ./run.sh check-entwurf-v2-spawn-production # deterministic gate (0.11 Stage 0 step 5c-3c): production SpawnBgResumeDeps factory (makeProductionSpawnBgResumeDeps) wiring the 5c-3a watcher's 6 IO seams — no real pi/socket/timer (that=opt-in smoke-entwurf-v2-spawn-live, OUT of pnpm check). socketWatchVerdict: address-conflict→forged (reject, never wait)/alive→alive/dead·indeterminate→wait; spawnChild builds v2-control argv (--entwurf-control, no --no-extensions, -p+prompt, --approve, cwd authority); awaitSocketAlive connectable→resolve / symlink→reject without connect / dead→wait→alive / abort-clears; awaitChildExit code + listener cleanup; awaitTimeout schedule + abort-clear; killChild=SIGTERM; proc-less child fails loud
+  ./run.sh check-entwurf-v2-only          # deterministic gate (0.11.0 B): PI_SHELL_ACP_V2_ONLY=1 v2-only mode — pure helper (exact "1" only; off→allowed / on→blocked w/ flag+entwurf_v2+"unavailable"; assert throws on) + all 10 v1 entrypoint guards (9 surface groups; /entwurf tool+command) + MCP entwurf_resume & control-RPC spawn_async_resume BOTH guarded + v2 core flag-clean. v1 NOT deleted (호출 차단만; 0.12 lane).
   ./run.sh smoke-entwurf-v2-spawn-live # LIVE phase gate (0.11 Stage 0 step 5c-3c, D5) — OUT of pnpm check, needs LIVE=1. Exercises the production SpawnBgResumeDeps against REAL OS objects: S1 real unix socket → awaitSocketAlive resolves (real lstat+probe), symlink→forged, absent→abort settles; S2 real child → spawn-event resolve + SIGTERM kill + exit-code capture; S3 watcher integration → real timeout→kill→child-exited→release ×1. Does NOT spawn a real pi resume (that=5d matrix). Run before 5d: LIVE=1 ./run.sh smoke-entwurf-v2-spawn-live
   ./run.sh smoke-entwurf-v2-spawn-resume-live # 0.11.0 (A) ACCEPTANCE gate — OUT of pnpm check, needs LIVE=1. The FULL spawn-bg resident lifecycle: mint backend=pi identity → seed a REAL dormant pi session (one-shot into ~/.pi/agent/sessions) → runEntwurfV2(owned-outcome) routes dormant→spawn-bg resume → a REAL detached pi --entwurf-control child stands its socket up, resumes, DOES a model turn. Asserts executed/spawn-bg/socket-alive/released + lock released ×1 + no lock file + pid alive + socket connectable + resume USER & assistant OK nonces in the session JSONL. Model-in-loop IN. The gate v1 deprecation (0.12) is predicated on. Model: PI_SHELL_ACP_LIVE_TARGET=<provider>/<model> (default openai-codex/gpt-5.4). LIVE=1 ./run.sh smoke-entwurf-v2-spawn-resume-live
   ./run.sh smoke-entwurf-v2-matrix-live # LIVE sentinel (0.11 Stage 0 step 5d-5, D4-b) — OUT of pnpm check, needs LIVE=1. Drives REAL production runEntwurfV2 deps over REAL OS objects, 3 cells: C1 control-socket (real pi --entwurf-control resident → RPC send → lock acquire→release ×1), C2 meta-mailbox deliverable (armed self-fetch citizen → real .msg enqueue, lock-free), C3 meta-mailbox guard (no armed receiver → reject, no garbage). Model-in-loop OUT (transport/lock/enqueue gate, GPT Q2); negative/timeout stay deterministic. Model: PI_SHELL_ACP_LIVE_TARGET=<provider>/<model> (default openai-codex/gpt-5.4). LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live
@@ -1544,6 +1545,18 @@ check_entwurf_v2_spawn_production() {
   # resolves the code + removes the listener on abort. awaitTimeout schedules + abort-clears.
   # killChild=SIGTERM; releaseLock delegates; a proc-less child fails loud (mis-wire).
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-spawn-production.ts)
+}
+
+check_entwurf_v2_only() {
+  # Deterministic gate for 0.11.0 acceptance blocker (B): PI_SHELL_ACP_V2_ONLY=1 v2-only mode.
+  # Two layers, no spawn/socket/timer. A) pure helper (entwurf-v2-only.ts): isV2OnlyMode is true
+  # ONLY for exact "1" ("true"/"0"/""/missing → false); checkV1EntwurfAllowed off→allowed,
+  # on→blocked with a message naming the flag + entwurf_v2 + "unavailable"; assert throws on, silent
+  # off. B) source/static: all 10 v1 entrypoints (9 surface groups; /entwurf tool+command = two)
+  # carry their guard at the handler head, the MCP entwurf_resume + control-RPC spawn_async_resume
+  # are BOTH guarded (no single-point bypass), and the v2 core (runner+surface) stays flag-CLEAN —
+  # the flag is a legacy-surface gate, never a v2-decision gate. v1 code is NOT deleted (0.12 lane).
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-v2-only.ts)
 }
 
 smoke_entwurf_v2_spawn_live() {
@@ -4792,6 +4805,9 @@ case "$cmd" in
     ;;
   check-entwurf-v2-spawn-production)
     check_entwurf_v2_spawn_production
+    ;;
+  check-entwurf-v2-only)
+    check_entwurf_v2_only
     ;;
   smoke-entwurf-v2-spawn-live)
     smoke_entwurf_v2_spawn_live

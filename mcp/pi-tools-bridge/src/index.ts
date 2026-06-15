@@ -96,6 +96,7 @@ import { listEntwurfFacts } from "../../../pi-extensions/lib/entwurf-fact-provid
 import { guardedMailboxEnqueue } from "../../../pi-extensions/lib/entwurf-mailbox-guard.ts";
 import { renderEntwurfPeers } from "../../../pi-extensions/lib/entwurf-peers-render.ts";
 import { computeSelfAddressability } from "../../../pi-extensions/lib/entwurf-self-address.ts";
+import { checkV1EntwurfAllowed } from "../../../pi-extensions/lib/entwurf-v2-only.ts";
 import { runAndRenderEntwurfV2FromSurface } from "../../../pi-extensions/lib/entwurf-v2-surface.ts";
 import { formatMetaMailboxBody } from "../../../pi-extensions/lib/meta-mailbox-body.ts";
 import {
@@ -466,6 +467,9 @@ server.tool(
 			),
 	},
 	async ({ sessionId, message, mode, wants_reply }) => {
+		// v2-only gate (0.11.0 B): the MCP entwurf_send is a v1 live-peer surface.
+		const v1gate = checkV1EntwurfAllowed("entwurf_send (MCP)");
+		if (!v1gate.allowed) return textErr(v1gate.message);
 		try {
 			const sender = buildSendSenderEnvelope();
 			const effectiveWantsReply = wants_reply === true;
@@ -773,6 +777,9 @@ server.tool(
 			),
 	},
 	async ({ task, host, cwd, provider, model }) => {
+		// v2-only gate (0.11.0 B): MCP entwurf spawn is a v1 surface.
+		const v1gate = checkV1EntwurfAllowed("entwurf (MCP spawn)");
+		if (!v1gate.allowed) return textErr(v1gate.message);
 		try {
 			const guardSessionId = process.pid.toString();
 			const guardTargetKey = resolveGuardTargetKey(provider, model);
@@ -851,6 +858,10 @@ server.tool(
 			),
 	},
 	async ({ sessionId, prompt, host, cwd, mode }) => {
+		// v2-only gate (0.11.0 B): MCP entwurf_resume directly spawns without the control
+		// socket, so it needs its own guard in addition to the spawn_async_resume RPC guard.
+		const v1gate = checkV1EntwurfAllowed("entwurf_resume (MCP)");
+		if (!v1gate.allowed) return textErr(v1gate.message);
 		try {
 			// Phase B Step 3 — async-followUp discriminator. The mode
 			// resolution is in `resolveEntwurfResumeMode` so the deterministic

@@ -123,6 +123,7 @@ import {
 	readSessionHeader,
 	removeUnadoptedGardenSessionFile,
 } from "./lib/entwurf-core.js";
+import { checkV1EntwurfAllowed } from "./lib/entwurf-v2-only.js";
 import { isV2ResumeResidentAuthorized } from "./lib/entwurf-v2-resume-marker.js";
 import { formatMetaMailboxBody } from "./lib/meta-mailbox-body.js";
 import { enqueueMetaMessage } from "./lib/meta-session.js";
@@ -924,6 +925,14 @@ async function handleCommand(
 	// second harness" invariant: the launcher stays in one place; both
 	// surfaces (native tool + MCP-via-RPC) reach the same code path.
 	if (command.type === "spawn_async_resume") {
+		// v2-only gate (0.11.0 B): this RPC is the MCP-bypass-proof seam — a caller could
+		// hit the control socket directly, skipping the MCP handler guard, so the refusal
+		// must also live here. respond(false, …) is the RPC's hard-refusal channel.
+		const v1gate = checkV1EntwurfAllowed("spawn_async_resume (control RPC)");
+		if (!v1gate.allowed) {
+			respond(false, "spawn_async_resume", undefined, v1gate.message);
+			return;
+		}
 		const sessionId = command.sessionId;
 		const prompt = command.prompt;
 		if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
@@ -1642,6 +1651,16 @@ Messages include sender session info for replies.`,
 			_onUpdate: unknown,
 			_ctx: ExtensionContext,
 		) {
+			// v2-only gate (0.11.0 B): the in-pi entwurf_send tool is a v1 live-peer surface.
+			// This tool keeps the pi 0.70 isError result shape, so refuse with isError:true.
+			const v1gate = checkV1EntwurfAllowed("entwurf_send");
+			if (!v1gate.allowed) {
+				return {
+					content: [{ type: "text", text: v1gate.message }],
+					isError: true,
+					details: { error: v1gate.message },
+				};
+			}
 			const action = params.action ?? "send";
 			const sessionId = params.sessionId?.trim();
 
@@ -2063,6 +2082,13 @@ function parseStartupControlSendOptions(pi: ExtensionAPI): { options?: StartupCo
 		return { error: `Missing --${ENTWURF_SESSION_FLAG} (required with --${ENTWURF_SEND_MESSAGE_FLAG})` };
 	}
 
+	// v2-only gate (0.11.0 B): a real startup send (both target and message present) is a
+	// v1 surface; refuse it with an error report rather than silently skipping the send.
+	const v1gate = checkV1EntwurfAllowed("--entwurf-send-message startup send");
+	if (!v1gate.allowed) {
+		return { error: v1gate.message };
+	}
+
 	const rawMode = getStringFlag(pi, ENTWURF_SEND_MODE_FLAG) ?? "steer";
 	const mode = normalizeMode(rawMode);
 	if (!mode) {
@@ -2361,6 +2387,15 @@ function registerEntwurfSendCommand(pi: ExtensionAPI, state: SocketState, getSes
 			if (pi.getFlag(ENTWURF_FLAG) !== true) {
 				if (ctx.hasUI) {
 					ctx.ui.notify("Entwurf control not enabled — relaunch pi with --entwurf-control", "warning");
+				}
+				return;
+			}
+
+			// v2-only gate (0.11.0 B): /entwurf-send is the slash twin of the v1 send tool.
+			const v1gate = checkV1EntwurfAllowed("/entwurf-send");
+			if (!v1gate.allowed) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(v1gate.message, "error");
 				}
 				return;
 			}

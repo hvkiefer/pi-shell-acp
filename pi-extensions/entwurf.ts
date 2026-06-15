@@ -70,6 +70,7 @@ import {
 	runEntwurfResumeSync,
 	runEntwurfSync,
 } from "./lib/entwurf-core.js";
+import { assertV1EntwurfAllowed, checkV1EntwurfAllowed } from "./lib/entwurf-v2-only.js";
 
 function getParentSessionId(pi: ExtensionAPI): string {
 	const sm = (pi as unknown as { sessionManager?: { getSessionId?: () => string } }).sessionManager;
@@ -411,6 +412,10 @@ export default function (pi: ExtensionAPI) {
 			// in-pi spawn tool surface; the MCP bridge `entwurf` spawn remains
 			// sync-only for now. MCP `entwurf_resume` async landed separately in
 			// 0.7.6 via the control-RPC launcher path.
+			// v2-only gate (0.11.0 B): a v1 spawn is a side-effecting legacy surface —
+			// refuse before any work when PI_SHELL_ACP_V2_ONLY=1. pi 0.70 contract is
+			// throw-on-failure, so assert (not a structured result) is the hard refusal.
+			assertV1EntwurfAllowed("entwurf (spawn)");
 			const mode = params.mode ?? "async";
 
 			const guardSessionId = getParentSessionId(pi);
@@ -640,6 +645,13 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("entwurf", {
 		description: "Entwurf task to independent agent — /entwurf [sync|async] [host:] task",
 		handler: async (args, ctx) => {
+			// v2-only gate (0.11.0 B): the slash command is a second v1 spawn entrypoint
+			// alongside the tool — refuse-and-stop (not warn-and-continue) when the mode is on.
+			const v1gate = checkV1EntwurfAllowed("/entwurf");
+			if (!v1gate.allowed) {
+				ctx.ui.notify(v1gate.message, "error");
+				return;
+			}
 			if (!args?.trim()) {
 				ctx.ui.notify(
 					"Usage: /entwurf [sync|async] [host:] task\n" +
@@ -768,6 +780,8 @@ export default function (pi: ExtensionAPI) {
 			// → async via spawn_async_resume RPC; external host → sync; explicit
 			// async + non-replyable → reject); both surfaces converge on the same
 			// async launcher in lib/entwurf-async.ts.
+			// v2-only gate (0.11.0 B): refuse a v1 resume before spawning anything.
+			assertV1EntwurfAllowed("entwurf_resume");
 			const mode = params.mode ?? "async";
 
 			// Sync branch — entwurf to core, return inline (mirrors the MCP bridge
