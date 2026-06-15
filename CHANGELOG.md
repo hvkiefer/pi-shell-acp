@@ -4,6 +4,39 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+> **0.11.0 DRAFT — not yet cut.** The entwurf v2 dispatch substrate (#35): a single additive verb, `entwurf_v2` / `runEntwurfV2`, that unifies the three legacy v1 surfaces (live control-socket send, dormant-peer mailbox enqueue, spawn-bg resume) behind one decider which reads peer liveness as a fact and picks transport from a frozen table. Built bottom-up as pi-only TypeScript substrate (Stage 0): contract freeze → per-gid dispatch lock → pure decider → release-policy reducer → send/spawn hands → production deps assembly → pi-native + MCP `entwurf_v2` tool. On top of it the **spawn-bg resident lifecycle** — the headline guarantee of #35 — was proven LIVE for the first time (a real `pi --entwurf-control` child stands its socket up, resumes a dormant Entwurf session, and does a model turn), and that first LIVE run surfaced and closed a production contradiction in the resident-name guard. Finally a **v2-only mode** (`PI_SHELL_ACP_V2_ONLY=1`) hard-refuses every v1 entrypoint so v1 can be turned off ahead of its 0.12 removal. Scope is Stage 0 (pi-only substrate); Stage 1 (Claude↔Claude live) is explicitly out of scope. **The live `release-gate` (PASS=15 FAIL=0 SKIP=0) is the remaining floor before this section is promoted to `## 0.11.0`.**
+
+### Added (0.11.0 entwurf v2 — unified dispatch verb)
+
+- **`entwurf_v2` / `runEntwurfV2` — one additive dispatch verb over three transports.** The decider reads a peer's liveness as a fact (the `entwurf_peers` fact surface) and chooses transport from a frozen table: an alive pi citizen takes a fire-and-forget control-socket send, a dormant pi citizen an owned spawn-bg resume, an unsupported (self-fetch) citizen the meta-mailbox enqueue. Built as pure substrate first — the contract freeze, a per-gid lockfile primitive (F2), the pure decider, the release-policy reducer, the control-send + dead-control-send hands, the enqueue-only mailbox send body, the pure execute-router and the top-level decide→execute join — then surfaced as both a pi-native tool and an in-process MCP verb, plus `doctor` surface sanity and the `PI_ENTWURF_PREFIX_ROOTS` operator-policy SSOT. Each slice landed behind its own deterministic gate.
+- **v2 dispatch reachability + lock SSOT and a 3-cell LIVE matrix sentinel.** `check-entwurf-v2-matrix` is the reachability + lock-policy table; `smoke-entwurf-v2-matrix-live` is a 3-cell LIVE sentinel (control / mailbox / guard) wired into `release-gate` after the bridge check with an honest `LIVE!=1` skip.
+
+### Added (0.11.0 entwurf v2 — spawn-bg resident lifecycle, #35 headline)
+
+- **`smoke-entwurf-v2-spawn-resume-live` — the full spawn-bg resident loop, proven LIVE (22 checks).** A real saved Entwurf session is resumed by a detached `pi --entwurf-control` child that stands its control socket up, does a model turn (nonce echoed in both the user and assistant turns of the session JSONL), releases its dispatch lock exactly once, and cleans up with zero litter. This is the first time the production spawn path (a detached `spawn()` pi resident — not the v1 tmux smoke fixture) was exercised end to end, closing the acceptance debt step 5c-3c had deferred to "the matrix proves it."
+- **`PI_SHELL_ACP_V2_RESUME_RESIDENT_SESSION_ID` — sessionId-bound authorized Entwurf-child resident.** The first LIVE run surfaced a production contradiction: a v2 spawn-bg resume launches its child with `--entwurf-control`, but `maybeSetResidentName` refused any `entwurf`-tagged resident (the tag is the `entwurf_resume` marker), so the resume self-terminated before doing any work. Resolved by narrowing the invariant, not dropping it: operator residents still reject the `entwurf` tag, but a v2 spawn-bg resume child is authorized by the sessionId-bound marker its launcher plants, keeps its tag, and stays re-resumable. The marker is a zero-import leaf so it is root-safe from both the `.js`-import (`entwurf-control`) and `.ts`-import (`entwurf-v2-spawn-production`) compilation worlds.
+
+### Added (0.11.0 entwurf v2 — v2-only mode)
+
+- **`PI_SHELL_ACP_V2_ONLY=1` — hard-refuse every v1 entwurf entrypoint ahead of v1 removal.** A zero-import leaf helper (`entwurf-v2-only.ts`: `isV2OnlyMode` true only for exact `"1"`, `checkV1EntwurfAllowed` pure return, `assertV1EntwurfAllowed` throw wrapper) is the single source of truth; each of the 10 v1 entrypoints (9 surface groups — `/entwurf` tool + command count as two) refuses before any side effect through its own existing hard-refusal channel (tool throw, command notify, isError result, RPC `respond(false)`, startup error report, MCP `textErr`). The MCP `entwurf_resume` handler and the control RPC `spawn_async_resume` are **both** guarded so the socket path cannot bypass the MCP guard. v1 code is neither deleted nor unregistered — invocation refusal only; the 11-scenario v2 replacement and v1 removal are the 0.12 lane. `check-entwurf-v2-only` (28 checks) proves the helper contract, all 10 guard sites, the double guard, and that the `entwurf_v2` core stays flag-clean.
+
+### Added (0.11.0 entwurf v2 — fact surface)
+
+- **`listEntwurfFacts` / `entwurf_peers` — the entwurf fact surface (4-value liveness).** A pure `PeerFact` core (garden citizens from meta-records + record-less control sockets, each with alive / dead / indeterminate / unsupported liveness) assembled bottom-up with socket-axis hardening (symlink / dir-read / malformed diagnostics). It reports facts, never routing verbs — the dispatch decision is computed later by the v2 contract, not here.
+
+### Added (0.11.0 meta — delivery authority on v2 identity + trust)
+
+- **Meta delivery authority cut to v2 identity + state store (3D-2 … 3D-4).** A v2 identity-normalization gate, a dual-read identity seam with delivery-agnostic consumers, the live mailbox receipt dual-write to the state store, and backend capability sourced from the registry rather than a const. The `entwurf_v2` contract surface was frozen and gated before the verb was wired (step 4-pre).
+- **`project_trust` handler + inherited-trust preflight (Trust 2층).** The pi trust preflight carries inherited-trust evidence and a deny formatter (F5a/N3b); a `project_trust` handler adds an inherited-distrust escape.
+
+### Added (0.11.0 entwurf v2 — SE active-receiver deliverability)
+
+- **The SE-1/SE-2 deliverability seam — honest pi-native + meta-self replyability.** A meta-receiver presence marker, MCP + pi-native `entwurf_send` mailbox-fallback gates, a `mailboxConversationalDeliverable` predicate, a guarded mailbox-enqueue wrapper, and the required v2 active-receiver deliverability seam, so a send to a citizen with no live socket falls back to the mailbox transport instead of failing.
+
+### Changed (0.11.0 — dependencies)
+
+- **pi 0.79 bump + Stage 0 import/runtime guards.** The substrate carries new typecheck-fence and runtime guards that keep the `.ts` / `.js` dual-import worlds honest under `node --experimental-strip-types`.
+
 ### Deprecated
 
 - **`plugins/openclaw` is deprecated and unmaintained (2026-06-10).** The OpenClaw plugin layer no longer has a reason to exist: Claude and Gemini now support ACP natively (Claude on a credit basis from 2026-06-15), so routing them through an OpenClaw wrapper buys nothing. The pi-shell-acp bridge itself is unaffected and continues to support Claude / Codex / Gemini directly — only the OpenClaw adapter context changed. The npm package `@junghan0611/openclaw-pi-shell-acp@0.0.1` is marked deprecated on the registry (not unpublished); the source under `plugins/openclaw` is frozen for reference. No further ClawHub / npm publishing. (The `@junghanacs` ClawHub publisher handle was separately recovered via clawhub#2346 and is retained for other uses.)
