@@ -1,6 +1,6 @@
 # pi-shell-acp
 
-Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) inside pi — and make native Claude Code sessions garden-addressable peers.
+Use Claude Code and Codex through Agent Client Protocol (ACP) inside pi — and make native Claude Code sessions garden-addressable peers.
 
 ![pi-shell-acp — a reproducible agent harness for pi](docs/assets/pi-shell-acp-hero.jpg)
 
@@ -15,8 +15,8 @@ Use Claude Code, Codex, and Gemini CLI through Agent Client Protocol (ACP) insid
 ```text
 pi
   → pi-shell-acp
-    → claude-agent-acp | codex-acp | gemini --acp
-      → Claude Code | Codex | Gemini CLI
+    → claude-agent-acp | codex-acp
+      → Claude Code | Codex
 ```
 
 `pi-shell-acp` is a thin ACP provider for pi: no OAuth proxy, no CLI transcript scraping, no Claude Code emulation. It connects pi to locally authenticated ACP backends with no core patch and no bypass. Each backend keeps its own model, API, and tool semantics; the bridge shapes only the pi-facing operating surface.
@@ -37,7 +37,9 @@ For 0.10.0 this meta-bridge installer/doctor is **Claude Code only**. Codex and 
 
 > **Project boundary.** `pi-shell-acp` is not a fork, plugin, dependency, or integration layer of `oh-my-pi`, and it is not developed in coordination with `oh-my-pi`. Issues in other Pi / ACP projects may be useful as general implementation references, but they are not `pi-shell-acp` integration issues unless this repository explicitly links them as such.
 
-> **Anthropic subscription billing.** From 2026-06-15, Anthropic third-party agent paths (ACP, Agent SDK, `claude -p`, pi-shell-acp's Claude backend) consume a separate Agent SDK credit pool, distinct from Claude chat and the `claude` CLI used as an interactive terminal. `pi-shell-acp` respects that distinction — no bypass, no emulation — and preserves capability dignity across all three backends (see [AGENTS.md](./AGENTS.md) invariants #7, #9, #10). The recommended default runtime leans toward paths outside Anthropic's Agent SDK metering (Codex / Gemini); Claude remains a strong coding worker invoked when its quality is worth the credit cost. The operator decides the mix.
+> **Anthropic subscription billing.** From 2026-06-15, Anthropic third-party agent paths (ACP, Agent SDK, `claude -p`, pi-shell-acp's Claude backend) consume a separate Agent SDK credit pool, distinct from Claude chat and the `claude` CLI used as an interactive terminal. `pi-shell-acp` respects that distinction — no bypass, no emulation — and preserves capability dignity across supported backends (see [AGENTS.md](./AGENTS.md) invariants #7, #9, #10). The recommended default runtime leans toward paths outside Anthropic's Agent SDK metering, with Claude invoked when its quality is worth the credit cost. The operator decides the mix.
+
+> **Gemini CLI migration.** Google announced that Gemini CLI stops serving requests for Google AI Pro / Ultra and unpaid individual tiers on **2026-06-18**; those users should migrate to [Antigravity CLI](https://antigravity.google/product/antigravity-cli). See Google's migration note: [Transitioning Gemini CLI to Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/). The repository still carries existing Gemini adapter code for compatibility, but this README no longer presents Gemini CLI as a recommended setup path during the migration window.
 
 ## Concept primer
 
@@ -45,12 +47,12 @@ A few words that look unusual for a coding tool.
 
 - **Entwurf** (기투, projection-of-self) — sibling sessions with their own runtime boundary. Not "delegate," not "worker," not "sub-agent." Spawn, resume, and live peer messaging are first-class.
 - **Engraving** — optional short operator text delivered through each backend's native identity carrier. Not a giant hidden prompt, not a tool catalog.
-- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Gemini, …) when the operator chooses. `entwurf_self` returns an authoritative pi-session or trusted meta-session identity envelope; `entwurf_send` can deliver from plain external MCP hosts, but only pi-session and trusted meta-session senders are replyable.
+- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Antigravity, …) when the operator chooses. `entwurf_self` returns an authoritative pi-session or trusted meta-session identity envelope; `entwurf_send` can deliver from plain external MCP hosts, but only pi-session and trusted meta-session senders are replyable.
 - **Session persistence** — re-attaches pi to the same remote ACP session. Does not hydrate backend transcripts into pi history.
 
 ## Install
 
-`pi-shell-acp` is a thin ACP bridge — it connects pi to a local Claude/Codex/Gemini backend the operator has already installed and authenticated. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` / `gemini` already trusts is what pi-shell-acp uses.
+`pi-shell-acp` is a thin ACP bridge — it connects pi to a local Claude or Codex backend the operator has already installed and authenticated. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` already trusts is what pi-shell-acp uses.
 
 `pi` accepts four install sources for the bridge — `npm:` or `git:`, each in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A fifth path is a local clone for hacking on the bridge.
 
@@ -103,11 +105,11 @@ pi install ./
 ./run.sh smoke-all /path/to/your-project
 ```
 
-> **First time on a clean Ubuntu / Debian / macOS host?** See the [clean-host walk-through](./docs/setup-clean-host.md) — Stages 0–4b verified end-to-end: `nvm` + `pnpm` + `pi` install, `pi install git:...`, `run.sh install .`, missing-auth boundary surface, and authenticated runtime smoke for Claude / Codex / Gemini.
+> **First time on a clean Ubuntu / Debian / macOS host?** See the [clean-host walk-through](./docs/setup-clean-host.md) — Stages 0–4b verified end-to-end: `nvm` + `pnpm` + `pi` install, `pi install git:...`, `run.sh install .`, missing-auth boundary surface, and authenticated runtime smoke for Claude / Codex.
 
-> **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude answers — `smoke-all` is the claude-only floor as of 0.11.0; verify Codex/Gemini on demand with `smoke-codex` / `smoke-gemini`). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
+> **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude answers — `smoke-all` is the claude-only floor as of 0.11.0; verify Codex on demand with `smoke-codex`). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
 
-> The OpenClaw plugin sibling at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) is **deprecated and unmaintained** as of 2026-06-10 — Claude and Gemini now support ACP natively, so the wrapper is no longer needed. It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
+> The OpenClaw plugin sibling at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) is **deprecated and unmaintained** as of 2026-06-10. It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
 
 > **Extension set — do not filter.** `pi-shell-acp` ships four `pi.extensions` entries as a single set: the provider extension (`index.ts`) plus three `pi-extensions/*.ts` modules (entwurf, entwurf-control, model-lock). Filtering some out via pi's object-form package configuration can leave the model lock or entwurf surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
 
@@ -131,21 +133,13 @@ To force a global `codex-acp` (PATH fallback or development override):
 pnpm add -g @zed-industries/codex-acp@0.15.0
 ```
 
-Gemini is different — the `gemini` CLI binary is itself the ACP server, not a separate `*-acp` server package. It must be installed and authenticated on the operator's machine. Curated model: `pi-shell-acp/gemini-3.1-pro-preview`.
-
-```bash
-pnpm add -g @google/gemini-cli
-gemini   # one-time interactive login (oauth-personal) or set GEMINI_API_KEY
-./run.sh smoke-gemini /path/to/your-project
-```
-
-Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex`, Gemini → `gemini`. Set `backend` only to pin.
+Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex`. Set `backend` only to pin.
 
 ### Host adapters
 
 This repo also carries `plugins/*` — sibling packages that adapt the same bridge to non-pi hosts. Currently:
 
-- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`). **Deprecated and unmaintained** as of 2026-06-10 (Claude/Gemini now support ACP natively; Claude credit-based from 2026-06-15) — the npm version is marked deprecated and the source is frozen for reference.
+- [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) — OpenClaw plugin, published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`). **Deprecated and unmaintained** as of 2026-06-10 — the npm version is marked deprecated and the source is frozen for reference.
 
 Each adapter has its own `README.md`. They do not change the pi-facing surface above.
 
@@ -321,23 +315,20 @@ For the maintained multi-harness setup and skill/command packaging details, see 
 
 ## Per-backend operating surface
 
-Each backend keeps its native model / API / tools; pi-shell-acp shapes only what enters from pi. All three backends honor explicit `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`, and `GEMINI_SYSTEM_MD` exports when set by the operator.
+Each backend keeps its native model / API / tools; pi-shell-acp shapes only what enters from pi. Claude and Codex honor explicit `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `CODEX_SQLITE_HOME` exports when set by the operator.
 
 **Claude** uses `_meta.systemPrompt` for engraving and `CLAUDE_CONFIG_DIR` for a whitelist overlay so auth/runtime entries stay available while operator memory, hooks, agents, history, local settings, and project memory remain hidden. The overlay writes an explicit empty `hooks: {}` because Claude SDK organic compaction needs the configured-empty shape; no operator hook definitions are inherited. The four-tool baseline (`Read`, `Bash`, `Edit`, `Write`) is enforced through `tools` + `permissionAllow`; `Skill` is added automatically when `skillPlugins` is non-empty. Operator context cap override: `PI_SHELL_ACP_CLAUDE_CONTEXT=<int>`.
 
 **Codex** has no `_meta.systemPrompt`, so engraving rides codex-rs `-c developer_instructions="<...>"`. Defaults: `approval_policy=never`, `sandbox_mode=danger-full-access`, `web_search=disabled`. `codexDisabledFeatures` (default: `image_generation`, `tool_suggest`, `tool_search`, `multi_agent`, `apps`, `memories`) fails closed on surfaces that would bypass pi's MCP/tool model; `codexDisabledFeatures: []` opts out and emits a warning. `PI_SHELL_ACP_CODEX_MODE=auto|read-only` narrows the default mode. `CODEX_HOME` + `CODEX_SQLITE_HOME` point at a pi-owned overlay that keeps auth/runtime entries and codex state DBs but hides operator history, rules, top-level `AGENTS.md`, personal config, sessions, logs, and memories. codex-rs registers some native tools (`update_plan`, `request_user_input`, `view_image`, MCP resource readers) without config gates; pi-shell-acp documents this mismatch — closing it requires codex-rs changes.
 
-**Gemini** exposes neither `_meta.systemPrompt` nor `developer_instructions` but honors `GEMINI_SYSTEM_MD=<path>` as a full native-system-body replacement; pi-shell-acp authors that overlay file. `GEMINI_CLI_HOME` redirects the binary's `homedir()` to a pi-owned overlay. The tool surface uses defense in depth at two layers — `tools.core` 8-name allowlist (`read_file`, `list_directory`, `glob`, `grep_search`, `write_file`, `replace`, `run_shell_command`, `activate_skill`) plus a deny-all `--admin-policy` with the same class allow. `GEMINI.md` discovery and cwd dir-tree auto-attach are suppressed; the overlay rebuilds every spawn and sweeps `<configDir>/{tmp,history,projects}/`. Operator context cap override: `PI_SHELL_ACP_GEMINI_CONTEXT=<int>`.
-
-Pi is the canonical memory authority (semantic-memory + Denote llmlog); Claude, Codex, and Gemini native memory layers are pinned off, and engraving `${...}` literals are byte-split with U+200B before Gemini `system.md` write so they are visually stable but non-interpolatable.
+Pi is the canonical memory authority (semantic-memory + Denote llmlog); Claude and Codex native memory layers are pinned off.
 
 ## Smoke commands
 
 ```bash
-./run.sh smoke-all .        # claude-only floor (0.11.0); codex/gemini via smoke-codex / smoke-gemini below
+./run.sh smoke-all .        # claude-only floor (0.11.0); codex via smoke-codex below
 ./run.sh smoke-claude .
 ./run.sh smoke-codex .
-./run.sh smoke-gemini .
 ./run.sh verify-resume .    # cross-process continuity with acpSessionId diagnostics
 ```
 
@@ -368,7 +359,7 @@ A self-contained example lives at [`pi/skill-plugin-example/`](./pi/skill-plugin
 
 To verify, start a fresh Claude session and ask the model to list its skills; the names declared in your `SKILL.md` frontmatter should appear among the visible skills. The operator-driven version of this check is `Q-SKILL-CALLABLE` in [VERIFY.md](./VERIFY.md).
 
-`skillPlugins` is a Claude-backend-only install surface. Codex and Gemini expose skills through native `~/.codex/skills/` and `~/.gemini/skills/` passthrough; Gemini additionally activates them through the `activate_skill` tool.
+`skillPlugins` is a Claude-backend-only install surface. Codex exposes skills through native `~/.codex/skills/` passthrough.
 
 For a real consumer arranging many skills, see [agent-config](https://github.com/junghan0611/agent-config).
 
@@ -451,7 +442,7 @@ Enforcement (no uuid / back-compat path): a `--entwurf-control` session whose id
 
 The human-greeted 담당자 pattern is first-class: the operator opens a pi-shell-acp session in repo B, greets it directly, then passes that `sessionId` to another session via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics; only the creation sequence differs.
 
-**Mitsein over MCP** (공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Gemini CLI used as a human terminal) without spawning it. A plain external host is one-directional in shape: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. A garden-native meta-session closes that gap for `entwurf_send` — both sides are addressable by garden id through the mailbox, and `wants_reply` is allowed when the sender marker proves the native session identity, so send/inbox is symmetric. The one remaining asymmetry is the followUp channel: `entwurf_resume` async delivery still needs a pi control socket, which a meta-session does not have. This is still not a second harness — no control daemon and no transcript scraping are introduced; the bridge only fronts the mailbox/send surface.
+**Mitsein over MCP** (공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Antigravity used as a human terminal) without spawning it. A plain external host is one-directional in shape: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. A garden-native meta-session closes that gap for `entwurf_send` — both sides are addressable by garden id through the mailbox, and `wants_reply` is allowed when the sender marker proves the native session identity, so send/inbox is symmetric. The one remaining asymmetry is the followUp channel: `entwurf_resume` async delivery still needs a pi control socket, which a meta-session does not have. This is still not a second harness — no control daemon and no transcript scraping are introduced; the bridge only fronts the mailbox/send surface.
 
 After a session is anchored, pi-shell-acp locks its model identity: switches that touch `pi-shell-acp` are reverted; native-to-native and pre-turn selection remain free. `ensureBridgeSession` refuses direct reuse-path mismatches before backend handoff.
 
@@ -477,9 +468,9 @@ The legacy single knob `PI_SHELL_ACP_ALLOW_COMPACTION` is rejected at spawn inte
 
 The footer uses ACP `usage_update.used / size` (backend prompt/tools/cache/session included) with `[pi-shell-acp:usage] ...` diagnostics. Near limit, choose a visible action: clear, open a new session with a different model, or let the backend compact on its own.
 
-Identity-isolation env (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`, `GEMINI_SYSTEM_MD`) is unrelated to compaction and ships unconditionally.
+Identity-isolation env (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CODEX_SQLITE_HOME`) is unrelated to compaction and ships unconditionally.
 
-Verification: `./run.sh smoke-compaction-policy` (deterministic). `LIVE=1 ./run.sh smoke-compaction-policy` adds backend-owned continuation probes: Claude and Codex carry release evidence for explicit / organic backend compaction, while Gemini is recorded as an honest ACP asymmetry because its native CLI `/compress` is not exposed as an ACP command. Probe outcomes live in [demo/compaction-policy-smoke/README.md](./demo/compaction-policy-smoke/README.md), with the release baseline and verification framing in [BASELINE.md](./BASELINE.md) and [VERIFY.md](./VERIFY.md); the probe is not a product surface (no user-facing `/acp-compact`).
+Verification: `./run.sh smoke-compaction-policy` (deterministic). `LIVE=1 ./run.sh smoke-compaction-policy` adds backend-owned continuation probes for Claude and Codex. Probe outcomes live in [demo/compaction-policy-smoke/README.md](./demo/compaction-policy-smoke/README.md), with the release baseline and verification framing in [BASELINE.md](./BASELINE.md) and [VERIFY.md](./VERIFY.md); the probe is not a product surface (no user-facing `/acp-compact`).
 
 ## What this repo owns, and does not
 
@@ -487,7 +478,7 @@ Owns: provider registration (`pi-shell-acp/...`), ACP subprocess lifecycle + `re
 
 Does not: reconstruct full history, hydrate backend transcripts into pi history, emulate Claude Code or Codex, run broad multi-agent orchestration (entwurf is narrow, registry-gated, identity-locked), or run a second session model competing with pi.
 
-Only `pi:<sessionId>` mappings are persisted (`~/.pi/agent/cache/pi-shell-acp/sessions/`) — enough to re-attach pi to the same remote ACP session, never enough to act as a second harness. Backend stores (`~/.claude/`, `~/.codex/`, `~/.gemini/`) are interoperability side effects, not authority.
+Only `pi:<sessionId>` mappings are persisted (`~/.pi/agent/cache/pi-shell-acp/sessions/`) — enough to re-attach pi to the same remote ACP session, never enough to act as a second harness. Backend stores (`~/.claude/`, `~/.codex/`) are interoperability side effects, not authority.
 
 This repo also doubles as the maintainer's working laboratory for agent-harness boundaries — new workflow patterns (e.g. Mitsein over MCP) land here first as low-level instruments, before crystallizing into invariants or graduating into more polished surfaces elsewhere.
 
