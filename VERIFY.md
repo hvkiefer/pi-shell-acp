@@ -2,7 +2,7 @@
 
 Replicant-testing-replicant verification guide for `pi-shell-acp`.
 
-> **Current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing five tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`. The 0.4.x `session-bridge` adapter has been retired — its capabilities folded into the unified `entwurf*` surface. History rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation. Native pi entwurf routing (e.g. `openai-codex/gpt-5.4` without `provider="pi-shell-acp"`) does not enroll `pi-tools-bridge` as an MCP at all — pi delivers entwurf capability via extension surface on the native path, so "MCP not visible" is the correct PASS on native, while ACP-routed targets MUST see `pi-tools-bridge`.
+> **Current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing seven tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_v2`, `entwurf_peers`, `entwurf_self`, `entwurf_inbox_read`. The 0.4.x `session-bridge` adapter has been retired — its capabilities folded into the unified `entwurf*` surface. History rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation. Native pi entwurf routing (e.g. `openai-codex/gpt-5.4` without `provider="pi-shell-acp"`) does not enroll `pi-tools-bridge` as an MCP at all — pi delivers entwurf capability via extension surface on the native path, so "MCP not visible" is the correct PASS on native, while ACP-routed targets MUST see `pi-tools-bridge`.
 
 This document is a **working document, not a metrics document**.
 Even if scripts break, an agent that follows these steps and reads the results should be able to immediately determine:
@@ -81,11 +81,28 @@ The `--entwurf-control` garden-native enforcement is verified by `./run.sh smoke
 
 For release cuts, the canonical command is `./run.sh release-gate <scratch-project-dir>` with no `--allow-skip-gemini`. It runs the full deterministic floor (`pnpm check`) plus every live per-invariant gate and reports one PASS/FAIL/SKIP summary. A green gate is necessary but not sufficient; GLG still authorizes the cut. `pnpm check` alone is only the static floor, not release readiness.
 
+0.11.0 pre-cut evidence (2026-06-15): `/tmp/pi-shell-acp-release-gate-0.11.0-20260615T152058.log` — `LIVE=1` → `PASS=18 FAIL=0 SKIP=0` (the claude-only floor as of 0.11.0; without `LIVE=1` the floor is `PASS=16 SKIP=2`, codex/gemini exercised on demand). Reviewed GO by GPT5.5 (`20260615T153417-40716d`). This floor adds the entwurf v2 substrate gates (see below). Doc-only changes after this run do not alter runtime behavior; re-run the gate on the cut tree and refresh this log id before tagging.
+
 0.9.0 release-cut evidence (2026-06-04): `/tmp/pi-tmux-release-gate-gnew.log` — `PASS=17 FAIL=0 SKIP=0`, invoked from the repo cwd against `/tmp/psa-rg-gnew.bmj5BU`. This is the authoritative `/gnew`-inclusive gate: the identity substrate smoke (`smoke-session-id-name`) and the full resident garden guard (`smoke-resident-garden-guard`, 31/0 across negative + replacement + `/gnew` + positive/T3) run ahead of the Entwurf live gates. Companion evidence: `/tmp/sentinel-20260604-145958.json`, `/tmp/session-messaging-smoke-20260604-150300.json`, and the focused async-resume repair artifact `/tmp/psa-smoke-async-resume-090-fix.log` (6 PASS / 0 FAIL).
 
 0.8.2 pre-cut evidence (historical, 2026-06-01): `/tmp/pi-tmux-release-gate-082.log` — `PASS=15 FAIL=0 SKIP=0`, invoked from the repo cwd against `/tmp/claude-1000/psa-rg-082.HVwOvk`. Sentinel evidence: `/tmp/sentinel-20260601-121604.json` (6/6 PASS inside the release gate) and the earlier focused full run `/tmp/sentinel-20260601-120416.json` (6/6 PASS). The 0.8.2 sentinel hardening documents a Claude ACP MCP cold-start race and bounds it to one warmup-grace retry; the green release-gate run did not need that retry.
 
 0.8.1 pre-cut evidence (historical, 2026-05-31): `/tmp/pi-tmux-release-gate-0811c.log` — `PASS=15 FAIL=0 SKIP=0`, invoked from the repo cwd against `/tmp/psa-release-gate-0811c.Z7L4VB`. That floor added the package-install routing live gate `smoke-installed-entwurf-acp (#29)` ahead of the Entwurf runtime matrix. The cwd-hygiene cross-check remains part of the evidence: `sentinel-20260531-182435.json`, `smoke-async-resume-20260531-181934.json`, and `session-messaging-smoke-20260531-182737.json` all record scratch-session paths rather than `--home-junghan-repos-gh-pi-shell-acp--` repo-session paths.
+
+### entwurf_v2 Stage 0 evidence (0.11.0)
+
+The v2 dispatch substrate is verified bottom-up. **Deterministic** (in the `pnpm check` floor, so every cut covers them): `check-entwurf-v2-contract` (contract freeze), `check-entwurf-v2-lock` (per-gid lockfile primitive), `check-entwurf-v2-decider` (pure liveness→transport decider), `check-entwurf-v2-release` (release-policy reducer), `check-entwurf-v2-send` / `check-entwurf-v2-send-fallback` (control-send + dead-control-send hands), `check-entwurf-v2-mailbox` (enqueue-only mailbox body), `check-entwurf-v2-runner` / `check-entwurf-v2-production` (execute-router + production deps join), `check-entwurf-v2-surface` (pi-native + MCP verb surface), `check-entwurf-v2-spawn` / `check-entwurf-v2-spawn-production` (spawn-bg resume hands), `check-entwurf-v2-matrix` (decider matrix), `check-entwurf-v2-only` (`PI_SHELL_ACP_V2_ONLY=1` hard-refuses every v1 entrypoint). **Live** (not in `pnpm check`, run in the release gate / on demand): `smoke-entwurf-v2-spawn-live`, `smoke-entwurf-v2-spawn-resume-live` (the spawn-bg resident lifecycle first proven LIVE — a real `pi --entwurf-control` child stands its socket up, resumes a dormant Entwurf session, does a model turn), and `smoke-entwurf-v2-matrix-live`. Scope is Stage 0 (pi-only substrate); Claude↔Claude live (Stage 1) is out of scope for 0.11.0.
+
+### Agent-to-agent VERIFY routine (T3) — future skeleton
+
+> **Status: skeleton for 0.11.1/0.12, not a 0.11.0 gate.** The full routine is not part of the 0.11.0 cut; it is recorded here so the shape is fixed before it is built.
+
+A BASELINE-passing agent runs a fixed routine that probes another live citizen and records gaps as **claim triples** `{targetKind/backend, claimed D-level, transport}`, scored on two orthogonal axes that are never mixed:
+
+- **D axis = capability** (DELIVERY.md `D0–D8`): how far the target's async-delivery surface actually reaches — identify, address, wake, inject, observe, robustness.
+- **L axis = evidence quality** (`L0–L5` above): how the D-claim was confirmed. L1 self-report → L2 objective MCP/tool call (`entwurf_v2` / `entwurf_peers` / `entwurf_inbox_read`) → L3 on-disk/process corroboration (socket, `.msg`/`.read`, JSONL append, lockfile gone, `pgrep`) → L4 direct-native counterfactual → L5 soak/fault injection (repeated sends, coalesced doorbells, crash/restart, stale locks).
+
+Always write both axes, never collapse them: e.g. a Claude Code self-fetch mailbox is recorded as `D6 @ L2, D8 partial @ L3 (drain-gate)`, not "D8 works". Backends in scope grow from claude-code + pi to codex + AGY without changing the grid.
 
 ### What NOT to Do — Bypassing the Operational Path
 
@@ -187,7 +204,7 @@ Expected:
 - step 1 — pi prints package install messages; `pi list` afterwards shows `git:github.com/junghan0611/pi-shell-acp` under `User packages` with a path under `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp`.
 - step 2 — `install: added piShellAcpProvider.mcpServers.pi-tools-bridge` + `install: updated <project>/.pi/settings.json`.
 - step 3 — curated model surface prints (claude-sonnet-4-6, claude-opus-4-8, gpt-5.4, gpt-5.5, gemini-3.1-pro-preview).
-- step 4 — Claude + Codex + Gemini one-turn smokes pass, or Claude + Codex pass with an explicit Gemini skip notice when `gemini` is not on PATH.
+- step 4 — `[smoke-all] Claude runtime smoke: ok (codex/gemini live tests dropped — 0.11.0 claude-only floor)`. Codex/Gemini are verified on demand with `smoke-codex` / `smoke-gemini`.
 
 Notes:
 - The checkout path `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp` is pi-managed. Do not edit files there on a consumer machine — `pi update` would overwrite local edits.

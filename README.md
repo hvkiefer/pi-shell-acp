@@ -387,6 +387,14 @@ Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a
 
 In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
+### `entwurf_v2` — additive dispatch verb (0.11.0)
+
+`entwurf_v2` / `runEntwurfV2` is an **additive** v2 dispatch verb. You give a target garden id plus an intent (`fire-and-forget` or `owned-outcome`); one decider reads the target's liveness as a fact (via the `entwurf_peers` fact surface) and picks the transport from a frozen table — a live pi citizen takes a control-socket send, a dormant pi citizen an owned spawn-bg resume, a self-fetch citizen the meta-mailbox enqueue — then reports one outcome under a single per-target lock. It does **not** replace the v1 verbs: `entwurf`, `entwurf_resume`, and `entwurf_send` remain available and unchanged.
+
+`PI_SHELL_ACP_V2_ONLY=1` is a **staging** switch, not a removal. It hard-refuses every v1 entrypoint so a deployment can rehearse the v2-only world ahead of the **0.12** cutover, but it does not delete or unregister v1 — v1 sibling-create and v1 followUp are intentionally unavailable *under the flag* until 0.12 removes them. 0.11.0 ships v2 as Stage 0 (pi-only substrate); Claude↔Claude live (Stage 1) is out of scope.
+
+> 0.12+ direction: extract an Entwurf core (peer identity / garden id / inbox / liveness / dispatch / replyability / evidence) with per-backend plugins, leaving `pi-shell-acp` as the compatibility adapter. ACP is one plugin, not the boundary. Rationale: [#37](https://github.com/junghan0611/pi-shell-acp/issues/37).
+
 ### Garden launcher
 
 A `--entwurf-control` session must be garden-native — its header `id` must be a garden sessionId (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`), not pi's default `uuidv7`. The session id is fixed at launch (pi assigns it before extensions load), so the launcher injects it; `entwurf-control` only enforces. Launch through:
