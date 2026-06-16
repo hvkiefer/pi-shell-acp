@@ -46,11 +46,11 @@
   `smoke_compaction_policy`(absent script) 제거 + release-gate MUST의 3 깨진 run_step 제거 + stale 주석.
   run.sh −326줄. `cross-cwd-resume-smoke.ts`는 이미 삭제돼 있어 dangling 참조만 정리.
 - **fresh-mint 연기 결정 박기 DONE** (커밋 `c8cae8a`): ROADMAP 0.12 lane + NEXT step3.
-- **🔴 발견: AGENTS.md(40곳) + README(다수)는 통째로 "ACP bridge to Claude/Codex/Gemini" 시대 문서.**
-  line patch하면 자기모순(예: AGENTS.md:165가 MCP 표면을 삭제된 `entwurf`/`entwurf_resume`/`entwurf_send`로
-  기술)이라 **coherent 재작성 1회가 필요한 별도 단위**. rename(provider/패키지명) 결정과 얽혀 있어
-  Phase B 또는 전용 doc-rewrite 패스로 분리. **지금 산발 수정 금지.** AGENTS.md는 운영 baseline이라
-  README보다 우선순위 높음(working agent들이 먼저 읽음).
+- **AGENTS.md v2-only 재작성 DONE** (2026-06-16): 운영 baseline을 현재 표면으로 truthful하게 고침 —
+  "What This Repo Is"=pi-native dispatch substrate + meta-bridge, Hard Rules 8개(ACP/3-backend 제거),
+  Verification=실제 check-entwurf-v2-*/meta-*/sentinel/release-gate, Entwurf=v2 4도구+`/gnew`,
+  File Structure/Deps(mcp-sdk+zod)/Typecheck fence 갱신. 상단에 **branch-status 배너**로 name(`pi-shell-acp`)↔
+  content(no ACP) 불일치를 명시. rename은 보존(Phase B). **README는 아직 ACP 시대 — Phase B/후속 doc 패스로 미룸.**
 
 ## 잠긴 결정
 
@@ -168,14 +168,13 @@
 
 ## 다음 한 걸음
 
-→ **다음 단위 = 문서 coherent 재작성 (GLG 결정 필요)**. AGENTS.md/README가 ACP-bridge 시대 문서라
-  산발 수정 불가. 선택: (a) 지금 AGENTS.md만 v2-only 기준으로 1회 재작성(운영 baseline 우선, README는
-  Phase B), (b) AGENTS.md+README 둘 다 rename 단계(Phase B)에서 한 번에 — 이름 결정과 묶음.
-  그 전 비-문서 잔여:
-1. **gate 실행 검증** — `pnpm check` green은 매 커밋 husky로 확인됨(현재 green). LIVE release-gate
-   (`LIVE=1 ./run.sh release-gate <scratch>`)는 수리됐으니 본대에서 1회 재실행해 MUST tier 재확인 권장.
-2. **라우팅 잔여(Phase B 가까움)**: `scripts/resolve-acp-bridge.ts`(orphan?) / `getRegistryRouting`
-   하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description 문자열.
+→ **다음 후보 (우선순위 순):**
+1. **LIVE release-gate 1회 재실행** — `LIVE=1 ./run.sh release-gate <scratch>`. run.sh 수리(`496452e`) 후
+   MUST tier가 다시 통과하는지 본대(0.79.4)에서 실증. CHANGELOG의 옛 "MUST PASS=17"은 삭제 이전 로그라
+   현재 트리를 기술 못 함 — 새 로그로 교체 필요.
+2. **README** — 아직 ACP 시대. Phase B(rename)에서 AGENTS.md와 동형으로 재작성하거나 전용 doc 패스.
+3. **라우팅 잔여(Phase B 가까움)**: `scripts/resolve-acp-bridge.ts`(orphan?) / `getRegistryRouting`
+   하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description 문자열. rename과 묶어 절삭.
 
 ## 넘으면 안 되는 선
 
