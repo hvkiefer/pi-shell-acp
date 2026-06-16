@@ -40,7 +40,17 @@
   `getRegistryRouting` 하드코딩 `provider:"pi-shell-acp"`(=rename 영역 → Phase B) /
   `mcp/index.ts` description 문자열("from acp-bridge.ts" 등 정확성).
 - **v1 surface 1차 제거 + env seam DONE → `pnpm check` green** (2026-06-16 19:25 KST): MCP `entwurf`/`entwurf_resume`/`entwurf_send`, pi-native `entwurf_send`, startup `/entwurf-send`, `spawn_async_resume`, v1 gate/async scripts 제거. `updateSessionEnv`가 이제 `PI_SESSION_ID`와 함께 `PI_AGENT_ID=<provider>/<model>`을 set/delete. `entwurf-v2-resume-marker.ts`는 v2 resume 인증이라 KEEP. 남은 건 문서/주석/레거시 smoke 정리 + 커밋.
-- 다음 한 걸음 = stale README/run.sh/comments 정리 → 커밋.
+- **run.sh dead v1/ACP smoke 정리 + release-gate 수리 DONE → green** (2026-06-16, 커밋 `496452e`):
+  `smoke_entwurf_resume_single`(ACP, 0-caller) / `verify_resume`+`verify-resume` 서브커맨드 /
+  `validate_pi_native_async_entwurf`+`check_native_async`(삭제된 entwurf.ts spawn) /
+  `smoke_compaction_policy`(absent script) 제거 + release-gate MUST의 3 깨진 run_step 제거 + stale 주석.
+  run.sh −326줄. `cross-cwd-resume-smoke.ts`는 이미 삭제돼 있어 dangling 참조만 정리.
+- **fresh-mint 연기 결정 박기 DONE** (커밋 `c8cae8a`): ROADMAP 0.12 lane + NEXT step3.
+- **🔴 발견: AGENTS.md(40곳) + README(다수)는 통째로 "ACP bridge to Claude/Codex/Gemini" 시대 문서.**
+  line patch하면 자기모순(예: AGENTS.md:165가 MCP 표면을 삭제된 `entwurf`/`entwurf_resume`/`entwurf_send`로
+  기술)이라 **coherent 재작성 1회가 필요한 별도 단위**. rename(provider/패키지명) 결정과 얽혀 있어
+  Phase B 또는 전용 doc-rewrite 패스로 분리. **지금 산발 수정 금지.** AGENTS.md는 운영 baseline이라
+  README보다 우선순위 높음(working agent들이 먼저 읽음).
 
 ## 잠긴 결정
 
@@ -158,11 +168,14 @@
 
 ## 다음 한 걸음
 
-→ **fresh-mint 연기 결정 박기 DONE** (ROADMAP 0.12 lane + step3). 다음:
-1. **gate 실행 검증** — 남은 41 check + 5 smoke가 0.79.4 트리(hejdev6 본대)에서 실제 PASS인지. GPT는
-   오라클 0.77 스큐로 못 돌림 → 본대 몫. `pnpm check` green 확인.
-2. **stale 정리**: README/run.sh/top comments의 v1 `entwurf_send`/`entwurf_resume`/async-resume 잔재 →
-   `pnpm check` → 커밋.
+→ **다음 단위 = 문서 coherent 재작성 (GLG 결정 필요)**. AGENTS.md/README가 ACP-bridge 시대 문서라
+  산발 수정 불가. 선택: (a) 지금 AGENTS.md만 v2-only 기준으로 1회 재작성(운영 baseline 우선, README는
+  Phase B), (b) AGENTS.md+README 둘 다 rename 단계(Phase B)에서 한 번에 — 이름 결정과 묶음.
+  그 전 비-문서 잔여:
+1. **gate 실행 검증** — `pnpm check` green은 매 커밋 husky로 확인됨(현재 green). LIVE release-gate
+   (`LIVE=1 ./run.sh release-gate <scratch>`)는 수리됐으니 본대에서 1회 재실행해 MUST tier 재확인 권장.
+2. **라우팅 잔여(Phase B 가까움)**: `scripts/resolve-acp-bridge.ts`(orphan?) / `getRegistryRouting`
+   하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description 문자열.
 
 ## 넘으면 안 되는 선
 
