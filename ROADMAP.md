@@ -72,6 +72,14 @@ spawn-bg resume / meta-mailbox 중 하나를 결정적으로 고르는 dispatch 
 ### 0.12 / cutover lane
 - **v1 removal** — 11-scenario v2 replacement 증명 + v1 삭제. `entwurf_send` 전달을 `entwurf_v2`로
   수렴(redirect), `get_message`/`clear` debug action만 잔존.
+- **🔴 fresh sibling minting = 명시적 연기 (GLG 결정 2026-06-16).** v1 `entwurf.ts`("spawn a dedicated
+  pi process to run a NEW task")가 fresh-mint 본체였고 v2-only 브랜치에서 통째 삭제됨. v2의 3 transport
+  (control-socket / spawn-bg **resume** / meta-mailbox)는 전부 **기존** garden citizen 대상 — 무에서
+  새 형제를 만드는 verb는 v2에 없다. **0.12 = "기존 citizen dispatch만, fresh creation 없음"으로 능력
+  축소**가 의도된 상태. fresh-mint의 v2 대체(4번째 transport `spawn-fresh` + 11-scenario gate)는 **0.12.x
+  후속 lane**으로 분리. 그동안 v2-only 트리는 "새 분신 생성"이 필요한 데일리 드라이버로는 안 쓴다
+  (기존 citizen resume/dispatch 전용). 이 결정 없이 머지하면 "entwurf로 새 분신을 못 만든다"는 능력
+  구멍이 조용히 생기므로, 축소를 문서에 못박는 게 머지 전제.
 
 ---
 

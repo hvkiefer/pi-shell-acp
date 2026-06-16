@@ -95,6 +95,14 @@
    - scripts+case+체인: `check-entwurf-v2-only` / `check-async-resume-gate` / `check-entwurf-send-mailbox-fallback` / `cross-cwd-resume-smoke` 제거.
    - `mcp/pi-tools-bridge/test.sh` + `check-pi-tools-bridge-boot`는 v2-only tool surface(`entwurf_v2/self/peers/inbox_read`) 기준으로 갱신.
    - `lib/entwurf-core.ts`의 `runEntwurfSync`/`runEntwurfResumeSync`는 현재 export dead로 남음. `getRegistryRouting`/package-source 라우팅 잔여와 얽혀 Phase B 직전 별도 절삭.
+   **🔴 fresh sibling minting = 명시적 연기 (GLG 결정 2026-06-16, GPT 리뷰 급소2 확증)**:
+   삭제한 v1 `entwurf.ts` 헤더 = "spawn a dedicated pi process to run a NEW task" = fresh-mint 본체.
+   v2 3 transport(control-socket / spawn-bg **resume** / meta-mailbox)는 전부 **기존** citizen 대상 —
+   무에서 새 형제 만드는 verb 없음. `runEntwurfSync`/`runEntwurfResumeSync`는 호출처 0(dead).
+   → **0.12는 fresh creation을 포기(능력 축소): 기존 citizen dispatch만.** v2 대체(4번째 transport
+   `spawn-fresh` + 11-scenario gate)는 0.12.x 후속 lane(ROADMAP). **이 브랜치에서 안 만든다.**
+   그동안 v2-only 트리는 "새 분신 생성"이 필요한 데일리 드라이버로 안 씀. 빼기(17K)는 완료, 이
+   한 칸 "맞추기"는 의도적으로 비워둔 상태로 머지한다(능력 구멍 = 문서화된 의도, silent 아님).
    **KEEP (v2 surface)**: `entwurf_v2`/`entwurf_self`/`entwurf_peers`/`entwurf_inbox_read` 도구 +
    `entwurf-v2-*.ts` 전부 + `entwurf-v2-resume-marker.ts` + `entwurf-core.ts`의 v2 4심볼
    (`findSessionFileById`·`getEntwurfExplicitExtensions`·`mirrorChildStderr`·`readSessionIdentity`)
@@ -150,7 +158,11 @@
 
 ## 다음 한 걸음
 
-→ **stale 정리부터**: README/run.sh/top comments에서 v1 `entwurf_send`/`entwurf_resume`/async-resume 잔재 정리 → `pnpm check` → 커밋.
+→ **fresh-mint 연기 결정 박기 DONE** (ROADMAP 0.12 lane + step3). 다음:
+1. **gate 실행 검증** — 남은 41 check + 5 smoke가 0.79.4 트리(hejdev6 본대)에서 실제 PASS인지. GPT는
+   오라클 0.77 스큐로 못 돌림 → 본대 몫. `pnpm check` green 확인.
+2. **stale 정리**: README/run.sh/top comments의 v1 `entwurf_send`/`entwurf_resume`/async-resume 잔재 →
+   `pnpm check` → 커밋.
 
 ## 넘으면 안 되는 선
 
