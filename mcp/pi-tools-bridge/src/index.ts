@@ -446,8 +446,8 @@ server.tool(
 				// builds the derived socketPath, so scan and render cannot drift.
 				socket: { dir: ENTWURF_DIR },
 			});
-			const { text, payload } = renderEntwurfPeers(result, ENTWURF_DIR);
-			return textOk(`${text}\n\n${JSON.stringify(payload)}`);
+			const { text } = renderEntwurfPeers(result, ENTWURF_DIR);
+			return textOk(text);
 		} catch (err) {
 			return textErr(`entwurf_peers error: ${err instanceof Error ? err.message : String(err)}`);
 		}

@@ -257,7 +257,7 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
    `getRegistryRouting` 하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description. rename과 묶어 절삭.
 5. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
    `smoke-entwurf-v2-matrix-live.ts`(29)가 삭제된 명령 호명. Phase B doc 패스.
-6. **✅ `--emacs-agent-socket server` 부활 DONE (env 전파, 2026-06-17 미커밋)** — Doom/Emacs 프런트엔드가
+6. **✅ `--emacs-agent-socket server` 부활 DONE (env 전파, 2026-06-17, 커밋 `072f273`)** — Doom/Emacs 프런트엔드가
    의존하는 플래그가 깨졌던 것 복구. **원인**: 플래그를 등록/파싱하던 ACP `index.ts`가 v2-only에서 삭제됨 →
    `pi … --emacs-agent-socket server`가 미등록 플래그로 거부. **복구(ACP 의존 없이, `entwurf-control.ts`)**:
    (a) `registerFlag(EMACS_AGENT_SOCKET_FLAG, {type:"string"})`, (b) `applyEmacsAgentSocketEnv(pi)`를 `refreshServer`
@@ -267,12 +267,17 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
    소켓 up·flag 에러 0 + headless turn에서 Bash가 `$PI_EMACS_AGENT_SOCKET=server` 실측(`EMACSCHECK=[server]`).
    **후속(비긴급)**: pi-context-augment 힌트(`emacsclient -s "$PI_EMACS_AGENT_SOCKET"`)는 v2에서 augment 경로 자체가
    ACP산(`pi-context-augment.ts` 삭제됨)이라 보류 — env 전파만으로 1차 동작. CHANGELOG 엔트리는 tag-release 때.
-7. **✅ pi-native `entwurf_peers` 두-레일 listing DONE (2026-06-17 미커밋)** — 기존 pi-native tool은
+7. **✅ pi-native `entwurf_peers` 두-레일 listing DONE (2026-06-17, 커밋 `d7f6ce3`)** — 기존 pi-native tool은
    `getLiveSessions()`만 호출해 `~/.pi/entwurf-control/*.sock` 레일 A만 보였고, MCP bridge 쪽만 이미
    `listEntwurfFacts`+`renderEntwurfPeers`로 meta-record 레일 B를 함께 보던 비대칭. `entwurf-control.ts`도 같은
    fact-provider/render fence를 동적 import해 meta-record citizens + socket-only sections를 반환하도록 맞춤.
    검증: `./run.sh check-entwurf-peers-surface`에 native wiring guard 추가, `pnpm typecheck`, `pnpm check` green.
    라이브: `entwurf_v2(target=20260617T153025-ceba64, fire-and-forget)` meta-mailbox enqueue 성공.
+8. **✅ `entwurf_peers` unbounded output 수리 DONE (2026-06-17 미커밋)** — 두-레일 통일 후 meta-record 140+개를
+   text + full JSON으로 전부 뿌려 tool 출력이 63KB/상한 초과. `renderEntwurfPeers` text는 각 섹션 최신 32개만
+   compact 표시(`older entries omitted`)하고, pi-native/MCP human text에서 `JSON.stringify(payload)` append 제거.
+   pi-native는 full structured payload를 `details`에만 보존. 검증: bounded-output assertions + no-full-JSON wiring guard 추가,
+   `./run.sh check-entwurf-peers-surface`, `pnpm typecheck`, `pnpm check` green. 라이브 local render: 141 peers → text 4.2KB.
 
 ## 넘으면 안 되는 선
 

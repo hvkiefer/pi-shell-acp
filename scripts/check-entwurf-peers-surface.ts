@@ -170,6 +170,18 @@ function main(): void {
 	);
 	ok("unsupported peer line shown in text", text.includes(`${GID_CLAUDE}  backend=claude-code  liveness=unsupported`));
 
+	// ── human text is bounded: full payload remains structured, not pasted into content ──
+	{
+		const manyPeers = Array.from({ length: 40 }, (_, i) =>
+			peer(`20260612T0000${String(i).padStart(2, "0")}-aaaaaa`, "claude-code", "unsupported"),
+		);
+		const bounded = renderEntwurfPeers({ facts: { peers: manyPeers, socketOnly: [] }, diagnostics: [] }, DIR);
+		ok("bounded text omits older entries when peer list is large", bounded.text.includes("older entries omitted"));
+		ok("bounded text shows latest entries", bounded.text.includes("20260612T000039-aaaaaa"));
+		ok("bounded text omits oldest entry", !bounded.text.includes("20260612T000000-aaaaaa  backend="));
+		ok("bounded payload still carries every peer", bounded.payload.peers.length === 40);
+	}
+
 	// ── WIRING guard: bridge handler calls the provider+render, not getLiveSessions ──
 	{
 		const here = path.dirname(fileURLToPath(import.meta.url));
@@ -182,6 +194,14 @@ function main(): void {
 		ok(
 			"wiring: native pi tool description no longer claims socket-only discovery",
 			!nativeSrc.includes("List live sessions that expose a control socket. Returns sessionIds only"),
+		);
+		ok(
+			"wiring: bridge does not paste full JSON payload into human text",
+			!bridgeSrc.includes("JSON.stringify(payload)"),
+		);
+		ok(
+			"wiring: native pi tool does not paste full JSON payload into human text",
+			!nativeSrc.includes("JSON.stringify(payload)"),
 		);
 		// `\bname\s*\(` catches a definition OR a call (tolerating a space before the
 		// paren, GPi Q4); a bare prose mention in a removal-note comment (no paren) is

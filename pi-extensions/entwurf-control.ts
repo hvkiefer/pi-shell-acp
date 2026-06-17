@@ -1547,7 +1547,7 @@ function registerListSessionsTool(pi: ExtensionAPI): void {
 			try {
 				const { text, payload } = await renderEntwurfPeersForSurface();
 				return {
-					content: [{ type: "text", text: `${text}\n\n${JSON.stringify(payload)}` }],
+					content: [{ type: "text", text }],
 					details: payload,
 				};
 			} catch (err) {

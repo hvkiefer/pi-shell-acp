@@ -108,11 +108,18 @@ function renderDiagnosticLine(d: EntwurfDiagnostic): string {
 	}
 }
 
-function section(title: string, lines: string[]): string {
+function compactLines(lines: string[], max: number = 32): string[] {
+	if (lines.length <= max) return lines;
+	const omitted = lines.length - max;
+	return [`  … (${omitted} older entries omitted; showing latest ${max})`, ...lines.slice(-max)];
+}
+
+function section(title: string, lines: string[], opts: { compact?: boolean } = {}): string {
 	// Empty sections render "(none)" — hiding them would erase the honesty the
 	// listing exists to provide (especially diagnostics: "(none)" is a trust
 	// signal, and an `unsupported` peer must never be silently dropped).
-	return lines.length > 0 ? `${title}\n${lines.join("\n")}` : `${title}\n  (none)`;
+	const rendered = opts.compact ? compactLines(lines) : lines;
+	return rendered.length > 0 ? `${title}\n${rendered.join("\n")}` : `${title}\n  (none)`;
 }
 
 /**
@@ -126,9 +133,9 @@ export function renderEntwurfPeers(result: EntwurfFactsResult, controlDir: strin
 	const sessions = deriveSessions(peers, socketOnly, controlDir);
 
 	const text = [
-		section("Garden citizens (meta-record):", peers.map(renderPeerLine)),
+		section("Garden citizens (meta-record):", peers.map(renderPeerLine), { compact: true }),
 		"",
-		section("Socket-only control sockets (no meta-record):", socketOnly.map(renderSocketOnlyLine)),
+		section("Socket-only control sockets (no meta-record):", socketOnly.map(renderSocketOnlyLine), { compact: true }),
 		"",
 		section("Diagnostics:", diagnostics.map(renderDiagnosticLine)),
 	].join("\n");
