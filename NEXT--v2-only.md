@@ -192,30 +192,30 @@
 - **RGG retarget**: `smoke-resident-garden-guard.sh` 기본 provider/model을 native로(provider 마스킹 제거).
 - **텍스트 보정**: run.sh release-gate 헤더/usage/BEHAVIOR 주석 + AGENTS.md Verification → v2-only floor.
 
-**LIVE 최종 상태 (재실행 2 + 단독 1 합성)** — MUST 6: **5 PASS** (static / smoke-session-id-name / check-bridge /
+**LIVE 최종 상태 (hejdev6, 재실행 2 + 단독 1 합성)** — MUST 6: **5 PASS** (static / smoke-session-id-name / check-bridge /
 smoke-entwurf-v2-matrix-live / smoke-entwurf-v2-spawn-resume-live), **1 FAIL** (RGG 29/30). BEHAVIOR 1 advisory FAIL
-(RGG positives, model-in-loop). **v2 substrate(matrix-live + spawn-resume-live)는 GREEN — 테제 실증됨.**
+(RGG positives, model-in-loop). **v2 substrate(matrix-live + spawn-resume-live)는 GREEN — 단, resident-side는 전역 혼입.**
 
-## 🔴 남은 1 MUST FAIL = RGG `/new` — 진단 정정(실험): repo 코드는 정상, **stale 전역을 테스트한 탓** (pi-drift 아님)
+## ✅ topology 고정 WIP (thinkpad 2026-06-17 14:28 KST): repo-under-test로 결정
 
-`smoke-resident-garden-guard`의 1-fail "/new was NOT cancelled — in-process uuid mint reached the hard guard".
-**GPT 리뷰 + 우리 0-token 실험으로 원인 확정. 어제의 "pi 0.79.4 event drift" 가설은 폐기.**
+결정: release-gate LIVE smoke는 **repo code under test**다. deployment-smoke가 아니다. 따라서 resident `pi --entwurf-control`
+spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -e $REPO`로 이 체크아웃만 로드**한다.
 
-1. **topology 혼입 (GPT 핵심 지적, 코드 확증)**: RGG `/new`는 `--no-extensions`/`-e $REPO` 없이 `pi --entwurf-control`
-   spawn → **repo v2-only 코드가 아니라 전역 설치본(`~/.pi/agent/git/.../pi-shell-acp` = main/v0.11.0 ACP)을 테스트**.
-   같은 혼입이 `smoke-entwurf-v2-matrix-live`(C1/C1b resident spawn, `:207,260` — `-e` 없음)·
-   `smoke-entwurf-v2-spawn-resume-live`(resume child = `buildResumePiArgs`, native target이면 `explicitExtensionArgs`
-   비어 v2-control 변형이 전역 의존)에도 있음 → 현재 "v2 substrate GREEN"은 사실 **repo `runEntwurfV2` dispatch 로직
-   + 전역 main resident extension 호환성**. resident-side v2 코드(repo `entwurf-control.ts` 변경분)는 이 LIVE에서 미검증.
-2. **0-token RPC 실험 (2026-06-17)** — `/new` 취소를 전역 vs repo로 직접 비교:
-   - 전역(현 RGG, `-e` 없음): `/new` 안 막힘 (fail 재현).
-   - repo(`--no-extensions -e $REPO`): **`{"cancelled":true}` + "blocked under --entwurf-control" 메시지** →
-     **repo `/new` 가드(`entwurf-control.ts:1197`, `session_before_switch reason:"new"`)는 pi 0.79.4에서 정상 작동.**
-   → **pi event drift 아님.** repo 코드는 옳고, RGG fail은 순전히 stale 전역을 테스트한 artifact.
-3. **메커니즘 가설(미확정)**: 전역·repo 둘 다 가드를 가짐(전역 `entwurf-control.ts:1326`, repo `:1197`). 전역만 실패 →
-   전역 main이 ACP/openclaw(`acp-bridge.ts`/`index.ts`)를 함께 로드하다 0.79.4에서 **partial-load 실패**로 가드 훅
-   미등록됐을 가능성(옛 `[eval1] acp-bridge.ts ERR_MODULE_NOT_FOUND` 정황). 노트북에서 전역 extensionErrors로 확정.
-→ **A(코드)로 못 고침. fix = topology 고정(LIVE smoke에 `--no-extensions -e $REPO`) 또는 전역 deploy를 v2-only로 갱신.**
+반영:
+- `smoke-resident-garden-guard.sh`: 모든 resident spawn에 `REPO_EXTENSION_ARGS=(--no-extensions -e "$REPO")` 주입.
+  repo guard가 stderr만 남기고 JSON session header를 안 뱉는 빠른 hard-exit 경로를 위해 `neg_sid` parse를 no-match 허용으로 보강.
+- `scripts/gnew-rpc-drive.ts`: `/gnew` RPC resident도 같은 repo-under-test args로 spawn.
+- `scripts/smoke-entwurf-v2-matrix-live.ts`: C1/C1b real resident spawn에 repo-under-test args 주입.
+- `scripts/smoke-entwurf-v2-spawn-resume-live.ts`: spawn-bg resume child의 `resolveIdentity` seam에서
+  `explicitExtensionArgs=[--no-extensions,-e,$REPO,...]`를 심어 native target에서도 전역 extension을 타지 않게 함.
+
+검증:
+- `pnpm check` PASS.
+- `SMOKE_RGG_POSITIVE=0 ./run.sh smoke-resident-garden-guard` PASS=30 FAIL=0 (0-token 경로). `/new` cancel 해소 확인.
+- `LIVE=1 ./run.sh smoke-entwurf-v2-matrix-live` PASS=17 (model-in-loop 없음, real control socket + mailbox).
+- 아직 미실행: `smoke-entwurf-v2-spawn-resume-live` / 전체 `LIVE=1 ./run.sh release-gate ...` / model-in-loop positives.
+
+남은 해석: hejdev6의 RGG `/new` FAIL은 pi event drift가 아니라 stale/global topology artifact였음이 thinkpad repo-under-test 주입으로 재확인됨.
 
 ## GPT 리뷰 반영 (2026-06-17, 이번 커밋)
 
@@ -223,25 +223,24 @@ smoke-entwurf-v2-matrix-live / smoke-entwurf-v2-spawn-resume-live), **1 FAIL** (
   `PI_SHELL_ACP_LIVE_TARGET="<provider>/<model>"`(기본 openai-codex/gpt-5.4)을 파싱. `SMOKE_RGG_*` override 유지.
 - **drop 3 legacy 정직화** (GPT 4): `xt-tool-surface`/`session-messaging`/`sentinel` usage에 `[LEGACY — broken on
   v2-only]` 표기 + 실행 시 fail-loud warn. "on-demand 보존"이 아니라 "참조용 legacy, v2 rewrite 대기"로 명시.
-- **미반영(설계 결정 → 노트북)**: topology 고정. gate 의미(repo-under-test vs deployment-smoke)를 정하는 결정이라
-  GLG가 노트북에서 확정.
+- **topology 고정(thinkpad WIP)**: repo-under-test로 결정하고 resident spawn에 `--no-extensions -e $REPO` 주입.
+  0-token RGG는 green; 전체 LIVE release-gate는 아직.
 
 ## 다음 한 걸음
 
 → **노트북 이어받기 (우선순위 순):**
-1. **topology 결정 (GPT 1순위)** — release-gate LIVE smoke가 **repo code under test**인지 **전역 deployment smoke**인지
-   고정. repo-gate면 resident spawn마다 `--no-extensions -e $REPO`(또는 explicit extension injection). 이게 정해지면
-   RGG `/new`는 자동 해소(실험상 repo 코드는 green) + matrix-live/spawn-resume-live의 green도 의미가 명확해짐.
-2. **B = 배포 위생(D1)** — GLG 결정. 전역 `pi-shell-acp`가 main/ACP라 v2-only repo와 `--entwurf-control` 충돌 +
-   RGG가 전역을 테스트하는 근원. v2-only를 daily로 올릴지(NEXT "daily로 안 씀" 결정과 충돌)와 함께 판단. topology를
-   deployment-smoke로 가면 B(전역을 v2-only로)와 한 묶음.
-3. **setup_all Axis 1 follow-up** — `setup_all`이 아직 `session-messaging`+`sentinel`을 Axis 1로 실행 → 같은 v1/ACP
+1. **전체 LIVE release-gate 재실행** — topology repo-under-test WIP + RGG 0-token green + matrix-live green은 확인됨. 이제
+   `LIVE=1 ./run.sh release-gate /path/to/scratch`로 MUST 6 전체를 다시 세워 green 로그를 만든다(토큰 사용 승인 필요; spawn-resume/model-in-loop 포함).
+2. **LIVE 결과 반영** — green/fail에 따라 NEXT/CHANGELOG 갱신 및 필요 시 후속 커밋.
+3. **B = 배포 위생(D1)** — 별도 결정. 이번 gate는 deployment-smoke가 아니므로 전역 `pi-shell-acp`를 v2-only로 올릴지 여부는
+   daily 운용 판단으로 분리.
+4. **setup_all Axis 1 follow-up** — `setup_all`이 아직 `session-messaging`+`sentinel`을 Axis 1로 실행 → 같은 v1/ACP
    이유로 깨짐. install 경로라 A 밖이었지만 같은 처분 필요(drop 또는 v2 rewrite 전까지 fail-loud).
-4. **session-messaging / sentinel v2 재작성** — `entwurf_v2` surface 기준(drop이 아니라 재작성 결정 시).
-5. **CHANGELOG MUST-PASS 카운트** — 옛 "MUST PASS=17"은 삭제 이전 로그. 현재 floor=MUST 6. topology 닫혀 green 로그 나온 뒤 갱신.
-6. **README / 라우팅 잔여(Phase B)**: README ACP 시대 재작성 / `scripts/resolve-acp-bridge.ts`(orphan 심화) /
+5. **session-messaging / sentinel v2 재작성** — `entwurf_v2` surface 기준(drop이 아니라 재작성 결정 시).
+6. **CHANGELOG MUST-PASS 카운트** — 옛 "MUST PASS=17"은 삭제 이전 로그. 현재 floor=MUST 6. topology 닫혀 green 로그 나온 뒤 갱신.
+7. **README / 라우팅 잔여(Phase B)**: README ACP 시대 재작성 / `scripts/resolve-acp-bridge.ts`(orphan 심화) /
    `getRegistryRouting` 하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description. rename과 묶어 절삭.
-7. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
+8. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
    `smoke-entwurf-v2-matrix-live.ts`(29)가 삭제된 명령 호명. Phase B doc 패스.
 
 ## 넘으면 안 되는 선

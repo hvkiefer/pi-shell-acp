@@ -70,6 +70,10 @@ fi
 PROVIDER="${SMOKE_RGG_PROVIDER:-$_rgg_provider}"
 MODEL="${SMOKE_RGG_MODEL:-$_rgg_model}"
 TIMEOUT="${SMOKE_RGG_TIMEOUT:-90}"
+# Release-gate topology: this is a repo-under-test smoke, not a deployment smoke.
+# Load ONLY this checkout's extension so results do not depend on device-local global
+# packages / current branch wiring.
+REPO_EXTENSION_ARGS=(--no-extensions -e "$REPO")
 
 pass=0
 fail=0
@@ -87,11 +91,11 @@ bad() {
 echo "[smoke-resident-garden-guard] NEGATIVE: raw 'pi --entwurf-control' (no --session-id)"
 neg_out=""
 neg_ec=0
-neg_out=$(timeout "$TIMEOUT" pi --entwurf-control --provider "$PROVIDER" --model "$MODEL" \
+neg_out=$(timeout "$TIMEOUT" pi "${REPO_EXTENSION_ARGS[@]}" --entwurf-control --provider "$PROVIDER" --model "$MODEL" \
 	--mode json -p 'RGG_NEGATIVE_SHOULD_NOT_RUN' 2>&1) || neg_ec=$?
 
 # The session header pi minted (uuidv7) is printed on the --mode json stream.
-neg_sid=$(printf '%s\n' "$neg_out" | grep -o '"type":"session"[^}]*"id":"[^"]*"' | head -1 | grep -o '"id":"[^"]*"' | head -1 | sed 's/.*:"//;s/"$//')
+neg_sid=$(printf '%s\n' "$neg_out" | grep -o '"type":"session"[^}]*"id":"[^"]*"' | head -1 | grep -o '"id":"[^"]*"' | head -1 | sed 's/.*:"//;s/"$//' || true)
 
 if [ "$neg_ec" -ne 0 ]; then
 	ok "nonzero exit ($neg_ec)"
@@ -143,7 +147,7 @@ echo "[smoke-resident-garden-guard] REPLACEMENT: in-process new/clone cancelled 
 rep_sid=$(bash "$REPO/run.sh" new-session-id)
 rep_err=$(mktemp)
 rep_out=$(printf '%s\n' '{"type":"get_state"}' '{"type":"new_session"}' '{"type":"clone"}' '{"type":"get_state"}' |
-	timeout "$TIMEOUT" pi --session-id "$rep_sid" --entwurf-control --provider "$PROVIDER" \
+	timeout "$TIMEOUT" pi "${REPO_EXTENSION_ARGS[@]}" --session-id "$rep_sid" --entwurf-control --provider "$PROVIDER" \
 		--model "$MODEL" --mode rpc 2>"$rep_err") || true
 
 if printf '%s\n' "$rep_out" | grep -q '"command":"new_session","success":true,"data":{"cancelled":true}'; then
@@ -202,7 +206,7 @@ legacy_file="$legacy_dir/legacy-resume-target.jsonl"
 printf '%s\n' "{\"type\":\"session\",\"id\":\"$legacy_uuid\",\"cwd\":\"$legacy_dir\"}" >"$legacy_file"
 res_err=$(mktemp)
 res_out=$(printf '%s\n' '{"type":"get_state"}' "{\"type\":\"switch_session\",\"sessionPath\":\"$legacy_file\"}" '{"type":"get_state"}' |
-	timeout "$TIMEOUT" pi --session-id "$res_sid" --entwurf-control --provider "$PROVIDER" \
+	timeout "$TIMEOUT" pi "${REPO_EXTENSION_ARGS[@]}" --session-id "$res_sid" --entwurf-control --provider "$PROVIDER" \
 		--model "$MODEL" --mode rpc 2>"$res_err") || true
 
 if printf '%s\n' "$res_out" | grep -q '"command":"switch_session","success":true,"data":{"cancelled":true}'; then
@@ -387,7 +391,7 @@ if [ "${SMOKE_RGG_POSITIVE:-0}" = "1" ]; then
 	echo "[smoke-resident-garden-guard] POSITIVE: garden --session-id (SMOKE_RGG_POSITIVE=1)"
 	pos_sid=$(bash "$REPO/run.sh" new-session-id)
 	pos_ec=0
-	pos_out=$(timeout "$TIMEOUT" pi --session-id "$pos_sid" --entwurf-control --provider "$PROVIDER" \
+	pos_out=$(timeout "$TIMEOUT" pi "${REPO_EXTENSION_ARGS[@]}" --session-id "$pos_sid" --entwurf-control --provider "$PROVIDER" \
 		--model "$MODEL" --mode json -p 'reply OK only' 2>&1) || pos_ec=$?
 
 	if [ "$pos_ec" -eq 0 ] && ! printf '%s\n' "$pos_out" | grep -q "Non-garden session id"; then

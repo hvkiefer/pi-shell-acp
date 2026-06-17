@@ -47,12 +47,14 @@ import { existsSync, readFileSync } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SenderEnvelope } from "../pi-extensions/lib/entwurf-control-rpc.ts";
 import { buildSessionName, findSessionFileById, readSessionIdentity } from "../pi-extensions/lib/entwurf-core.ts";
 import { type LockClaim, lockPathFor, releaseLock as realReleaseLock } from "../pi-extensions/lib/entwurf-v2-lock.ts";
 import { makeProductionEntwurfV2Deps } from "../pi-extensions/lib/entwurf-v2-production.ts";
 import type { EntwurfV2RunResult } from "../pi-extensions/lib/entwurf-v2-runner.ts";
 import { runEntwurfV2 } from "../pi-extensions/lib/entwurf-v2-runner.ts";
+import { resolveResumeLaunchIdentity } from "../pi-extensions/lib/entwurf-v2-spawn-production.ts";
 import { upsertMetaSession } from "../pi-extensions/lib/meta-session.ts";
 import { controlSocketPath } from "../pi-extensions/lib/socket-discovery.ts";
 
@@ -61,6 +63,10 @@ import { controlSocketPath } from "../pi-extensions/lib/socket-discovery.ts";
 // keeps us off any live session's path; cleanup only ever touches our own gid's socket).
 const REAL_CONTROL_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 const SOCKET_SUFFIX = ".sock";
+// Release-gate topology: repo-under-test, not deployment smoke. The spawned
+// resident must load this checkout's extension, independent of global pi packages.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_EXTENSION_ARGS = ["--no-extensions", "-e", REPO_ROOT] as const;
 
 const SEED_TIMEOUT_MS = 120_000; // F5: a real seed model turn can be slow.
 const OBSERVE_TIMEOUT_MS = 30_000; // spawn-bg watcher's socket-alive observe window.
@@ -303,6 +309,15 @@ async function main(): Promise<void> {
 					releaseCount++;
 					releasedGids.push(claim.gardenId);
 					return realReleaseLock(claim, deps);
+				},
+				spawnOverrides: {
+					resolveIdentity: (plan) => {
+						const launch = resolveResumeLaunchIdentity(plan);
+						return {
+							...launch,
+							explicitExtensionArgs: [...REPO_EXTENSION_ARGS, ...launch.explicitExtensionArgs],
+						};
+					},
 				},
 			},
 		});

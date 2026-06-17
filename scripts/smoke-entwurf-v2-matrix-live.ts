@@ -48,6 +48,7 @@ import { existsSync } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SenderEnvelope } from "../pi-extensions/lib/entwurf-control-rpc.ts";
 import { generateSessionId } from "../pi-extensions/lib/entwurf-core.ts";
 import { lockPathFor } from "../pi-extensions/lib/entwurf-v2-lock.ts";
@@ -64,6 +65,10 @@ import {
 // C1 must point the decider's controlSocketDir at the REAL dir (a fresh gid avoids collision).
 const REAL_CONTROL_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 const SOCKET_SUFFIX = ".sock";
+// Release-gate topology: repo-under-test, not deployment smoke. Load only this
+// checkout's extension so resident behavior is independent of global pi packages.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_EXTENSION_ARGS = ["--no-extensions", "-e", REPO_ROOT] as const;
 
 // Staged timeouts (automation): short and per-stage so a stall is attributable.
 const BOOT_TIMEOUT_MS = 30_000; // pi --entwurf-control socket appears
@@ -206,7 +211,18 @@ async function main(): Promise<void> {
 			// substrate this cell actually probes (model UI is irrelevant here).
 			resident = spawn(
 				"pi",
-				["--session-id", residentGid, "--entwurf-control", "--provider", provider, "--model", model, "--mode", "rpc"],
+				[
+					...REPO_EXTENSION_ARGS,
+					"--session-id",
+					residentGid,
+					"--entwurf-control",
+					"--provider",
+					provider,
+					"--model",
+					model,
+					"--mode",
+					"rpc",
+				],
 				{ cwd: tmp, stdio: ["pipe", "ignore", "pipe"], detached: false },
 			);
 			resident.stderr?.on("data", (b: Buffer) => {
@@ -259,7 +275,18 @@ async function main(): Promise<void> {
 
 			resident = spawn(
 				"pi",
-				["--session-id", c1bGid, "--entwurf-control", "--provider", provider, "--model", model, "--mode", "rpc"],
+				[
+					...REPO_EXTENSION_ARGS,
+					"--session-id",
+					c1bGid,
+					"--entwurf-control",
+					"--provider",
+					provider,
+					"--model",
+					model,
+					"--mode",
+					"rpc",
+				],
 				{ cwd: tmp, stdio: ["pipe", "ignore", "pipe"], detached: false },
 			);
 			resident.stderr?.on("data", (b: Buffer) => {
