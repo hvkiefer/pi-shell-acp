@@ -196,7 +196,7 @@
 smoke-entwurf-v2-matrix-live / smoke-entwurf-v2-spawn-resume-live), **1 FAIL** (RGG 29/30). BEHAVIOR 1 advisory FAIL
 (RGG positives, model-in-loop). **v2 substrate(matrix-live + spawn-resume-live)는 GREEN — 단, resident-side는 전역 혼입.**
 
-## ✅ topology 고정 WIP (thinkpad 2026-06-17 14:28 KST): repo-under-test로 결정
+## ✅ topology 고정 + LIVE/설치 green (thinkpad 2026-06-17): repo-under-test로 결정
 
 결정: release-gate LIVE smoke는 **repo code under test**다. deployment-smoke가 아니다. 따라서 resident `pi --entwurf-control`
 spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -e $REPO`로 이 체크아웃만 로드**한다.
@@ -218,6 +218,7 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
     matrix-live / spawn-resume-live 전부 green.
   - **BEHAVIOR FAIL=1 advisory**: RGG positive T3에서 model이 `entwurf_self`를 실제로 호출하지 않아
     `selfEnvelopeSessionIds=[]` (positive garden turn 자체는 PASS). 컷 차단 아님, 0.11.x usability lane.
+- `./run.sh setup /tmp/pi-shell-acp-setup-scratch` PASS: install + pi-tools-bridge v2 install smoke green.
 
 해석: hejdev6의 RGG `/new` FAIL은 pi event drift가 아니라 stale/global topology artifact였음이 thinkpad repo-under-test 주입과
 전체 LIVE MUST green으로 재확인됨.
@@ -228,21 +229,19 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
   `PI_SHELL_ACP_LIVE_TARGET="<provider>/<model>"`(기본 openai-codex/gpt-5.4)을 파싱. `SMOKE_RGG_*` override 유지.
 - **drop 3 legacy 정직화** (GPT 4): `xt-tool-surface`/`session-messaging`/`sentinel` usage에 `[LEGACY — broken on
   v2-only]` 표기 + 실행 시 fail-loud warn. "on-demand 보존"이 아니라 "참조용 legacy, v2 rewrite 대기"로 명시.
-- **topology 고정(thinkpad WIP)**: repo-under-test로 결정하고 resident spawn에 `--no-extensions -e $REPO` 주입.
-  0-token RGG는 green; 전체 LIVE release-gate는 아직.
+- **topology 고정 + LIVE/설치 green(thinkpad)**: repo-under-test로 결정하고 resident spawn에 `--no-extensions -e $REPO` 주입.
+  `LIVE=1 release-gate` MUST 6 green, scratch `setup` green.
 
 ## 다음 한 걸음
 
 → **노트북 이어받기 (우선순위 순):**
-1. **setup_all Axis 1 follow-up** — `setup_all`이 아직 `session-messaging`+`sentinel`을 Axis 1로 실행 → 같은 v1/ACP
-   이유로 깨짐. install 경로라 A 밖이었지만 같은 처분 필요(drop 또는 v2 rewrite 전까지 fail-loud).
-2. **CHANGELOG MUST-PASS 카운트** — 옛 "MUST PASS=17"은 삭제 이전 로그. 현재 floor=MUST 6. LIVE MUST green 기준으로 갱신.
-3. **B = 배포 위생(D1)** — 별도 결정. 이번 gate는 deployment-smoke가 아니므로 전역 `pi-shell-acp`를 v2-only로 올릴지 여부는
+1. **CHANGELOG MUST-PASS 카운트** — 옛 "MUST PASS=17"은 삭제 이전 로그. 현재 floor=MUST 6. LIVE MUST green 기준으로 갱신.
+2. **B = 배포 위생(D1)** — 별도 결정. 이번 gate는 deployment-smoke가 아니므로 전역 `pi-shell-acp`를 v2-only로 올릴지 여부는
    daily 운용 판단으로 분리.
-4. **session-messaging / sentinel v2 재작성** — `entwurf_v2` surface 기준(drop이 아니라 재작성 결정 시).
-5. **README / 라우팅 잔여(Phase B)**: README ACP 시대 재작성 / `scripts/resolve-acp-bridge.ts`(orphan 심화) /
+3. **session-messaging / sentinel v2 재작성** — `entwurf_v2` surface 기준(drop이 아니라 재작성 결정 시).
+4. **README / 라우팅 잔여(Phase B)**: README ACP 시대 재작성 / `scripts/resolve-acp-bridge.ts`(orphan 심화) /
    `getRegistryRouting` 하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description. rename과 묶어 절삭.
-8. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
+5. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
    `smoke-entwurf-v2-matrix-live.ts`(29)가 삭제된 명령 호명. Phase B doc 패스.
 
 ## 넘으면 안 되는 선

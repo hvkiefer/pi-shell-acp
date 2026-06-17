@@ -32,10 +32,10 @@ PROVIDER_ID="pi-shell-acp"
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh setup [project-dir]        # pnpm install + sync auth + install + Axis 1 gates (pi-tools-bridge, session-messaging, sentinel)
+  ./run.sh setup [project-dir]        # pnpm install + sync auth + install + v2 install smoke (pi-tools-bridge only; LIVE substrate = release-gate)
   ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + the v2-native live gates (v2 matrix/spawn-resume-live, check-bridge, retargeted smoke-session-id-name, RGG). TWO-TIER summary: MUST (release-blocking, owns the exit code — "green" applies here) + BEHAVIOR (advisory, non-blocking: RGG positives model-in-loop turn). ACP/v1 gates (xt-tool-surface, session-messaging, sentinel) dropped from the floor. --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
   ./run.sh xt-tool-surface             # [LEGACY — broken on v2-only, dropped from release floor, v2 rewrite pending] ACP backend exclude-tools policy: -xt <builtin> fail-fast per backend
-  ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + protocol/negative-path test.sh (live tool-callability lives in sentinel + the v2 live smokes)
+  ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + protocol/negative-path test.sh (live substrate = v2 live smokes)
   ./run.sh check-pi-tools-bridge-boot # deterministic gate (5d-5-pre, G1a/G1b, IN pnpm check): boot start.sh under strip-types + assert v2 fence graph loads + entwurf_v2 registered/schema; tools/list only, no auth/side-effect
   ./run.sh sentinel [args...]         # [LEGACY — broken on v2-only, dropped from release floor, v2 rewrite pending] ACP multi-backend 6-cell tool-selection matrix
   ./run.sh session-messaging [args...] # [LEGACY — broken on v2-only (removed entwurf_send v1 tool), dropped from release floor, v2 rewrite pending] 4-case session-messaging smoke
@@ -105,7 +105,7 @@ Usage:
 Notes:
   - project-dir defaults to current directory
   - Claude Code login should already exist (e.g. ~/.claude.json)
-  - setup's runtime verification is the Axis 1 gate trio (pi-tools-bridge, session-messaging, sentinel); the v2 dispatch substrate is proven live by the release-gate v2 smokes
+  - setup's runtime verification is the v2 install smoke (pi-tools-bridge); the v2 dispatch substrate is proven live by release-gate
   - API key is optional; this bridge is intended to work with Claude Code auth
 EOF
 }
@@ -1398,19 +1398,14 @@ check_pack_install() {
 }
 
 
-# --- Axis 1 interview-prerequisite gates (ported from agent-config pre-Phase-4) ---
+# --- v2 install/runtime verification gates ---
 #
-# These validators complement the local deterministic check_* gates by
-# actually exercising the runtime surfaces the agent interview depends on:
-#
-#   1. pi-tools-bridge as a standalone MCP server (tools/list + protocol suite)
-#   2. session-messaging matrix + sentinel autonomous tool-selection, not model
-#      self-report in check-bridge
-#
-# AGENTS.md §Ingestion Gates (Axis 1) names these as required gates that must
-# pass before the Axis 2 agent interview can be re-run. They were implemented
-# in agent-config and deleted there in Phase 4 alongside the migrated code;
-# their canonical home is now this repo.
+# These validators complement the local deterministic check_* gates by exercising
+# the runtime surfaces an installed v2 package depends on. On v2-only, setup must
+# NOT run the legacy ACP/v1 Axis 1 interview gates (session-messaging/sentinel):
+# those call removed surfaces and survive only as fail-loud reference subcommands
+# until rewritten onto entwurf_v2. The release-gate owns the heavier live v2
+# substrate proof (matrix-live + spawn-resume-live).
 
 validate_pi_tools_bridge() {
   local bridge_dir="$REPO_DIR/mcp/pi-tools-bridge"
@@ -1500,12 +1495,11 @@ JS
   fi
   ok "pi-tools-bridge test.sh"
 
-  # check-bridge deliberately stops at the objective MCP boundary. Live backend
-  # tool-callability/orchestration is covered by sentinel and the v2 live smokes,
-  # whose assertions parse operational artifacts instead of asking a model to
-  # self-report which tool schema it sees. This split keeps check-bridge
-  # credential-free except for the already-hermetic direct stdio bridge tests and
-  # avoids Claude L1 self-recognition variance blocking a release gate.
+  # check-bridge deliberately stops at the objective MCP boundary. Live v2
+  # substrate/orchestration is covered by the v2 live smokes, whose assertions
+  # parse operational artifacts instead of asking a model to self-report which
+  # tool schema it sees. This split keeps check-bridge credential-free and avoids
+  # model self-recognition variance blocking setup.
 }
 
 check_bridge() {
@@ -1533,13 +1527,12 @@ session_messaging_run() {
 }
 
 
-# setup_all — full pi-shell-acp install.
+# setup_all — full pi-shell-acp v2 install.
 #
-# Installs the bridge + entwurf orchestration surface (entwurf registry,
-# MCP pi-tools-bridge) into a target project and verifies
-# end-to-end against both ACP backends. As of the entwurf migration this
-# repo owns the orchestration — there is no separate "consuming harness"
-# install for the entwurf/registry pieces.
+# Installs the v2 dispatch substrate + MCP pi-tools-bridge into a target project
+# and verifies the installed bridge boundary. ACP/v1 backend interview gates are
+# deliberately not part of setup on v2-only; the heavier live v2 substrate proof
+# is release-gate's job.
 #
 # An external harness that consumes pi-shell-acp (e.g. agent-config as a
 # pi package + skills set) may still have its own install/setup for its
@@ -1567,40 +1560,21 @@ setup_all() {
   echo "[setup] repo:    $REPO_DIR"
   echo "[setup] project: $project_dir"
   echo "[setup] scope:   entwurf v2 orchestration install (pi-native; ACP backends dropped)"
-  echo "[setup] verification: Axis 1 interview gates (pi-tools-bridge, sentinel, session-messaging)"
+  echo "[setup] verification: v2 install smoke (pi-tools-bridge; LIVE substrate = release-gate)"
 
   (cd "$REPO_DIR" && pnpm install --frozen-lockfile)
   sync_auth
   install_local_package "$project_dir"
 
-  # Deterministic preflight now lives entirely in `pnpm check` (static + v2
-  # gates). The former ACP preflight (check-mcp/backends/registration/models)
-  # and smoke-all were backend-runtime checks that the v2-only bridge no longer
-  # has — Axis 1 entwurf gates below are the runtime verification.
-
-  # Axis 1 interview-prerequisite gates. AGENTS.md §Ingestion Gates names
-  # these as required before the Axis 2 agent interview can be re-run.
-  # Ported from agent-config pre-Phase-4 (validator bodies) + 7545af8
-  # (session-messaging matrix) + pre-Phase-4 sentinel invocation. Default ON
-  # here; agent-config (consumer) does not run these anymore.
-  section "Axis 1 gate: pi-tools-bridge (direct MCP protocol)"
+  # Deterministic preflight lives in `pnpm check`; live substrate acceptance lives
+  # in `LIVE=1 ./run.sh release-gate <scratch>`. Setup is the install path, so it
+  # verifies the installed MCP bridge boundary only and does NOT run the legacy
+  # ACP/v1 session-messaging/sentinel gates.
+  section "v2 install smoke: pi-tools-bridge (direct MCP protocol)"
   validate_pi_tools_bridge
 
-  section "Axis 1 gate: session-messaging 4-case matrix"
-  session_messaging_run
-
-  section "Axis 1 gate: sentinel (entwurf 6-cell matrix)"
-  if sentinel_run; then
-    ok "sentinel 6/6 PASS"
-  else
-    fail "sentinel: one or more cells failed — see table above and artifact"
-    echo ""
-    echo "DONE: pi-shell-acp setup complete (with sentinel failures)"
-    return 1
-  fi
-
   echo ""
-  echo "DONE: pi-shell-acp setup + Axis 1 gates green. Axis 2 interview may proceed."
+  echo "DONE: pi-shell-acp setup + v2 install smoke green. Run release-gate for live substrate acceptance."
 }
 
 # ---------------------------------------------------------------------------
@@ -1703,9 +1677,9 @@ release_gate() {
   # Absolute path to this script — survives the `cd "$project_dir"` below. The
   # live gates derive their pi session dir from $PWD (tmux `-c "$PWD"`,
   # PROJECT_DIR_DEFAULT, and the bare `pi -p` invocations that don't `cd`
-  # themselves). Three of them (check-bridge, sentinel, session-messaging)
-  # plus xt-tool-surface take no project arg, so if release-gate runs from the
-  # repo their sessions land in the repo's own session dir — polluting the very
+  # themselves). Some gates (e.g. check-bridge and the garden guard) take no
+  # project arg, so if release-gate runs from the repo their sessions could land
+  # in the repo's own session dir — polluting the very
   # tree we ship and breaking the "scratch full gate" evidence claim. Running
   # EVERY live gate with PWD=project_dir makes a single
   # `./run.sh release-gate <scratch>` invocation route all sessions to scratch
