@@ -24,6 +24,11 @@
 
 # RECENT
 
+- [2026-06-17] **meta-store v1 정리 (thinkpad, 일회성)**: pull→`setup`+`install-meta-bridge`+`doctor`(PASS) 재설치 후,
+  store가 v1=58/v2=92로 부풀어(매 Claude 세션 1 record mint + 자동 prune 없음) live v1 43개를 제자리 v2 마이그레이션
+  (`migrateV1DeliveryReceipts`로 receipt 보존, 원본 timestamp 유지) + orphan(transcript-gone) 39개 삭제(record+mailbox).
+  결과 `v1=0/v2=111`, doctor store scan clean. 백업 `~/.pi/agent/meta-store-backup-20260617T180725.tgz`(380K, 안정 후 삭제).
+  **정리 스크립트는 /tmp 일회성(미커밋)** — 재현성은 아래 "고민 필요" 참조.
 - [2026-06-17] **v2-only subtraction 정리** (ACP/v1 제거). 닫힌 작업 전체는 `CHANGELOG.md` ## Unreleased 참조 (태그 미컷).
   baseline `v0.11.0`..HEAD. `pnpm check` green + `LIVE=1 release-gate` MUST 6/6 (thinkpad) + 두 레일 라이브 왕복.
 
@@ -37,6 +42,15 @@
   충돌 시 **fail**(warn 아님). **적용=install/doctor 수술 시.**
 - **fresh sibling minting = 명시적 연기 → 0.12.x lane (ROADMAP).** v2 3 transport는 전부 *기존* citizen 대상이라
   "무에서 새 형제 생성" verb 없음. 이 능력 구멍은 *문서화된 의도*(silent 아님). 그동안 "새 분신 생성" 데일리드라이버로 안 씀.
+
+## 고민 필요 (미결 — meta-store hygiene, GLG 숙고; 2026-06-17 oracle/thinkpad에서 표면화)
+- **재현성 (핵심 결정)**: 이번 v1 정리는 thinkpad 일회성 /tmp 스크립트였다. oracle 등 다른 머신은 같은 v1/orphan 누적이 그대로 남아 있다.
+  → 결정 필요: (a) 정식 cleanup verb 도입(`prune --apply` / TTL 자동 prune / `migrate-v1` 일괄) vs (b) 수동 janitor 유지 + 절차 문서화.
+  주의: prune 1.0.0 정책 = **listing-only**(GLG+GPT, 2026-06-06, store는 native→garden lookup 권위라 보수적) → `--apply`는 그 정책의 변경이므로 가볍게 추가 말 것.
+- **store 성장 근원**: 매 Claude 세션이 meta-record 1개를 mint하는데 자동 prune이 없어 150까지 부풀었다("지저분"의 근원). retention/aging 정책 자체를 정할지 결정.
+- **v1 reader 제거 타이밍**: thinkpad store는 이제 v2-only지만, 코드의 dual-read v1 경로(`parseMetaRecordV1`/`normalizeMetaIdentity` v1 분기) 제거는 **Phase B**이며,
+  *모든* 배포(oracle 포함)가 v2-only가 된 뒤라야 안전(아니면 그 머신 v1 record가 unreadable). 즉 "v1 reader 절삭"은 **전역 마이그레이션 완료**에 게이트된다 — thinkpad 하나로 당기지 말 것.
+- **model=null (cosmetic)**: 새 record의 `model`이 null로 남음 — Claude hook envelope에 model이 없어 별도 소스(transcript 파싱 등)가 필요. 동작 무관, 별도 후속.
 
 ## Phase B 잔여 (rename 단계에서 묶어 절삭 — 여기서 안 건드림)
 - **README 재작성/설치 가이드 보정**: 현 README는 ACP/v1 잔상이 많고 Claude Code 섹션이 수동 MCP 등록을 추천처럼 보이게 함. v2/meta 기준으로는 `install-meta-bridge`가 USER-scope MCP + plugin + managed settings를 설치하는 정식 경로다. 실패 해석도 포함: `pi-tools-bridge Failed to connect` ⇒ stale `node_modules`/pi version/import failure, 먼저 `pnpm install`; `deployed writer STALE` ⇒ Claude plugin cache stale, `./run.sh install-meta-bridge`; `not USER-scope+Connected` ⇒ project `.mcp.json`만으로 부족.
