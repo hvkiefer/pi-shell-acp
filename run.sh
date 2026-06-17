@@ -33,7 +33,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./run.sh setup [project-dir]        # pnpm install + sync auth + install + Axis 1 gates (pi-tools-bridge, session-messaging, sentinel)
-  ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + every live per-invariant gate on the claude-only floor (0.11.0; gemini/codex live tests dropped). TWO-TIER summary: MUST (release-blocking, owns the exit code — "green" applies here) + BEHAVIOR (advisory, non-blocking: model-in-loop autonomous MCP tool-selection — sentinel + RGG positive; S7 Bash-bypass stays hard-fail but never blocks the cut). --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
+  ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + the v2-native live gates (v2 matrix/spawn-resume-live, check-bridge, retargeted smoke-session-id-name, RGG). TWO-TIER summary: MUST (release-blocking, owns the exit code — "green" applies here) + BEHAVIOR (advisory, non-blocking: RGG positives model-in-loop turn). ACP/v1 gates (xt-tool-surface, session-messaging, sentinel) dropped from the floor. --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
   ./run.sh xt-tool-surface             # ACP backend exclude-tools policy: -xt <builtin> fail-fast per backend (declared==actual), extension exclusion honored
   ./run.sh check-bridge               # pi-tools-bridge direct MCP smoke + protocol/negative-path test.sh (live tool-callability lives in sentinel + the v2 live smokes)
   ./run.sh check-pi-tools-bridge-boot # deterministic gate (5d-5-pre, G1a/G1b, IN pnpm check): boot start.sh under strip-types + assert v2 fence graph loads + entwurf_v2 registered/schema; tools/list only, no auth/side-effect
@@ -1672,19 +1672,20 @@ xt_tool_surface() {
 }
 
 # release-gate — the single command that, when GREEN, is sufficient to cut
-# release cuts. Runs the full static floor (`pnpm check`, which now folds in
-# check-model-lock + verify-transcript-poison) followed by every live
-# per-invariant gate on the claude-only floor (0.11.0), then emits one
-# PASS/FAIL/SKIP summary. Everything is invoked through run.sh subcommands —
-# never a script in scripts/ directly.
+# release cuts. Runs the full static floor (`pnpm check`) followed by the
+# v2-native live gates, then emits one PASS/FAIL/SKIP summary. Everything is
+# invoked through run.sh subcommands — never a script in scripts/ directly.
 #
 # Design invariants (NEXT Step 1e + GPT-5.5 reviews):
-#   - Claude-only floor (0.11.0): gemini (CLI deprecated) and codex live
-#     tests were dropped from the gate; --allow-skip-gemini is accepted but
-#     ignored (back-compat). Codex/Gemini stay supported surfaces verified by
-#     the deterministic gates + on-demand smoke-codex / smoke-gemini.
-#   - xt-tool-surface asserts the exclude-tools policy: `-xt <builtin>`
-#     is fail-fast rejected per backend (declared==actual), extension exclusion honored.
+#   - v2-only floor (2026-06-17): the live MUST tier is the v2 dispatch substrate
+#     (smoke-entwurf-v2-matrix-live + smoke-entwurf-v2-spawn-resume-live, opt-in
+#     LIVE), the MCP bridge (check-bridge), and the garden-native substrate/guard
+#     (smoke-session-id-name — retargeted to a pi-native provider since the ACP
+#     `pi-shell-acp` provider was removed — and smoke-resident-garden-guard).
+#   - Dropped (ACP/v1 surface, survive as on-demand subcommands): xt-tool-surface
+#     (ACP backend exclude-tools policy), session-messaging (removed entwurf_send
+#     v1 tool), sentinel (ACP multi-backend tool-selection matrix). --allow-skip-gemini
+#     is accepted-but-ignored (back-compat). v2 re-writes are a separate follow-up.
 #   - Final release authorization is GLG's, not this script's: a green
 #     run is necessary, and the operator closes the decision.
 release_gate() {
@@ -1836,17 +1837,16 @@ release_gate() {
     warn "smoke-entwurf-v2-spawn-resume-live: LIVE!=1 — skipped (0.11.0 A acceptance, opt-in: needs auth/model)"
     results+=("SKIP  smoke-entwurf-v2-spawn-resume-live (LIVE!=1)"); skip=$((skip + 1))
   fi
-  run_step "session-messaging"              gate bash "$self" session-messaging
-
-  # 4. -xt tool-surface truthfulness — now a real fail-fast policy gate.
-  run_step "xt-tool-surface (exclude-tools policy)" gate xt_tool_surface
-
-  # 4b. BEHAVIOR lane (advisory, non-blocking). Model-in-loop gates that probe
+  # 4. BEHAVIOR lane (advisory, non-blocking). Model-in-loop gates that probe
   #     whether the model AUTONOMOUSLY drives the MCP entwurf surface. These never
-  #     touch `failc`; the cut is decided by the MUST tier above. Run last so the
-  #     summary reads MUST-then-BEHAVIOR. S7 (Bash-bypass) inside sentinel stays a
-  #     hard FAIL here — surfaced, never relabelled pass.
-  run_behavior_step "sentinel (6-cell diagonal: autonomous MCP entwurf tool-selection)" gate bash "$self" sentinel
+  #     touch `failc`; the cut is decided by the MUST tier above.
+  #
+  #     v2-only floor (2026-06-17): the ACP/v1-surface live gates were dropped from
+  #     this gate — session-messaging (called the removed entwurf_send v1 tool),
+  #     xt-tool-surface (ACP backend exclude-tools policy), and the sentinel 6-cell
+  #     matrix (ACP multi-backend autonomous tool-selection). They survive as
+  #     on-demand subcommands; v2 re-writes onto the entwurf_v2 surface are a
+  #     separate follow-up (see NEXT). The MUST floor is now the v2-native gates.
   # SMOKE_RGG_POSITIVE=1 re-runs the FULL guard with its positives enabled (not a
   # positive-only mode) — the deterministic paths run again here too, but only the
   # two model-in-loop turns (post-/gnew entwurf_self identity [T3] + positive

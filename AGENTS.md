@@ -99,8 +99,9 @@ pnpm check                                  # full static floor: lint + typechec
 ./run.sh check-meta-session                 # + -record-v2 / -dual-read / -migration / -mailbox-state-write / -receiver-marker / -capability-source / -dual-consumers / -listing
 ./run.sh check-pi-tools-bridge-boot         # the MCP pi-tools-bridge stands up + exposes the v2 tool set
 ./run.sh check-bridge /path/to/project      # pi-tools-bridge direct MCP smoke (tools/list + protocol/negative-path)
-./run.sh sentinel [cells]                   # 6-cell autonomous MCP entwurf tool-selection matrix (omit cells = all 6)
-./run.sh session-messaging /path/to/project # cross-session messaging matrix
+# sentinel / session-messaging / xt-tool-surface survive as on-demand subcommands but were
+# DROPPED from the v2 release floor (2026-06-17): ACP/v1 surface (removed pi-shell-acp
+# provider / entwurf_send v1 tool). v2 re-writes onto entwurf_v2 are a separate follow-up.
 ```
 
 **Live release gate** (opt-in, owns the merge decision):
@@ -109,7 +110,7 @@ pnpm check                                  # full static floor: lint + typechec
 LIVE=1 ./run.sh release-gate /path/to/scratch   # two-tier: MUST (release-blocking, owns exit code) + BEHAVIOR (advisory)
 ```
 
-The MUST tier is the necessary condition ("green" = MUST PASS, FAIL=0); BEHAVIOR is advisory autonomous-tool-selection (S7 Bash-bypass stays a hard FAIL inside it). Run every live gate with `PWD=scratch` so sessions never land in the repo's own session dir.
+The MUST tier is the necessary condition ("green" = MUST PASS, FAIL=0); BEHAVIOR is advisory — the `smoke-resident-garden-guard` positives (a model-in-loop garden identity turn). Run every live gate with `PWD=scratch` so sessions never land in the repo's own session dir.
 
 **Agent-driven verification** ([VERIFY.md](./VERIFY.md)): self-recognition/transcript agreement ≈ L1; objective MCP calls L2; on-disk/process L3; direct-native L4; soak L5.
 

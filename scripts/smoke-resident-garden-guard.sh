@@ -53,8 +53,14 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTWURF_DIR="$HOME/.pi/entwurf-control"
 SESSIONS_BASE="$HOME/.pi/agent/sessions"
-MODEL="${SMOKE_RGG_MODEL:-claude-sonnet-4-6}"
-PROVIDER="${SMOKE_RGG_PROVIDER:-pi-shell-acp}"
+# v2-only retarget (2026-06-17): default to a pi-native provider/model. The ACP
+# `pi-shell-acp` provider was removed, so the old default made every spawned-resident
+# assertion fail "Unknown provider" (the deterministic /new-cancellation 1-fail seen
+# in the 2026-06-17 LIVE gate). The guard logic (garden-id enforcement) is
+# provider-agnostic — no assertion checks the provider name, only the garden sessionId.
+# Shares the v2 live-smoke default target (openai-codex/gpt-5.4); override via SMOKE_RGG_*.
+MODEL="${SMOKE_RGG_MODEL:-${PI_SHELL_ACP_LIVE_MODEL:-gpt-5.4}}"
+PROVIDER="${SMOKE_RGG_PROVIDER:-${PI_SHELL_ACP_LIVE_PROVIDER:-openai-codex}}"
 TIMEOUT="${SMOKE_RGG_TIMEOUT:-90}"
 
 pass=0
