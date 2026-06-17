@@ -99,6 +99,7 @@ import { probeSocketLiveness, shouldListAsLive, shouldUnlinkOnGc } from "./lib/s
 export type { SenderEnvelope } from "./lib/entwurf-control-rpc.js";
 
 const ENTWURF_FLAG = "entwurf-control";
+const EMACS_AGENT_SOCKET_FLAG = "emacs-agent-socket";
 const ENTWURF_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 const SOCKET_SUFFIX = ".sock";
 const SESSION_MESSAGE_TYPE = "entwurf-message";
@@ -1078,6 +1079,44 @@ function wasBooleanFlagPassed(flagName: string): boolean {
 	return process.argv.slice(2).includes(flag);
 }
 
+// Read a string-valued CLI flag straight from argv. Handles `--flag value` and
+// `--flag=value`. Used as the argv fallback for the emacs socket flag because the
+// env application runs without a flag-hydration guarantee.
+function getStringFlagFromArgv(flagName: string): string | undefined {
+	const flag = `--${flagName}`;
+	const argv = process.argv.slice(2);
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === flag) {
+			const next = argv[i + 1];
+			return next && !next.startsWith("--") ? next.trim() || undefined : undefined;
+		}
+		if (arg.startsWith(`${flag}=`)) {
+			return arg.slice(flag.length + 1).trim() || undefined;
+		}
+	}
+	return undefined;
+}
+
+// `--emacs-agent-socket <name>` exports PI_EMACS_AGENT_SOCKET so this session's
+// own Bash/emacsclient calls (and any spawn-bg child that inherits this env)
+// target the right Emacs server socket — e.g. `emacsclient -s "$PI_EMACS_AGENT_SOCKET"`.
+// v2-only revival: the original ACP path injected this into the ACP child's spawn
+// env (acp-bridge.ts); with no ACP child on this branch, the consumer IS this pi
+// resident, so we set process.env directly — symmetric with updateSessionEnv's
+// PI_SESSION_ID/PI_AGENT_ID. Resolved pi.getFlag-first, argv fallback, and applied
+// independently of --entwurf-control (the original flag was entwurf-control-agnostic).
+function applyEmacsAgentSocketEnv(pi: ExtensionAPI): void {
+	const fromFlag = pi.getFlag(EMACS_AGENT_SOCKET_FLAG);
+	const socket =
+		typeof fromFlag === "string" && fromFlag.trim() ? fromFlag.trim() : getStringFlagFromArgv(EMACS_AGENT_SOCKET_FLAG);
+	if (socket) {
+		process.env.PI_EMACS_AGENT_SOCKET = socket;
+	} else {
+		delete process.env.PI_EMACS_AGENT_SOCKET;
+	}
+}
+
 function shouldRegisterControlTools(pi: ExtensionAPI): boolean {
 	return pi.getFlag(ENTWURF_FLAG) === true || wasBooleanFlagPassed(ENTWURF_FLAG);
 }
@@ -1090,6 +1129,10 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag(ENTWURF_FLAG, {
 		description: "Enable per-session control socket under ~/.pi/entwurf-control",
 		type: "boolean",
+	});
+	pi.registerFlag(EMACS_AGENT_SOCKET_FLAG, {
+		description: "Optional Emacs server socket name for agent Emacs operations (exported as PI_EMACS_AGENT_SOCKET)",
+		type: "string",
 	});
 	const state: SocketState = {
 		server: null,
@@ -1136,6 +1179,10 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const refreshServer = async (ctx: ExtensionContext) => {
+		// --emacs-agent-socket is independent of --entwurf-control: export it
+		// before the control-server branch so an Emacs frontend works even in a
+		// non-control session.
+		applyEmacsAgentSocketEnv(pi);
 		const enabled = pi.getFlag(ENTWURF_FLAG) === true;
 		if (!enabled) {
 			await stopControlServer(state);

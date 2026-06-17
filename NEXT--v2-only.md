@@ -235,6 +235,17 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
 - **topology 고정 + LIVE/설치 green(thinkpad)**: repo-under-test로 결정하고 resident spawn에 `--no-extensions -e $REPO` 주입.
   `LIVE=1 release-gate` MUST 6 green, scratch `setup` green.
 
+## ✅ 시스템 전역 ACP purge + entwurf-control 실부팅 (thinkpad 2026-06-17 15:13 KST)
+
+- **전역 pnpm ACP 패키지 3종 제거(GLG 지시)**: `@agentclientprotocol/claude-agent-acp@0.38.0` /
+  `@zed-industries/codex-acp@0.15.0` / `pi-acp@0.0.26`(ACP adapter for pi). pnpm이 안 치운 dangling bin shim
+  2개(`claude-agent-acp`/`codex-acp`)도 수동 제거. **전역 ACP 패키지/바이너리 0건.** `pi` 바이너리는
+  `@earendil-works/pi-coding-agent`(earendil) 출처라 무영향 → `pi --version`=0.79.6 정상. `codex` bin은 `@openai/codex`
+  (네이티브, ACP 아님) 유지.
+- **`pi --entwurf-control` 데일리 방식 실부팅 검증**: `--no-extensions` 없이(설치 패키지 로드) `--provider openai-codex
+  --model gpt-5.4 --mode rpc`로 띄움 → 컨트롤 소켓 `~/.pi/entwurf-control/<gid>.sock` 생성 + entwurf-control extension
+  `🪛 ready`. 크래시/ACP 에러 0. GLG가 새 Claude로 메시지 송수신 테스트할 surface 준비됨.
+
 ## 다음 한 걸음
 
 → **노트북 이어받기 (우선순위 순):**
@@ -246,6 +257,16 @@ spawn은 device-local 전역 package에 의존하지 않고 **`--no-extensions -
    `getRegistryRouting` 하드코딩 `provider:"pi-shell-acp"` / `mcp/index.ts` description. rename과 묶어 절삭.
 5. **stale 주석(doc-truth)**: `scripts/sentinel-runner.sh`(225/457), `check-model-lock.ts`(31-32),
    `smoke-entwurf-v2-matrix-live.ts`(29)가 삭제된 명령 호명. Phase B doc 패스.
+6. **✅ `--emacs-agent-socket server` 부활 DONE (env 전파, 2026-06-17 미커밋)** — Doom/Emacs 프런트엔드가
+   의존하는 플래그가 깨졌던 것 복구. **원인**: 플래그를 등록/파싱하던 ACP `index.ts`가 v2-only에서 삭제됨 →
+   `pi … --emacs-agent-socket server`가 미등록 플래그로 거부. **복구(ACP 의존 없이, `entwurf-control.ts`)**:
+   (a) `registerFlag(EMACS_AGENT_SOCKET_FLAG, {type:"string"})`, (b) `applyEmacsAgentSocketEnv(pi)`를 `refreshServer`
+   (session_start) 최상단에서 무조건 호출 → `process.env.PI_EMACS_AGENT_SOCKET` set/delete(pi.getFlag 우선·argv fallback).
+   원형은 ACP child spawn env(`acp-bridge.ts:2976`)에 주입했지만 v2엔 child가 없어 **resident 자신의 env**에 직접 set
+   (PI_SESSION_ID/PI_AGENT_ID와 대칭). **검증**: `pnpm check` green + 라이브 `--emacs-agent-socket server` 부팅 시
+   소켓 up·flag 에러 0 + headless turn에서 Bash가 `$PI_EMACS_AGENT_SOCKET=server` 실측(`EMACSCHECK=[server]`).
+   **후속(비긴급)**: pi-context-augment 힌트(`emacsclient -s "$PI_EMACS_AGENT_SOCKET"`)는 v2에서 augment 경로 자체가
+   ACP산(`pi-context-augment.ts` 삭제됨)이라 보류 — env 전파만으로 1차 동작. CHANGELOG 엔트리는 tag-release 때.
 
 ## 넘으면 안 되는 선
 
