@@ -23,7 +23,7 @@
 
 # RECENT
 
-- [2026-06-17] **`v0.12.0` 컷 — v2-only subtraction (ACP/v1 제거).** 닫힌 작업 전체는 `CHANGELOG.md` 0.12.0 참조.
+- [2026-06-17] **v2-only subtraction 정리** (ACP/v1 제거). 닫힌 작업 전체는 `CHANGELOG.md` ## Unreleased 참조 (태그 미컷).
   baseline `v0.11.0`..HEAD 21커밋. `pnpm check` green + `LIVE=1 release-gate` MUST 6/6 (thinkpad) + 두 레일 라이브 왕복.
 
 # LEDGER
