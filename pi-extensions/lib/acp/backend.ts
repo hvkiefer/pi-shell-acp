@@ -1,4 +1,5 @@
-// ACP plugin — real streamSimple backend with in-memory session reuse (S2d-1b-2b).
+// ACP plugin — real streamSimple backend: in-memory session reuse (S2d-1b-2b)
+// + billing carrier + first-user augment (S2d-1c).
 //
 // S2c opened the provider path as spawn-per-turn: every streamSimple call spawned
 // a FRESH ACP session and tore it down. S2d-1b-2b adds in-memory session REUSE
@@ -21,9 +22,11 @@
 //   - in-memory reuse + new ONLY. Persisted resume/load is the next lane (1b-2c):
 //     the record is WRITTEN (so 1b-2c can use it) but never READ/used here, and no
 //     resume/load capability is passed to decideBootstrap.
-//   - carrier ABSENT (appendSystemPrompt empty) → the config signature is a
-//     per-model constant; engraving (`_meta.systemPrompt` SHORT) + first-user
-//     augment are 1c.
+//   - S2d-1c carrier + augment: the engraving carrier (`_meta.systemPrompt`,
+//     SHORT, EMPTY by default → absent) feeds BOTH the config signature and the
+//     session meta from one rendered string; the rich first-user augment (bridge
+//     identity + AGENTS + pi base) is prepended to the `new` prompt ONLY, on the
+//     wire, so it never enters the reuse-compat signature.
 //
 // CRITICAL — mutable activePromptHandler routing: a retained ClientSideConnection
 // outlives the turn, so its sessionUpdate/requestPermission callbacks must NOT
@@ -44,7 +47,9 @@ import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { prependNewPromptAugment } from "./augment.js";
 import { type AcpTextBlock, buildAcpPrompt } from "./context.js";
+import { loadEngraving } from "./engraving.js";
 import {
 	type AcpPiStreamState,
 	applyAcpSessionUpdate,
@@ -448,11 +453,18 @@ export function streamAcpTurn(
 
 		const policy = deps.lifecyclePolicy();
 		const sessionKey = resolveSessionKey(opts, cwd);
-		// Carrier ABSENT in 1b-2b → the config signature is a per-model constant.
+		// Billing carrier (S2d-1c): SHORT operator-authored system-prompt additions,
+		// EMPTY by default → null → carrier absent. The SAME rendered string feeds
+		// BOTH the config signature (appendSystemPrompt) and _meta.systemPrompt (in
+		// runNewTurn), so a carrier change invalidates reuse; loadEngraving is pure
+		// (no clock/random/env) so the signature stays a per-(model,template)
+		// constant and does NOT rebuild every turn (NEXT §S2-scout 핀1 / oracle C,
+		// GPT c32a6c8 ②). null → "" keeps a carrier-absent run byte-identical to 1b-2b.
+		const engraving = loadEngraving({ backend: "claude", mcpServerNames: [] });
 		const configSig = bridgeConfigSignature({
 			backend: "claude",
 			modelId: model.id,
-			appendSystemPrompt: "",
+			appendSystemPrompt: engraving ?? "",
 			mcpServers: [],
 			settingSources: [],
 		});
@@ -519,7 +531,7 @@ export function streamAcpTurn(
 			if (decision.path === "reuse" && existing) {
 				await runReuseTurn(existing, ctxSigs);
 			} else {
-				await runNewTurn(params, ctxSigs);
+				await runNewTurn(params, ctxSigs, engraving);
 			}
 		} finally {
 			inFlightKeys.delete(sessionKey);
@@ -527,7 +539,7 @@ export function streamAcpTurn(
 	});
 
 	// --- new session: spawn → initialize → newSession → setModel → full transcript
-	async function runNewTurn(params: BootstrapParams, ctxSigs: string[]): Promise<void> {
+	async function runNewTurn(params: BootstrapParams, ctxSigs: string[], engraving: string | null): Promise<void> {
 		let child: AcpChildLike | undefined;
 		let session: BridgeSession | undefined;
 		let onAbort: (() => void) | undefined;
@@ -603,16 +615,22 @@ export function streamAcpTurn(
 				INITIALIZE_TIMEOUT_MS,
 			);
 
-			// Tool-narrowed session meta (S2b). NO _meta.systemPrompt (carrier absent).
-			const sessionMeta = buildClaudeSessionMeta({
-				modelId: model.id,
-				tools: DEFAULT_CLAUDE_TOOLS,
-				permissionAllow: DEFAULT_CLAUDE_PERMISSION_ALLOW,
-				disallowedTools: DEFAULT_CLAUDE_DISALLOWED_TOOLS,
-				settingSources: [],
-				strictMcpConfig: false,
-				skillPlugins: [],
-			});
+			// Tool-narrowed session meta (S2b) + the billing carrier (S2d-1c). The
+			// carrier is the SAME rendered engraving folded into configSig above;
+			// when null, buildClaudeSessionMeta omits the _meta.systemPrompt key
+			// entirely so a carrier-absent session is byte-identical to 1b-2b.
+			const sessionMeta = buildClaudeSessionMeta(
+				{
+					modelId: model.id,
+					tools: DEFAULT_CLAUDE_TOOLS,
+					permissionAllow: DEFAULT_CLAUDE_PERMISSION_ALLOW,
+					disallowedTools: DEFAULT_CLAUDE_DISALLOWED_TOOLS,
+					settingSources: [],
+					strictMcpConfig: false,
+					skillPlugins: [],
+				},
+				engraving ?? undefined,
+			);
 			const created = await withTimeout(
 				"newSession",
 				connection.newSession({ cwd, mcpServers: [], _meta: sessionMeta }),
@@ -636,8 +654,19 @@ export function streamAcpTurn(
 
 			session.activePromptHandler = makePromptHandler(session);
 			// new session holds NO history → the full transcript is the only carrier.
-			const prompt = buildAcpPrompt(context, "new");
-			if (prompt.length === 0) throw new Error("empty pi context — nothing to prompt");
+			const basePrompt = buildAcpPrompt(context, "new");
+			if (basePrompt.length === 0) throw new Error("empty pi context — nothing to prompt");
+			// S2d-1c: prepend the rich first-user augment (bridge identity + ~/AGENTS.md
+			// + cwd/AGENTS.md + pi base + tool surface) on the WIRE only — never into
+			// the pi Context, so it stays out of contextMessageSignatures (NEXT §S2d
+			// gate ②). `new`-only → reuse turns stay clean (once-only). Entwurf-spawned
+			// prompts that already carry cwd/AGENTS.md get that one section de-duped.
+			const prompt = prependNewPromptAugment(basePrompt, {
+				backend: "claude",
+				cwd,
+				mcpServerNames: [],
+				emacsAgentSocket: process.env.PI_EMACS_AGENT_SOCKET?.trim() || undefined,
+			});
 
 			const promptResult = await withTimeout(
 				"prompt",

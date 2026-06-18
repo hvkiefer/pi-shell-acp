@@ -1331,6 +1331,18 @@ check_acp_session_reuse() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-session-reuse.ts)
 }
 
+check_acp_carrier_augment() {
+  # Deterministic gate for S2d-1c billing carrier (engraving) + first-user augment.
+  # Separate axis from the reuse gate (GPT c32a6c8): locks that the carrier is
+  # SHORT/empty-by-default/pure and folds into bridgeConfigSignature (so a carrier
+  # change invalidates reuse but a stable carrier never rebuilds), and that the
+  # rich augment rides the `new` prompt on the WIRE only — never the pi Context,
+  # so it never enters contextMessageSignatures — with entwurf cwd/AGENTS.md
+  # de-dup. Pure + temp-dir fs, no spawn.
+  section "ACP carrier + augment (S2d-1c engraving + first-user augment)"
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-carrier-augment.ts)
+}
+
 check_pack() {
   # Dry-run tarball invariant gate for the public npm surface.
   #
@@ -2430,6 +2442,9 @@ case "$cmd" in
     ;;
   check-acp-session-reuse)
     check_acp_session_reuse
+    ;;
+  check-acp-carrier-augment)
+    check_acp_carrier_augment
     ;;
   check-pack)
     check_pack
