@@ -1244,6 +1244,18 @@ check_acp_tool_surface() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-tool-surface.ts)
 }
 
+check_acp_event_mapper() {
+  # Deterministic gate for the S2c ACP→pi event mapper + context conversion.
+  # Feeds synthetic ACP session_notification updates through the mapper and
+  # asserts the pi AssistantMessageEvent sequence, including the hard boundary:
+  # tool_call / tool_call_update render as TEXT NOTICES, never structured
+  # toolcall_* (the ACP child already executed the tool). Also locks the
+  # context→ACP-prompt transcript passthrough (excludes systemPrompt/thinking,
+  # single text block). Pure, no live backend.
+  section "ACP event mapper (S2c notification→stream + context)"
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-event-mapper.ts)
+}
+
 check_pack() {
   # Dry-run tarball invariant gate for the public npm surface.
   #
@@ -2318,6 +2330,9 @@ case "$cmd" in
     ;;
   check-acp-tool-surface)
     check_acp_tool_surface
+    ;;
+  check-acp-event-mapper)
+    check_acp_event_mapper
     ;;
   check-pack)
     check_pack
