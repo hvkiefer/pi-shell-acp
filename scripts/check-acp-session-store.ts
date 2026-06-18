@@ -9,10 +9,15 @@
 //      reuse, no persisted resume/load in the first cut).
 
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/pi-ai";
+
+const sha256 = (v: string) => createHash("sha256").update(v).digest("hex");
+const isSha256Hex = (v: string) => /^[0-9a-f]{64}$/.test(v);
+
 import {
 	type BridgeConfigInput,
 	bridgeConfigSignature,
@@ -45,10 +50,12 @@ const baseInput = (): BridgeConfigInput => ({
 });
 
 // ---------------------------------------------------------------------------
-// 1) signature — pure/stable, carrier drift changes it
+// 1) signature — pure/stable, carrier drift changes it, sha256 digest (no raw)
 // ---------------------------------------------------------------------------
 {
 	const sig0 = bridgeConfigSignature(baseInput());
+	assert.ok(isSha256Hex(sig0), "config signature is a sha256 digest (no raw carrier text on disk)");
+	assert.ok(!sig0.includes("claude-sonnet-4-6"), "config signature is a digest — never embeds the raw modelId/carrier");
 	assert.equal(sig0, bridgeConfigSignature(baseInput()), "signature is deterministic");
 	// Array copies do not affect equality (same content).
 	assert.equal(bridgeConfigSignature({ ...baseInput(), mcpServers: [] }), sig0, "empty mcpServers stable");
@@ -67,40 +74,78 @@ const baseInput = (): BridgeConfigInput => ({
 }
 
 // ---------------------------------------------------------------------------
-// 2) contextMessageSignatures — role + content shape
+// 2) contextMessageSignatures — sha256(role:content), no raw text, toolResult
+//    folds in toolName/isError (GPT c617cb hardening)
 // ---------------------------------------------------------------------------
 {
+	const assistant = (text: string) =>
+		({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text }],
+			api: "x",
+			provider: "x",
+			model: "x",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop" as const,
+			timestamp: 0,
+		}) satisfies Context["messages"][number];
 	const ctx: Context = {
 		messages: [
 			{ role: "user", content: "hello", timestamp: 0 },
-			{
-				role: "assistant",
-				content: [{ type: "text", text: "hi" }],
-				api: "x",
-				provider: "x",
-				model: "x",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
-				stopReason: "stop",
-				timestamp: 0,
-			},
-			{ role: "user", content: [{ type: "image", data: "X", mimeType: "image/png" }], timestamp: 0 },
+			assistant("hi"),
+			{ role: "user", content: [{ type: "image", data: "RAWIMAGEBYTES", mimeType: "image/png" }], timestamp: 0 },
 		],
 	};
 	const sigs = contextMessageSignatures(ctx);
+	// every entry is a sha256 digest of the pre-hash role:content form.
+	assert.ok(sigs.every(isSha256Hex), "every message signature is a sha256 digest");
 	assert.deepEqual(
 		sigs,
-		["user:text:hello", "assistant:text:hi", "user:image:image/png"],
-		"per-message role:content signatures",
+		[sha256("user:text:hello"), sha256("assistant:text:hi"), sha256("user:image:image/png")],
+		"per-message sha256(role:content) signatures",
 	);
-	// image signature carries the mimeType, never raw data.
-	assert.ok(!sigs[2].includes("X"), "image signature excludes raw data");
+	// digest never embeds raw image data or raw user text.
+	assert.ok(
+		!sigs.some((s) => s.includes("RAWIMAGEBYTES") || s.includes("hello")),
+		"signatures are digests — no raw image data or prompt text on disk",
+	);
+	// deterministic across calls.
+	assert.deepEqual(contextMessageSignatures(ctx), sigs, "contextMessageSignatures is deterministic");
+
+	// toolResult folds in toolName + isError → same text, different tool/flag = different sig.
+	const trContent = [{ type: "text" as const, text: "out" }];
+	const trBase: Context = {
+		messages: [
+			{ role: "toolResult", toolCallId: "t1", toolName: "bash", isError: false, content: trContent, timestamp: 0 },
+		],
+	};
+	const trErr: Context = {
+		messages: [
+			{ role: "toolResult", toolCallId: "t1", toolName: "bash", isError: true, content: trContent, timestamp: 0 },
+		],
+	};
+	const trOther: Context = {
+		messages: [
+			{ role: "toolResult", toolCallId: "t1", toolName: "edit", isError: false, content: trContent, timestamp: 0 },
+		],
+	};
+	assert.notEqual(
+		contextMessageSignatures(trBase)[0],
+		contextMessageSignatures(trErr)[0],
+		"toolResult isError flips the signature",
+	);
+	assert.notEqual(
+		contextMessageSignatures(trBase)[0],
+		contextMessageSignatures(trOther)[0],
+		"toolResult toolName changes the signature",
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,8 +364,9 @@ const baseInput = (): BridgeConfigInput => ({
 }
 
 console.log(
-	"[check-acp-session-store] ok — signature (pure, carrier/model drift detected), contextMessageSignatures " +
-		"(role:content, no raw image), hasPrefix/isCompatible (prefix-only, cwd/model/sig/edited drift → incompatible), " +
+	"[check-acp-session-store] ok — signature (pure sha256 digest, carrier/model drift detected, no raw on disk), " +
+		"contextMessageSignatures (sha256(role:content), no raw text, toolResult folds toolName/isError), " +
+		"hasPrefix/isCompatible (prefix-only, cwd/model/sig/edited drift → incompatible), " +
 		"decideBootstrap matrix (turn-scoped→always new, process reuse/resume/load/new, incompatible→invalidate, " +
 		"live model mismatch→throw), record build (injected clock) + parse validate + temp-dir roundtrip, " +
 		"resolveLifecyclePolicy (exact --entwurf-control → process-scoped incl. with -p; -p/interactive/look-alike → turn-scoped)",

@@ -858,6 +858,20 @@ smoke_acp_provider_live() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-provider-live.ts)
 }
 
+smoke_acp_session_reuse_live() {
+  # S2d-1b-2b acceptance smoke (in-memory session reuse) — OUT of pnpm check,
+  # needs LIVE=1. Forces process-scoped (pushes --entwurf-control into argv) and
+  # drives TWO real ACP turns over ONE reused claude-agent-acp child via the real
+  # streamShellAcp: turn 1 introduces a codeword (full transcript), turn 2 sends
+  # ONLY the latest user delta and must recall the codeword — proving the child
+  # was reused and the live ACP session kept turn-1 history (a respawn-per-turn
+  # backend would forget it). The one-shot exit0 half is owned by
+  # smoke-acp-provider-live.
+  # Model override: PI_SHELL_ACP_PROVIDER_MODEL (default claude-sonnet-4-6).
+  #   LIVE=1 ./run.sh smoke-acp-session-reuse-live
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-session-reuse-live.ts)
+}
+
 smoke_entwurf_v2_matrix_live() {
   # LIVE sentinel for 0.11 Stage 0 step 5d-5 (D4-b) — kept OUT of `pnpm check`. The deterministic
   # sibling (check-entwurf-v2-matrix) fixes every (target kind → transport → lock) cell over fakes
@@ -1302,6 +1316,19 @@ check_acp_backend_preflight() {
   # pure gate. No backend launched (preflight throws first). Pure.
   section "ACP backend preflight (S2c runtime exclude-tools wiring)"
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-backend-preflight.ts)
+}
+
+check_acp_session_reuse() {
+  # Deterministic gate for S2d-1b-2b in-memory session reuse (backend.ts). Injects
+  # a fake spawn/connection seam and CAPTURES each turn's prompt payload to prove
+  # reuse is DELTA-ONLY: turn 2 carries the new nonce, never the turn-1 history,
+  # with no second spawn/newSession. Also proves the mutable activePromptHandler
+  # routes each turn's notices to its own stream, a persisted record is NOT
+  # resumed in 1b-2b, a concurrent prompt fails loud (busy), the reused child is
+  # never torn down between turns, and source-locks buildAcpPrompt wiring +
+  # single-site applyAcpSessionUpdate via the router. No real child launched.
+  section "ACP session reuse (S2d-1b-2b delta-only capture + mutable routing)"
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-session-reuse.ts)
 }
 
 check_pack() {
@@ -2211,6 +2238,9 @@ case "$cmd" in
   smoke-acp-provider-live)
     smoke_acp_provider_live
     ;;
+  smoke-acp-session-reuse-live)
+    smoke_acp_session_reuse_live
+    ;;
   smoke-acp-socket-citizen-live)
     smoke_acp_socket_citizen_live
     ;;
@@ -2397,6 +2427,9 @@ case "$cmd" in
     ;;
   check-acp-backend-preflight)
     check_acp_backend_preflight
+    ;;
+  check-acp-session-reuse)
+    check_acp_session_reuse
     ;;
   check-pack)
     check_pack

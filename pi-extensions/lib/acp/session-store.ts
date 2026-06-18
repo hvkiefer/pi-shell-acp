@@ -23,11 +23,17 @@
 // a delta while new sends the full transcript. The prefix-compat gate here is
 // what makes delta-only SAFE — a mismatch falls back to `new` + full transcript.
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Context, Message } from "@earendil-works/pi-ai";
+import type { Context, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AcpBootstrapPath } from "./context.js";
+
+/** sha256 hex digest. Used so on-disk records carry digests, never raw prompt text. */
+function sha256(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
 
 export const SESSION_RECORD_VERSION = 1;
 export const SESSION_RECORD_PROVIDER = "pi-shell-acp" as const;
@@ -127,17 +133,22 @@ const SESSION_CACHE_DIR = join(homedir(), ".pi", "agent", "cache", "pi-shell-acp
 // ---------------------------------------------------------------------------
 
 /**
- * Stable config hash. Pure — no clock/random/env. The fixed field order makes
- * `JSON.stringify` deterministic across turns.
+ * Stable config hash. Pure — no clock/random/env. The serialized input is a
+ * SMALL object with a FIXED key order so `JSON.stringify` is deterministic
+ * across turns (a drifting order would force a rebuild every turn). The digest
+ * keeps the carrier text (appendSystemPrompt) out of the on-disk record (GPT
+ * `c617cb` hardening).
  */
 export function bridgeConfigSignature(input: BridgeConfigInput): string {
-	return JSON.stringify({
-		backend: input.backend,
-		modelId: input.modelId,
-		appendSystemPrompt: input.appendSystemPrompt,
-		mcpServers: [...input.mcpServers],
-		settingSources: [...input.settingSources],
-	});
+	return sha256(
+		JSON.stringify({
+			backend: input.backend,
+			modelId: input.modelId,
+			appendSystemPrompt: input.appendSystemPrompt,
+			mcpServers: [...input.mcpServers],
+			settingSources: [...input.settingSources],
+		}),
+	);
 }
 
 /** One signature per content block — role-agnostic shape fingerprint. */
@@ -163,11 +174,28 @@ function messageContentSignature(content: unknown): string {
 		.join("|");
 }
 
-/** Per-message signatures: reuse is safe only when the existing list is a prefix. */
+/**
+ * The pre-hash, human-readable signature of one message. A toolResult also
+ * folds in `toolName` + `isError` so a same-text result from a different tool
+ * (or a success vs an error) breaks the prefix (GPT `c617cb`).
+ */
+function rawMessageSignature(message: Message): string {
+	const contentSig = messageContentSignature((message as { content: unknown }).content);
+	if (message.role === "toolResult") {
+		const tr = message as ToolResultMessage;
+		return `toolResult:${tr.toolName ?? ""}:${tr.isError ? "1" : "0"}:${contentSig}`;
+	}
+	return `${message.role}:${contentSig}`;
+}
+
+/**
+ * Per-message signatures: reuse is safe only when the existing list is a prefix
+ * of the new turn's. Each entry is sha256(rawMessageSignature) so the persisted
+ * record never stores raw prompt/tool text — the prefix check works the same on
+ * the digest array (GPT `c617cb` hardening).
+ */
 export function contextMessageSignatures(context: Context): string[] {
-	return context.messages.map(
-		(m: Message) => `${m.role}:${messageContentSignature((m as { content: unknown }).content)}`,
-	);
+	return context.messages.map((m: Message) => sha256(rawMessageSignature(m)));
 }
 
 /** True when `existing` is a (possibly equal) PREFIX of `params`. */
@@ -315,8 +343,10 @@ export function parseSessionRecord(raw: unknown, sessionKey: string): SessionRec
 }
 
 export function sessionRecordPath(sessionKey: string, dir: string = SESSION_CACHE_DIR): string {
-	// sessionKey is a pi-supplied id; encode to keep it a single safe filename.
-	return join(dir, `${encodeURIComponent(sessionKey)}.json`);
+	// sessionKey is a pi-supplied id; sha256 it so the filename is fixed-length
+	// and safe regardless of cwd length / path chars (GPT `c617cb` hardening —
+	// the old encodeURIComponent was safe but unbounded in length).
+	return join(dir, `${sha256(sessionKey)}.json`);
 }
 
 /** Read + validate a persisted record. A corrupt/incompatible file is deleted. */
