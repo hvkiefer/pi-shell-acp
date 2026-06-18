@@ -25,7 +25,8 @@
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 
 // Split literals so this gate's own regexes never self-match in layer (4).
 const ANTHROPIC_SDK = `@anthropic-ai/${"sdk"}`;
@@ -71,6 +72,54 @@ assert.match(
 );
 
 // ---------------------------------------------------------------------------
+// (2b) runtime peer-resolution probe — the actual Node resolver, not lock text.
+//      Layer (2) freezes the publish/install floor; this probes that the
+//      claude-agent-sdk → @anthropic-ai/sdk peer edge really resolves to
+//      0.100.1 in a live module graph. Two different failures, both needed.
+//      Note: a top-level/adapter-context resolve of the anthropic SDK may see
+//      0.91.1 (pi's own transitive) — that is normal. The edge that must be
+//      0.100.1 is the one *inside* claude-agent-sdk's context.
+// ---------------------------------------------------------------------------
+const pkgInfoFromEntry = (entryPath: string): { name: string; version: string; dir: string } => {
+	// A `<pkg>/package.json` subpath resolve can fail under "exports"; walk up
+	// from the resolved entry to the nearest package.json instead.
+	let dir = dirname(entryPath);
+	for (;;) {
+		try {
+			const pj = JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8")) as {
+				name?: string;
+				version?: string;
+			};
+			if (pj.name && pj.version) return { name: pj.name, version: pj.version, dir };
+		} catch {
+			// no package.json here (or unreadable) — keep walking up.
+		}
+		const parent = dirname(dir);
+		if (parent === dir) throw new Error(`no package.json found walking up from ${entryPath}`);
+		dir = parent;
+	}
+};
+
+const rootRequire = createRequire(resolve(repoRoot, "package.json"));
+const adapterPkgJson = rootRequire.resolve("@agentclientprotocol/claude-agent-acp/package.json");
+const adapterRequire = createRequire(adapterPkgJson);
+const casEntry = adapterRequire.resolve("@anthropic-ai/claude-agent-sdk");
+const casInfo = pkgInfoFromEntry(casEntry);
+assert.equal(
+	casInfo.version,
+	"0.3.156",
+	`@anthropic-ai/claude-agent-sdk must runtime-resolve to 0.3.156 from the adapter context (got ${casInfo.version})`,
+);
+const casRequire = createRequire(resolve(casInfo.dir, "package.json"));
+const sdkEntry = casRequire.resolve(ANTHROPIC_SDK);
+const sdkInfo = pkgInfoFromEntry(sdkEntry);
+assert.equal(
+	sdkInfo.version,
+	"0.100.1",
+	`${ANTHROPIC_SDK} must peer-resolve to 0.100.1 from the claude-agent-sdk context (got ${sdkInfo.version}) — a 0.91.1 here means the >=0.93.0 peer is unmet and the raw turn would break`,
+);
+
+// ---------------------------------------------------------------------------
 // (3) @agentclientprotocol/sdk value-export surface (silent-rename gate)
 //     The 0.11.0 acp-bridge imports these from the wire SDK; a silent upstream
 //     rename would not fail typecheck (type-only erasure) but would break the
@@ -98,16 +147,25 @@ const tracked = execFileSync("git", ["ls-files", "*.ts", "*.js", "*.mjs", "*.cjs
 	.split("\n")
 	.filter(Boolean);
 
-const importRe = new RegExp(String.raw`^\s*import\b[^\n]*\bfrom\s+["']${ANTHROPIC_SDK.replace("/", "\\/")}["']`);
-const requireRe = new RegExp(String.raw`\brequire\(\s*["']${ANTHROPIC_SDK.replace("/", "\\/")}["']\s*\)`);
+// Specifier-shaped: any module binding to the anthropic SDK, in any of the
+// forms a source file could reach it — static `from`, `export ... from`,
+// side-effect `import "X"`, dynamic `import("X")`, and `require("X")`.
+const spec = String.raw`["']${ANTHROPIC_SDK.replace("/", "\\/")}["']`;
+const specifierPatterns: ReadonlyArray<{ re: RegExp; kind: string }> = [
+	{ re: new RegExp(String.raw`\bfrom\s+${spec}`), kind: `import/export from ${ANTHROPIC_SDK}` },
+	{ re: new RegExp(String.raw`^\s*import\s+${spec}`), kind: `side-effect import ${ANTHROPIC_SDK}` },
+	{ re: new RegExp(String.raw`\bimport\(\s*${spec}\s*\)`), kind: `dynamic import(${ANTHROPIC_SDK})` },
+	{ re: new RegExp(String.raw`\brequire\(\s*${spec}\s*\)`), kind: `require(${ANTHROPIC_SDK})` },
+];
 const clientRe = new RegExp(String.raw`\bnew\s+${API_CLIENT_CLASS}\s*\(`);
 
 const offenders: string[] = [];
 for (const f of tracked) {
 	const src = read(f);
 	for (const line of src.split("\n")) {
-		if (importRe.test(line)) offenders.push(`${f}: direct ${ANTHROPIC_SDK} import`);
-		if (requireRe.test(line)) offenders.push(`${f}: direct ${ANTHROPIC_SDK} require()`);
+		for (const { re, kind } of specifierPatterns) {
+			if (re.test(line)) offenders.push(`${f}: ${kind}`);
+		}
 		if (clientRe.test(line)) offenders.push(`${f}: new ${API_CLIENT_CLASS}() API client`);
 	}
 }
