@@ -13,8 +13,10 @@
 
 # NOW
 
-- **Current**: **S0 loader/fence slice DONE (2026-06-18).** ACP provider가 pi extension으로 설 자리를 잡음 — `pi-extensions/acp-provider.ts`(thin entry) + `pi-extensions/lib/acp/{models,backend-stub}.ts`, `package.json` `pi.extensions` 맨 앞 등록. 큐레이트 Claude 표면(sonnet-4-6 + opus-4-8 anchor), no-auth sentinel, **fail-loud streamSimple stub**(backend 없음·native fallback 없음·bash/env 우회 없음). 게이트 2개 신규: `check-auth-boundary`(재도입·신규파일 retarget) + `check-acp-provider-surface`(GPT제3안 = temp `tsc` emit → 컴파일된 `acp-provider.js`를 fake-pi로 **실행 캡처**: idempotency·id·sentinel·sonnet+opus·fail-loud throw 실증 + lib 실행 + source-shape 보조. `.js` 관례 유지하며 entry 실행검증, lib 분리 안 접음). pack 게이트 stale 정리(#4): `check_pack_install` tar_required에서 옛 ACP 6파일 제거 → 신규 entry 추가, 직전 RED → GREEN. 검증: `pnpm typecheck`/`pnpm check`/`check-pack-install` 전부 green + **라이브 `pi --list-models pi-shell-acp` loader smoke(installed tarball)에서 provider 등록 + Claude anchor 노출 확인**. commit/push 대기(GLG).
-- **Next = S1 socket-citizen (다음 coding move)**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함. host 소켓이 시민권 공급(plugin이 새 소켓/peers 안 만듦). **메일박스 부재·overlay 활성 증명은 backend가 도는 S2로** — S1은 backend turn 전이라 overlay 활성 증명 불가(GPT). backend 1턴도 S2. 상세 = 아래 §구현 순서.
+- **Current**: **S0 + S1 DONE (2026-06-18).**
+  - **S0 loader/fence**(커밋 `4afa58e`): `pi-extensions/acp-provider.ts`(thin entry) + `lib/acp/{models,backend-stub}.ts`, `pi.extensions` 맨 앞 등록. 큐레이트 Claude(sonnet-4-6 + opus-4-8 anchor), no-auth sentinel, **fail-loud streamSimple stub**(backend·native fallback·bash/env 우회 전부 없음). 게이트: `check-auth-boundary`(retarget) + `check-acp-provider-surface`(temp `tsc` emit → 컴파일 entry fake-pi 실행 캡처). pack stale(#4) RED→GREEN. `pnpm check`/`check-pack-install` green + 라이브 `pi --list-models`.
+  - **S1 socket-citizen**(이 세션): **라이브 증명 완료** — `pi --entwurf-control --provider pi-shell-acp --model claude-opus-4-8 --mode rpc` resident가 production `entwurf_peers`에 `liveness=alive model=pi-shell-acp/claude-opus-4-8 idle=yes`로 떠서 native Codex 형제 옆 1급 시민. get_info(cwd/model/idle) 응답. **QM1**(model-lock가 ACP 모델 런치를 안 되돌림 — in-session switch에만 발화) + **QM2**(fail-loud stub은 턴에서만, 런치는 turn-free라 안 죽음) 둘 다 라이브 차단. 아티팩트: `scripts/smoke-acp-socket-citizen-live.ts` + `./run.sh smoke-acp-socket-citizen-live`(LIVE-gated, OUT of pnpm check, 8 checks PASS). **턴 0회 — citizenship만 증명, backend turn은 S2.** commit/push 대기(GLG).
+- **Next = S2 (실제 backend turn) — 새 세션 권장 + scout 먼저**: S2 코드 전에 **S2-scout 3핀**(billing carrier 규칙 / ACP SDK·dependency surface / local Claude ACP auth)부터 박기. 그 다음 S2a(dep+raw 1턴)→…→S2e. 상세 = §구현 순서 + 아래 §홉 계획. **overlay 활성·메일박스 부재 증명도 S2**(backend가 돌아야 가능).
 - **잠긴 방향 (굳음)**:
   - ACP backend = overlay 격리 **소켓-시민**, 메일박스 **설계상 부재**(overlay `settings.json` `hooks:{}` → meta-bridge hook 없음 → 메일박스 없음; *같은* minimal 설정이 기본도구만 = 가벼움. 한 결정이 둘을 만듦).
   - **차별 없음 = 시민 층위**(entwurf_peers 가시 / garden id 주소화 / entwurf_v2 도달 / 응답), *레일 동일성 아님*. 메일박스 부재 = right-sizing(라이브라 "나중에 닿기" 불필요).
@@ -32,7 +34,7 @@
 > **첫 slice는 backend가 아니다.** 0.11.0은 behavior oracle이지 architecture oracle 아님. socket/peers/entwurf_v2/v2 core 손대기 금지, v1 부활 금지.
 
 - ~~**S0 loader/fence slice (첫 coding)**: ACP provider extension entry 위치 결정 + `pi.extensions` 연결 + typecheck fence + `check-pack`/`check-pack-install` required 정렬 + `pi --list-models`에 curated Claude anchor.~~ **DONE 2026-06-18** (위 NOW 참조). GPT lean ① 채택(`pi-extensions/acp-provider.ts` entry + `lib/acp/*` 내부, `.js` import로 root fence 자동 탑승 — 새 tsconfig 없음). fail-loud stub + 게이트 2개 + pack stale 정리까지.
-- **S1 socket-citizen**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함. ← 시민권 증명(host 소켓이 공급). **메일박스 부재·overlay 활성 증명은 S2로**(S1은 backend turn 전이라 overlay 활성 증명 불가 — GPT).
+- ~~**S1 socket-citizen**~~ **DONE (2026-06-18)**: ACP-model `--entwurf-control` 세션이 `entwurf_peers`에 1급 시민으로 뜨고 `get_info`에 답함 — 라이브 증명 + `smoke-acp-socket-citizen-live`(8 checks). QM1/QM2 라이브 차단. **메일박스 부재·overlay 활성 증명은 S2로**(S1은 backend turn 전이라 불가 — GPT).
 - **S2 backend turn**: 그 세션에서 실제 ACP Claude **1턴 성공** + overlay 활성(`settings.json` `hooks:{}` = 메일박스 부재 by design)·도구축소·이벤트매핑(rawOutput=array) 안 깨짐. ← ACP backend 건강 + overlay 증명(S1만으론 미증명).
 - 각 단계 `pnpm check`/typecheck green. **주의: `pnpm check` green ≠ publish 가능** — 아래 §따라온 이슈 pack-install 참조.
 - **Blocker**: none. commit/push/tag/merge = GLG.
@@ -106,7 +108,7 @@
 - **README 재작성**: "v2 core + ACP plugin" 프레임 — 구현 후(위 재triage 참조).
 
 # 넘으면 안 되는 선
-- **다음 coding = S1(socket-citizen 증명)만 — S0는 DONE(`4afa58e`).** S1은 backend turn 안 함: ACP-model `--entwurf-control` 세션이 `entwurf_peers`에 뜨고 `get_info`에 답하는 것만 증명(fail-loud stub 미접촉). **S2(실제 backend turn) 코드 금지 — 별도 큰 덩어리, 새 세션에서.** socket/peers/`entwurf_v2`/v2 core 손대기 금지. **v1 `entwurf`/`entwurf_send`/`entwurf_resume` 절대 부활 금지.**
+- **다음 coding = S2 — S0·S1 DONE.** S2는 큰 덩어리라 **새 세션 + S2-scout 3핀(billing carrier / ACP SDK surface / local Claude auth) 먼저**. S2d(billing/session reuse) 앞당김 금지 — raw pipe(S2a)가 먼저. **S2e 전엔 fail-loud stub 유지**(실 backend 교체는 S2c). socket/peers/`entwurf_v2`/v2 core 손대기 금지. **v1 `entwurf`/`entwurf_send`/`entwurf_resume` 절대 부활 금지.**
 - **드리프트 금지**: 옛 칼날("ACP 제거 / rename")로 돌아가지 말 것. ACP는 *데리고 간다*. 흔들리면 botlog 앵커 + 원본 프롬프트 3블록 재독.
 - **경계 금지**: ACP가 다시 *중심 하네스*가 되지 말 것 — ACP는 v2 core 바깥 plugin(상세: AGENTS.md §ACP Plugin Boundary). plugin을 memory/planner/orchestrator/second harness/mailbox citizen으로 키우지 말 것.
 - **`v2-only` 브랜치 불가침**: base/지도라 보존. 작업은 이 브랜치에서만.

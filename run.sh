@@ -798,6 +798,19 @@ smoke_entwurf_v2_spawn_live() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-entwurf-v2-spawn-live.ts)
 }
 
+smoke_acp_socket_citizen_live() {
+  # S1 acceptance smoke (ACP plugin on v2) — OUT of pnpm check, needs LIVE=1.
+  # Spawns a REAL `pi --entwurf-control` resident on an ACP model
+  # (pi-shell-acp/claude-opus-4-8) and proves it is a first-class socket-citizen:
+  # the control socket stands up, get_info answers with the ACP model (model-lock
+  # did NOT revert — QM1), idle/cwd are reported, and the fail-loud streamSimple
+  # stub never fires (turn-free launch — QM2). No prompt is sent: S1 proves
+  # citizenship, never a backend turn (that is S2). Honest skip when LIVE!=1.
+  # Model override: PI_SHELL_ACP_S1_MODEL (default claude-opus-4-8).
+  #   LIVE=1 ./run.sh smoke-acp-socket-citizen-live
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-socket-citizen-live.ts)
+}
+
 smoke_entwurf_v2_matrix_live() {
   # LIVE sentinel for 0.11 Stage 0 step 5d-5 (D4-b) — kept OUT of `pnpm check`. The deterministic
   # sibling (check-entwurf-v2-matrix) fixes every (target kind → transport → lock) cell over fakes
@@ -2056,6 +2069,9 @@ case "$cmd" in
     ;;
   smoke-entwurf-v2-matrix-live)
     smoke_entwurf_v2_matrix_live
+    ;;
+  smoke-acp-socket-citizen-live)
+    smoke_acp_socket_citizen_live
     ;;
   check-entwurf-facts)
     check_entwurf_facts

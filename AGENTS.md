@@ -135,6 +135,7 @@ pnpm check                                  # full static floor: lint + typechec
 
 ```bash
 LIVE=1 ./run.sh release-gate /path/to/scratch   # two-tier: MUST (release-blocking, owns exit code) + BEHAVIOR (advisory)
+LIVE=1 ./run.sh smoke-acp-socket-citizen-live    # S1: a real ACP-model --entwurf-control resident is a first-class socket-citizen (peers + get_info), turn-free (no backend, no stub fire)
 ```
 
 The MUST tier is the necessary condition ("green" = MUST PASS, FAIL=0); BEHAVIOR is advisory — the `smoke-resident-garden-guard` positives (a model-in-loop garden identity turn). Run every live gate with `PWD=scratch` so sessions never land in the repo's own session dir.
