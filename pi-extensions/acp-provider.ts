@@ -1,20 +1,20 @@
-// ACP plugin entry — provider loader/fence (S0 slice).
+// ACP plugin entry — provider registration (S0 fence, real backend since S2c).
 //
 // This is the pi-extension entry point that registers `pi-shell-acp` as a pi
 // session provider/model. It is intentionally THIN: it stands up the provider
-// surface (curated Claude anchor + no-auth sentinel) and wires a fail-loud
-// backend stub. It does NOT spawn an ACP backend, build a socket/peers/citizen
-// protocol, or touch the v2 core — socket-citizenship is supplied by the host
-// `--entwurf-control` pi session (AGENTS §ACP Plugin Boundary). The real ACP
-// backend + overlay land in S2.
+// surface (curated Claude anchor + no-auth sentinel) and wires streamSimple to
+// the real ACP backend (lib/acp/backend.ts — spawn-per-turn claude-agent-acp).
+// It does NOT build a socket/peers/citizen protocol or touch the v2 core —
+// socket-citizenship is supplied by the host `--entwurf-control` pi session
+// (AGENTS §ACP Plugin Boundary).
 //
 // Fence: this entry rides the emit-capable root tsconfig (it is not in the root
 // `exclude` list); its lib modules are imported with `.js` suffixes (the root
 // extension convention) so they live in the same root program — no new
-// strip-types fence is introduced for S0.
+// strip-types fence is introduced.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { streamShellAcpStub } from "./lib/acp/backend-stub.js";
+import { streamShellAcp } from "./lib/acp/backend.js";
 import { curatedClaudeModels, PI_SHELL_ACP_NO_AUTH_SENTINEL, PROVIDER_ID } from "./lib/acp/models.js";
 
 // Idempotent registration guard. pi may evaluate an extension entry more than
@@ -48,8 +48,11 @@ export default function (pi: ExtensionAPI) {
 		apiKey: PI_SHELL_ACP_NO_AUTH_SENTINEL,
 		api: "pi-shell-acp",
 		models: curatedClaudeModels(),
-		// S0: fail-loud stub. No backend, no fallback, no escape hatch.
-		streamSimple: streamShellAcpStub,
+		// S2c: real ACP backend. Spawn-per-turn claude-agent-acp drive + event
+		// mapping (lib/acp/backend.ts). The S0 fail-loud stub is gone — the
+		// provider path is open. Backend auth still belongs to the operator's own
+		// Claude CLI child (no-auth sentinel above); this plugin only orchestrates.
+		streamSimple: streamShellAcp,
 	});
 
 	// Mark only AFTER a successful registration. If curatedClaudeModels() (a

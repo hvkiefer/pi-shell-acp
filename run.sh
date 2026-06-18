@@ -843,6 +843,21 @@ smoke_acp_overlay_live() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-overlay-live.ts)
 }
 
+smoke_acp_provider_live() {
+  # S2c acceptance smoke (ACP plugin on v2) — OUT of pnpm check, needs LIVE=1.
+  # Drives the REAL pi PROVIDER path end to end: a real `pi` loads this
+  # checkout's extension (--no-extensions -e REPO_ROOT), selects
+  # pi-shell-acp/<model>, and pi's runner calls our streamSimple (backend.ts),
+  # which spawns claude-agent-acp under the overlay, runs one turn, and maps the
+  # result back through the S2c event mapper. Asserts a unique nonce in the
+  # assistant reply (live model proof) + the removed S0 stub error never appears
+  # (provider path actually opened) + pi exits 0. Tool-free prompt; the
+  # event-mapper gate owns the tool→notice contract.
+  # Model override: PI_SHELL_ACP_PROVIDER_MODEL (default claude-sonnet-4-6).
+  #   LIVE=1 ./run.sh smoke-acp-provider-live
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-provider-live.ts)
+}
+
 smoke_entwurf_v2_matrix_live() {
   # LIVE sentinel for 0.11 Stage 0 step 5d-5 (D4-b) — kept OUT of `pnpm check`. The deterministic
   # sibling (check-entwurf-v2-matrix) fixes every (target kind → transport → lock) cell over fakes
@@ -1256,6 +1271,17 @@ check_acp_event_mapper() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-event-mapper.ts)
 }
 
+check_acp_backend_preflight() {
+  # Deterministic gate for the S2c runtime tool-surface preflight. Calls
+  # streamShellAcp with a context whose declared tools exclude a built-in the
+  # Claude child still exposes (read) and asserts the turn fails fast into the
+  # returned stream as an error event BEFORE any spawn — proving
+  # assertExcludeToolsHonored is wired into the live provider path, not just the
+  # pure gate. No backend launched (preflight throws first). Pure.
+  section "ACP backend preflight (S2c runtime exclude-tools wiring)"
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-backend-preflight.ts)
+}
+
 check_pack() {
   # Dry-run tarball invariant gate for the public npm surface.
   #
@@ -1320,7 +1346,9 @@ check_pack() {
     "package.json" "README.md" "LICENSE" "CHANGELOG.md"
     "protocol.js" "run.sh"
     "pi-extensions/acp-provider.ts"
-    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend-stub.ts"
+    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend.ts"
+    "pi-extensions/lib/acp/overlay.ts" "pi-extensions/lib/acp/tool-surface.ts"
+    "pi-extensions/lib/acp/event-mapper.ts" "pi-extensions/lib/acp/context.ts"
     "pi-extensions/entwurf-control.ts"
     "pi-extensions/model-lock.ts" "pi-extensions/lib/entwurf-core.ts"
     "mcp/pi-tools-bridge/src/index.ts"
@@ -1436,7 +1464,9 @@ check_pack_install() {
     "package.json" "README.md" "LICENSE" "CHANGELOG.md"
     "protocol.js" "run.sh"
     "pi-extensions/acp-provider.ts"
-    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend-stub.ts"
+    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend.ts"
+    "pi-extensions/lib/acp/overlay.ts" "pi-extensions/lib/acp/tool-surface.ts"
+    "pi-extensions/lib/acp/event-mapper.ts" "pi-extensions/lib/acp/context.ts"
     "pi-extensions/entwurf-control.ts"
     "pi-extensions/model-lock.ts" "pi-extensions/lib/entwurf-core.ts"
     "mcp/pi-tools-bridge/src/index.ts"
@@ -2156,6 +2186,9 @@ case "$cmd" in
   smoke-acp-overlay-live)
     smoke_acp_overlay_live
     ;;
+  smoke-acp-provider-live)
+    smoke_acp_provider_live
+    ;;
   smoke-acp-socket-citizen-live)
     smoke_acp_socket_citizen_live
     ;;
@@ -2333,6 +2366,9 @@ case "$cmd" in
     ;;
   check-acp-event-mapper)
     check_acp_event_mapper
+    ;;
+  check-acp-backend-preflight)
+    check_acp_backend_preflight
     ;;
   check-pack)
     check_pack

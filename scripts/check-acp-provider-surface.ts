@@ -1,13 +1,15 @@
-// Deterministic gate for the S0 ACP provider loader/fence slice.
+// Deterministic gate for the ACP provider registration surface (S0 loader/fence,
+// updated S2c when the real backend replaced the fail-loud stub).
 //
 // Three layers:
 //   (1 lib)     loads the REAL lib modules and asserts the curated Claude
-//               surface + no-auth sentinel shape + a FAIL-LOUD streamSimple stub;
+//               surface + no-auth sentinel shape;
 //   (2 entry)   COMPILES the project to a temp dir (root tsc emit, so the `.js`
 //               imports resolve to real emitted `.js`), imports the compiled
 //               acp-provider.js, and drives its default export against a fake pi
 //               that captures registerProvider — real execution capture of the
-//               actual entry, idempotency included;
+//               actual entry, idempotency included, and that streamSimple is the
+//               real streamShellAcp backend (by name, NOT invoked — that spawns);
 //   (3 source)  an auxiliary source-shape lock on acp-provider.ts.
 //
 // Layer 2 is the GPT-reviewed resolution to a fence tension: acp-provider.ts
@@ -23,8 +25,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { AcpBackendNotImplementedError, streamShellAcpStub } from "../pi-extensions/lib/acp/backend-stub.ts";
 import {
 	CURATED_ANCHOR_MODEL_ID,
 	curatedClaudeModels,
@@ -65,21 +65,12 @@ for (const m of models) {
 	assert.ok(m.maxTokens > 0, `model ${m.id} maxTokens must be positive`);
 }
 
-// streamSimple is FAIL-LOUD. Calling the stub must throw — never return a
-// stream, never silently fall back to a native provider.
-let threw = false;
-try {
-	streamShellAcpStub(
-		{ id: CURATED_ANCHOR_MODEL_ID } as unknown as Model<Api>,
-		{} as unknown as Context,
-		undefined as unknown as SimpleStreamOptions,
-	);
-} catch (err) {
-	threw = true;
-	assert.ok(err instanceof AcpBackendNotImplementedError, `stub threw the wrong error type: ${String(err)}`);
-	assert.match(String((err as Error).message), /not implemented in S0/i, "fail-loud message drifted");
-}
-assert.ok(threw, "streamSimple stub MUST throw (fail-loud) — it returned a value instead of failing");
+// S2c: the provider path is open — streamSimple is the REAL ACP backend, no
+// longer the S0 fail-loud stub. The wiring is verified through the compiled
+// entry (Layer 2) WITHOUT invoking it: streamShellAcp returns its stream
+// synchronously and spawns the backend on a microtask, so calling it in a
+// deterministic gate would launch a real child. Live behavior is proved by
+// smoke-acp-provider-live (LIVE-gated).
 
 // ---------------------------------------------------------------------------
 // Layer 2 — real entry capture (compiled acp-provider.js driven by a fake pi)
@@ -130,15 +121,14 @@ try {
 		assert.ok(capIds.includes(want), `entry model surface missing ${want} (got: ${capIds.join(", ") || "none"})`);
 	}
 	assert.equal(typeof cap.cfg.streamSimple, "function", "entry streamSimple must be a function");
-	let capThrew = false;
-	try {
-		cap.cfg.streamSimple?.({ id: "x" }, {}, undefined);
-	} catch (err) {
-		capThrew = true;
-		assert.match(String((err as Error).name), /AcpBackendNotImplementedError/, "captured stub threw the wrong error");
-		assert.match(String((err as Error).message), /not implemented in S0/i, "captured fail-loud message drifted");
-	}
-	assert.ok(capThrew, "entry streamSimple must throw (fail-loud) — it returned a value instead of failing");
+	// Regression guard: the entry must wire the REAL backend (streamShellAcp),
+	// not the removed S0 stub. We check by name rather than invoking — invoking
+	// would spawn a real ACP child. The compiled fn keeps its source name.
+	assert.equal(
+		cap.cfg.streamSimple?.name,
+		"streamShellAcp",
+		`entry must wire the real streamShellAcp backend (got "${cap.cfg.streamSimple?.name}")`,
+	);
 } finally {
 	rmSync(TMP_EMIT, { recursive: true, force: true });
 }
@@ -158,9 +148,12 @@ assert.equal(
 	1,
 	`entry must call registerProvider exactly once in source (found ${registerCalls.length})`,
 );
+// The entry must wire the real backend and must not reference the removed stub.
+assert.match(entrySrc, /streamSimple:\s*streamShellAcp\b/, "entry must wire streamSimple: streamShellAcp");
+assert.ok(!/backend-stub/.test(entrySrc), "entry must not import the removed S0 backend-stub");
 
 console.log(
 	`[check-acp-provider-surface] ok — compiled entry registers ${PROVIDER_ID} once (idempotent) with the no-auth ` +
-		`sentinel + curated Claude surface (sonnet + ${CURATED_ANCHOR_MODEL_ID}) + fail-loud streamSimple; ` +
-		`lib surface verified live (${models.length} model(s), stub throws)`,
+		`sentinel + curated Claude surface (sonnet + ${CURATED_ANCHOR_MODEL_ID}) + real streamShellAcp backend (S2c); ` +
+		`lib surface verified live (${models.length} model(s))`,
 );

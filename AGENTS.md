@@ -125,7 +125,7 @@ pnpm check                                  # full static floor: lint + typechec
 ./run.sh check-pi-tools-bridge-boot         # the MCP pi-tools-bridge stands up + exposes the v2 tool set
 ./run.sh check-bridge /path/to/project      # pi-tools-bridge direct MCP smoke (tools/list + protocol/negative-path)
 ./run.sh check-auth-boundary                # ACP plugin no-auth sentinel present + no legacy-ENV apiKey literal (trust invariant, code-level)
-./run.sh check-acp-provider-surface         # S0: provider registers curated Claude anchor + streamSimple is fail-loud (no backend, no fallback)
+./run.sh check-acp-provider-surface         # provider registers curated Claude anchor + streamSimple wired to the real streamShellAcp backend
 # sentinel / session-messaging / xt-tool-surface survive as on-demand subcommands but were
 # DROPPED from the v2 release floor (2026-06-17): ACP/v1 surface (removed pi-shell-acp
 # provider / entwurf_send v1 tool). v2 re-writes onto entwurf_v2 are a separate follow-up.
@@ -181,8 +181,8 @@ Messages are thrown, not awaited.
 
 | File | Purpose |
 |------|---------|
-| `pi-extensions/acp-provider.ts` | ACP plugin entry: registers the `pi-shell-acp` provider + curated Claude model surface (S0 loader/fence; thin facade, no backend yet) |
-| `pi-extensions/lib/acp/*.ts` | ACP plugin internals: curated Claude surface + no-auth sentinel (`models.ts`), fail-loud `streamSimple` stub until the backend lands in S2 (`backend-stub.ts`) |
+| `pi-extensions/acp-provider.ts` | ACP plugin entry: registers the `pi-shell-acp` provider + curated Claude model surface; wires `streamSimple` to the real ACP backend |
+| `pi-extensions/lib/acp/*.ts` | ACP plugin internals: curated Claude surface + no-auth sentinel (`models.ts`), Claude config overlay (`overlay.ts`), tool surface + exclude-tools preflight (`tool-surface.ts`), ACP→pi event mapper (`event-mapper.ts`), pi Context→ACP prompt (`context.ts`), spawn-per-turn `streamSimple` backend (`backend.ts`) |
 | `pi-extensions/entwurf-control.ts` | control plane: `--entwurf-control` socket, RPC, `entwurf_v2` / `entwurf_peers` tools, `/entwurf-sessions` / `/gnew` |
 | `pi-extensions/model-lock.ts` | pi-shell-acp model lock (pi.extension) |
 | `pi-extensions/meta-bridge-hook.ts` | global `SessionStart` hook: register native-harness session as a garden meta-session |
