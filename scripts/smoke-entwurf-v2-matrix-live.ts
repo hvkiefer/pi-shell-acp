@@ -309,16 +309,17 @@ async function main(): Promise<void> {
 			);
 			ok("C1b lock released (no lock file left for the socket-only target)", !existsSync(lockPathFor(c1bGid, lockDir)));
 
-			// owned-outcome on the record-less target is refused pre-lock — a socket-only endpoint
-			// is never an owned citizen, so spawn-bg can never open into it (cheap direct call, no
-			// extra child; the no-spawn invariant itself is pinned deterministically).
+			// owned-outcome on the record-less but LIVE target → owned-live-no-autosend (the honest
+			// table verdict), NOT the `bad-target` lie: the live resident is a real addressable
+			// citizen. spawn-bg still never opens (allowResume:false guard; no record = no resume
+			// authority). The no-spawn invariant is also pinned deterministically in the gate.
 			const owned: EntwurfV2RunResult = await runEntwurfV2(
 				{ target: c1bGid, intent: "owned-outcome", message: "matrix-live C1b owned must be refused" },
 				prodDeps(smokeSender(c1bGid, tmp)),
 			);
 			ok(
-				"C1b record-less + owned-outcome → rejected bad-target (no spawn)",
-				owned.kind === "rejected" && owned.receipt.reason === "bad-target",
+				"C1b record-less(live) + owned-outcome → rejected owned-live-no-autosend (NOT bad-target, no spawn)",
+				owned.kind === "rejected" && owned.receipt.reason === "owned-live-no-autosend",
 			);
 
 			if (resident) {
