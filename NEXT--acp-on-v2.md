@@ -81,9 +81,9 @@
 - **S1 (작게 — 1 Opus + 1 GPT)**: backend turn 없이 "ACP-model `--entwurf-control` 세션이 `entwurf_peers`+`get_info`에 잡히나"만. socket-discovery가 model-agnostic이라 코드-라이트일 가능성 큼.
   - 사전 물음표 2개(진입 첫 동작으로 차단): ① `model-lock.ts`가 ACP 모델 선택을 되돌리나 ② `pi --entwurf-control --model pi-shell-acp/…` 런치가 stub 때문에 *시작* 시 죽나(런치+peers+get_info는 턴 없음 → 안 죽어야 정상).
 - ~~**S2-scout (S2a 앞단에 흡수 — 코드 전 핀)**~~ **DONE + GPT PASS (2026-06-18)**: 3핀 실측 + 확정값 = §S2-scout 핀. (billing carrier oracle A / ACP SDK surface / local Claude auth 전부 read-only 정찰 완료.)
-- **S2 컷 (≈4~5 Opus + 2~3 GPT)** — 순서가 안전장치:
-  - **S2a** dep 핀 + stdio JSON-RPC ACP client + **raw 1턴**(overlay/augment 없이 바이트 회수).
-  - **S2b** overlay + 도구축소 + `assertExcludeToolsHonored`.
+- **S2 컷 (≈4~5 Opus + 2~3 GPT)** — 순서가 안전장치 (**현재: S2a까지 DONE, 다음 S2b**):
+  - ~~**S2a** dep 핀 + stdio JSON-RPC ACP client + **raw 1턴**~~ ✅ **DONE (2026-06-18, Opus 2nd)**: dep pin+peer-pin+5-layer gate (`cc6aee2`/`f3ef6b8`) + raw 1턴 라이브 sonnet "OK" (`e0ddb2b`/`6fc8b52`). GPT 최종 PASS.
+  - **S2b** overlay + 도구축소 + `assertExcludeToolsHonored`. ◀ **다음 컷**.
   - **S2c** 이벤트매핑 + `streamSimple` 실 backend 교체(stub 제거). *(S2b/S2c는 합쳐질 수 있음)*
   - **S2d** session store/signature/reuse + billing carrier(engraving) + first-user augment. **⛔ 앞당기지 말 것 — raw pipe(S2a)가 먼저 살아야 안전.**
   - **S2e** live smoke + 게이트 + RGG.
@@ -93,7 +93,7 @@
 **Continuity rule (꼭 지킬 것)**:
 > Do not rotate Opus and GPT at the same time. The GPT/Codex session is the review/continuity anchor; Opus can be re-minted from NEXT + AGENTS + botlog + the latest GPT review. If GPT must rotate, first write a short review-state into NEXT or botlog.
 
-- 즉 **어느 컷에서도 Opus·GPT 둘 다 동시에 새로 가지 않는다.** 기본: GPT 세션(현 `20260618T080922-be0e35`)을 anchor로 살려두고 Opus만 re-mint. (이번 S0가 그 키트로 깨끗이 re-mint된 게 증거.) 깨지는 경우 = 둘 다 새로 갈 때 → GPT 닫기 전 review-trail을 NEXT/botlog에 남길 것.
+- 즉 **어느 컷에서도 Opus·GPT 둘 다 동시에 새로 가지 않는다.** 기본: GPT 세션(현 `20260618T135710-441eab` — `be0e35`는 S1 후 퇴근, `441eab`가 S2-scout/S2a 검수 anchor)을 살려두고 Opus만 re-mint. (S0/S1/S2a가 그 키트로 깨끗이 re-mint된 게 증거 — S2a는 Opus 2nd가 NEXT+AGENTS+GPT 리뷰만으로 re-mint돼 완주.) 깨지는 경우 = 둘 다 새로 갈 때 → GPT 닫기 전 review-trail을 NEXT/botlog에 남길 것.
 
 # 0.11.0 behavior oracle — 구현 reference (소모성)
 
@@ -139,7 +139,7 @@
 - **README 재작성**: "v2 core + ACP plugin" 프레임 — 구현 후(위 재triage 참조).
 
 # 넘으면 안 되는 선
-- **다음 coding = S2a — S0·S1·S2-scout DONE(GPT PASS).** §S2-scout 핀이 하드제약. S2a = dep pin(0.11.0값: sdk 0.22.1 / claude-agent-acp 0.39.0) + SDK surface gate + raw 1턴까지만. `@anthropic-ai/sdk` 직접 dep 금지. S2d(billing/session reuse) 앞당김 금지 — raw pipe(S2a)가 먼저. **S2c 전엔 fail-loud stub 유지**. socket/peers/`entwurf_v2`/v2 core 손대기 금지. **v1 `entwurf`/`entwurf_send`/`entwurf_resume` 절대 부활 금지.**
+- **다음 coding = S2b — S0·S1·S2a DONE(GPT PASS, raw 1턴 라이브 sonnet "OK").** §S2-scout 핀이 하드제약. S2b = `claude-config-overlay`(settings.json `hooks:{}`=메일박스 부재 by design + auth/skills symlink) + 도구축소 + `assertExcludeToolsHonored`. **여기서부터 overlay 활성·메일박스 부재 증명 가능**(S2a는 overlay 전이라 불가였음). S2c(event매핑+streamSimple 교체)/S2d(billing/session reuse/engraving/augment) 앞당김 금지 — raw pipe(S2a)가 먼저 살았음. **S2c 전엔 fail-loud stub 유지**(`@anthropic-ai/sdk` 직접 dep는 peer-pin만, source use 금지). socket/peers/`entwurf_v2`/v2 core 손대기 금지. **v1 `entwurf`/`entwurf_send`/`entwurf_resume` 절대 부활 금지.**
 - **드리프트 금지**: 옛 칼날("ACP 제거 / rename")로 돌아가지 말 것. ACP는 *데리고 간다*. 흔들리면 botlog 앵커 + 원본 프롬프트 3블록 재독.
 - **경계 금지**: ACP가 다시 *중심 하네스*가 되지 말 것 — ACP는 v2 core 바깥 plugin(상세: AGENTS.md §ACP Plugin Boundary). plugin을 memory/planner/orchestrator/second harness/mailbox citizen으로 키우지 말 것.
 - **`v2-only` 브랜치 불가침**: base/지도라 보존. 작업은 이 브랜치에서만.
