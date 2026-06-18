@@ -5,8 +5,9 @@ For agents that own this repo: invariant principles + reproducible verification,
 > **Direction (read first).** This repo is a **pi-native v2 dispatch substrate
 > (entwurf-core) + a meta-bridge + an ACP plugin**. v1 entwurf verbs are done
 > and gone; v2 is the spine. ACP is **not** the project's center — it is one
-> **plugin** that supplies garden socket-citizens to the v2 core (#38: *"ACP is
-> a plugin, not the boundary."*). The package keeps the name `pi-shell-acp` —
+> **plugin** that enters as a provider/model on a host `--entwurf-control`
+> pi session — which is *already* a v2 socket-citizen — rather than minting
+> citizens of its own (#38: *"ACP is a plugin, not the boundary."*). The package keeps the name `pi-shell-acp` —
 > ACP lives, so the name is honest; there is **no rename** (#38's eventual
 > `entwurf` package extraction is a deferred coordinate, not this work). The
 > transient current-state and the ACP re-implementation plan live in the branch
@@ -61,7 +62,7 @@ A **pi-native garden-citizen dispatch substrate** + a **meta-bridge** + an **ACP
 
 - **Meta-bridge**: a global `SessionStart` hook registers a native-harness session (Claude Code / Codex / Antigravity) as a **garden-native meta-session** — a garden id, a mailbox, a trusted sender marker — without importing that harness's transcript or pretending pi owns it. Installed/inspected via `./run.sh install-meta-bridge` / `doctor-meta-bridge`.
 - **v2 dispatch (`entwurf_v2`)**: one verb that delivers to / wakes an *already-identified* garden citizen. A pure decider reads target liveness as a fact and picks transport from a frozen table keyed on **target state × intent**: live pi + fire-and-forget → **control-socket** send; dormant pi + owned-outcome → **spawn-bg resume**; active self-fetch meta-session + fire-and-forget → **meta-mailbox** enqueue; every other state×intent pair is an honest reject. It does **not** mint new siblings.
-- **ACP plugin** (the pi-harness ingress): drives an ACP backend (Claude first; vendor/governed CLIs like Cortex next) under an isolated config overlay and registers it as a **socket-citizen** of the v2 core. It *supplies* citizens — it is not the substrate and not a second harness. v1 entwurf verbs (`entwurf` / `entwurf_resume` / `entwurf_send`) are gone for good; the ACP plugin is a fresh build on the v2 core (0.11.0's `acp-bridge.ts` is a behavior oracle, not architecture to re-center). See §ACP Plugin Boundary.
+- **ACP plugin** (the pi-harness ingress): registers `pi-shell-acp` as a pi session provider/model and drives the chosen ACP backend (Claude first; vendor/governed CLIs like Cortex next) under an isolated config overlay. It owns the backend process, the overlay, and the per-backend ACP dialect — **not** socket-citizenship. The host `--entwurf-control` pi session that selected the ACP model is *already* a v2 socket-citizen; the plugin does **not** mint a socket / peers / citizen layer. It is not the substrate and not a second harness. v1 entwurf verbs (`entwurf` / `entwurf_resume` / `entwurf_send`) are gone for good; the ACP plugin is a fresh build on the v2 core (0.11.0's `acp-bridge.ts` is a behavior oracle, not architecture to re-center). See §ACP Plugin Boundary.
 
 ## Code Principle — Crash, Don't Warn
 
@@ -93,7 +94,7 @@ Warnings make agents blame themselves and flail. Broken tool state must surface 
 | Layer | Owns |
 |---|---|
 | **entwurf-core (v2)** | garden id · peer identity · liveness fact interface · dispatch decision · delivery evidence · rail choice (socket / mailbox / spawn) |
-| **ACP plugin** | ACP backend process lifecycle · config overlay (isolation + tool-narrowing + identity-carrier materialization) · per-backend ACP dialect quirks · socket-citizen registration · liveness/addressability facts · delivery evidence |
+| **ACP plugin** | ACP backend process lifecycle · config overlay (isolation + tool-narrowing + identity-carrier materialization) · per-backend ACP dialect quirks · backend health / turn evidence — **NOT** socket-citizen registration or liveness/addressability facts (those are the host `--entwurf-control` session's, supplied via socket-discovery) |
 | **ACP plugin MUST NOT become** | a memory DB · a task planner · an orchestrator · a second harness · a mailbox-citizen impersonation |
 
 - **Sibling equality is a citizen-level property, not a rail-level one.** Every sibling is addressable (peers-visible, garden-id-addressed, `entwurf_v2`-reachable, replyable). The *rail* differs by lifecycle: a live ACP backend is a **socket-citizen** (no mailbox — it is always live, so durable async delivery is unneeded, not withheld); a come-and-go native-harness session is a **mailbox-citizen**. Missing a mailbox is right-sizing, not discrimination.
@@ -123,6 +124,8 @@ pnpm check                                  # full static floor: lint + typechec
 ./run.sh check-meta-session                 # + -record-v2 / -dual-read / -migration / -mailbox-state-write / -receiver-marker / -capability-source / -dual-consumers / -listing
 ./run.sh check-pi-tools-bridge-boot         # the MCP pi-tools-bridge stands up + exposes the v2 tool set
 ./run.sh check-bridge /path/to/project      # pi-tools-bridge direct MCP smoke (tools/list + protocol/negative-path)
+./run.sh check-auth-boundary                # ACP plugin no-auth sentinel present + no legacy-ENV apiKey literal (trust invariant, code-level)
+./run.sh check-acp-provider-surface         # S0: provider registers curated Claude anchor + streamSimple is fail-loud (no backend, no fallback)
 # sentinel / session-messaging / xt-tool-surface survive as on-demand subcommands but were
 # DROPPED from the v2 release floor (2026-06-17): ACP/v1 surface (removed pi-shell-acp
 # provider / entwurf_send v1 tool). v2 re-writes onto entwurf_v2 are a separate follow-up.
@@ -177,6 +180,8 @@ Messages are thrown, not awaited.
 
 | File | Purpose |
 |------|---------|
+| `pi-extensions/acp-provider.ts` | ACP plugin entry: registers the `pi-shell-acp` provider + curated Claude model surface (S0 loader/fence; thin facade, no backend yet) |
+| `pi-extensions/lib/acp/*.ts` | ACP plugin internals: curated Claude surface + no-auth sentinel (`models.ts`), fail-loud `streamSimple` stub until the backend lands in S2 (`backend-stub.ts`) |
 | `pi-extensions/entwurf-control.ts` | control plane: `--entwurf-control` socket, RPC, `entwurf_v2` / `entwurf_peers` tools, `/entwurf-sessions` / `/gnew` |
 | `pi-extensions/model-lock.ts` | pi-shell-acp model lock (pi.extension) |
 | `pi-extensions/meta-bridge-hook.ts` | global `SessionStart` hook: register native-harness session as a garden meta-session |

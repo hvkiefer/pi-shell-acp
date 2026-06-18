@@ -1110,6 +1110,59 @@ check_pi_preflight() {
 
 
 
+check_auth_boundary() {
+  # Auth-boundary guard (re-introduced for the ACP plugin on v2, retargeted off
+  # the deleted 0.11.0 index.ts/acp-bridge.ts onto the new provider entry). This
+  # is the code-level pair of AGENTS §Operating boundaries (trust invariants):
+  # pi-shell-acp is a no-auth ACP plugin at the pi provider layer — it does NOT
+  # provide, resell, or bypass any backend credentials.
+  #
+  # pi.registerProvider requires an apiKey when defining custom models, but the
+  # plugin consumes none: backend auth belongs to the operator's own Claude CLI
+  # child process. The registration MUST therefore use the lowercase+hyphen
+  # no-auth sentinel, NOT a bare ALL-CAPS legacy-ENV reference (e.g.
+  # "ANTHROPIC_API_KEY") which trips pi's legacy-env deprecation AND falsely
+  # presents the plugin as API-key dependent.
+  #
+  # Scope: the new provider entry + its lib/acp/* modules. The regex matches only
+  # an `apiKey:` field assigned a quoted ALL-CAPS env name, so explanatory
+  # comments and the no-auth sentinel identifier pass.
+  section "auth boundary (ACP plugin no-auth sentinel)"
+  (cd "$REPO_DIR" && node --input-type=module <<'EOF'
+import { strict as assert } from 'node:assert';
+import { readFileSync, readdirSync } from 'node:fs';
+const files = ['pi-extensions/acp-provider.ts'];
+for (const f of readdirSync('pi-extensions/lib/acp')) {
+  if (f.endsWith('.ts')) files.push(`pi-extensions/lib/acp/${f}`);
+}
+const offenders = [];
+let sentinelSeen = false;
+for (const f of files) {
+  const src = readFileSync(f, 'utf8');
+  const re = /apiKey:\s*"([A-Z][A-Z0-9_]*)"/g;
+  let m;
+  while ((m = re.exec(src)) !== null) offenders.push(`${f}: apiKey: "${m[1]}"`);
+  if (src.includes('pi-shell-acp-no-auth')) sentinelSeen = true;
+}
+assert.equal(offenders.length, 0,
+  `ACP provider apiKey must be a no-auth sentinel, not a legacy-ENV reference. Offenders:\n  ${offenders.join('\n  ')}`);
+assert.ok(sentinelSeen,
+  'no-auth sentinel literal "pi-shell-acp-no-auth" not found in the ACP provider surface — auth boundary unverified');
+console.log(`[check-auth-boundary] ok — no legacy-ENV apiKey literal across ${files.length} ACP provider file(s); no-auth sentinel present`);
+EOF
+  )
+}
+
+check_acp_provider_surface() {
+  # Deterministic gate for the S0 ACP provider loader/fence slice. Loads the REAL
+  # provider lib modules and asserts the registration surface: one surface name,
+  # curated Claude anchor present with full ProviderModelConfig rows, no-auth
+  # sentinel shape, and a FAIL-LOUD streamSimple (calling it throws — no native
+  # fallback, no empty-but-successful stream). Pure, no pi runtime, no API.
+  section "ACP provider surface (S0 loader/fence)"
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-acp-provider-surface.ts)
+}
+
 check_pack() {
   # Dry-run tarball invariant gate for the public npm surface.
   #
@@ -1173,6 +1226,8 @@ check_pack() {
   local required=(
     "package.json" "README.md" "LICENSE" "CHANGELOG.md"
     "protocol.js" "run.sh"
+    "pi-extensions/acp-provider.ts"
+    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend-stub.ts"
     "pi-extensions/entwurf-control.ts"
     "pi-extensions/model-lock.ts" "pi-extensions/lib/entwurf-core.ts"
     "mcp/pi-tools-bridge/src/index.ts"
@@ -1278,11 +1333,18 @@ check_pack_install() {
   local tar_files pass=1 f pat
   tar_files=$(tar -tf "$tgz_path" | sed 's|^package/||' | grep -v '/$' || true)
 
+  # Required tarball contents. The old 0.11.0 ACP root files (index.ts,
+  # acp-bridge.ts, event-mapper.ts, engraving.ts, pi-context-augment.ts,
+  # pi-extensions/entwurf.ts) were removed on v2-only and are GONE — keeping them
+  # here made this heavy gate silently RED (publish-blocking) while `pnpm check`
+  # (which runs only check-pack, not check-pack-install) stayed green. The ACP
+  # plugin re-enters on v2 as the provider entry + lib/acp/* modules below.
   local tar_required=(
     "package.json" "README.md" "LICENSE" "CHANGELOG.md"
-    "index.ts" "acp-bridge.ts" "event-mapper.ts" "engraving.ts"
-    "pi-context-augment.ts" "protocol.js" "run.sh"
-    "pi-extensions/entwurf.ts" "pi-extensions/entwurf-control.ts"
+    "protocol.js" "run.sh"
+    "pi-extensions/acp-provider.ts"
+    "pi-extensions/lib/acp/models.ts" "pi-extensions/lib/acp/backend-stub.ts"
+    "pi-extensions/entwurf-control.ts"
     "pi-extensions/model-lock.ts" "pi-extensions/lib/entwurf-core.ts"
     "mcp/pi-tools-bridge/src/index.ts"
     "scripts/postinstall-chmod.cjs"
@@ -1386,12 +1448,18 @@ check_pack_install() {
     echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
     return 1
   fi
-  if ! grep -q "claude-sonnet-4-6" <<<"$loader_out"; then
-    fail "[check-pack-install] pi loader output missing claude-sonnet-4-6 anchor:"
-    echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
-    return 1
-  fi
-  echo "[check-pack-install] pi loader smoke pass (pi-shell-acp registered, claude-sonnet-4-6 anchor)"
+  # Verify the full curated Claude surface is visible: the Sonnet row AND the
+  # opus anchor (CURATED_ANCHOR_MODEL_ID in lib/acp/models.ts — the model whose
+  # absence is a hard registry regression). Checking only one would let half the
+  # surface drop silently.
+  for anchor in "claude-sonnet-4-6" "claude-opus-4-8"; do
+    if ! grep -q "$anchor" <<<"$loader_out"; then
+      fail "[check-pack-install] pi loader output missing curated Claude model $anchor:"
+      echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
+      return 1
+    fi
+  done
+  echo "[check-pack-install] pi loader smoke pass (pi-shell-acp registered, claude-sonnet-4-6 + claude-opus-4-8 anchor)"
 
   ok "[check-pack-install] publish install smoke pass"
   return 0
@@ -2145,6 +2213,12 @@ case "$cmd" in
     ;;
   check-pi-preflight)
     check_pi_preflight
+    ;;
+  check-auth-boundary)
+    check_auth_boundary
+    ;;
+  check-acp-provider-surface)
+    check_acp_provider_surface
     ;;
   check-pack)
     check_pack

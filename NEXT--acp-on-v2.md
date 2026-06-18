@@ -13,8 +13,8 @@
 
 # NOW
 
-- **Current**: `v2-only`에서 분기 완료. v2 substrate(컨트롤소켓 / 메타메일박스 두 레일) green + LIVE 확인된 clean base 위. **구현 0줄.**
-- **Next = S0 loader/fence slice (다음 세션 첫 coding move — backend 아님)**: ACP provider가 pi extension으로 *어디 살고* 어떤 typecheck/runtime/pack fence를 타는지부터 고정. backend 구현·socket/peers/entwurf_v2 손대기·v1 부활 전부 금지. 상세 = 아래 §구현 순서. (이번 세션은 design-grounding까지 — 코드 0줄.)
+- **Current**: **S0 loader/fence slice DONE (2026-06-18).** ACP provider가 pi extension으로 설 자리를 잡음 — `pi-extensions/acp-provider.ts`(thin entry) + `pi-extensions/lib/acp/{models,backend-stub}.ts`, `package.json` `pi.extensions` 맨 앞 등록. 큐레이트 Claude 표면(sonnet-4-6 + opus-4-8 anchor), no-auth sentinel, **fail-loud streamSimple stub**(backend 없음·native fallback 없음·bash/env 우회 없음). 게이트 2개 신규: `check-auth-boundary`(재도입·신규파일 retarget) + `check-acp-provider-surface`(GPT제3안 = temp `tsc` emit → 컴파일된 `acp-provider.js`를 fake-pi로 **실행 캡처**: idempotency·id·sentinel·sonnet+opus·fail-loud throw 실증 + lib 실행 + source-shape 보조. `.js` 관례 유지하며 entry 실행검증, lib 분리 안 접음). pack 게이트 stale 정리(#4): `check_pack_install` tar_required에서 옛 ACP 6파일 제거 → 신규 entry 추가, 직전 RED → GREEN. 검증: `pnpm typecheck`/`pnpm check`/`check-pack-install` 전부 green + **라이브 `pi --list-models pi-shell-acp` loader smoke(installed tarball)에서 provider 등록 + Claude anchor 노출 확인**. commit/push 대기(GLG).
+- **Next = S1 socket-citizen (다음 coding move)**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함. host 소켓이 시민권 공급(plugin이 새 소켓/peers 안 만듦). **메일박스 부재·overlay 활성 증명은 backend가 도는 S2로** — S1은 backend turn 전이라 overlay 활성 증명 불가(GPT). backend 1턴도 S2. 상세 = 아래 §구현 순서.
 - **잠긴 방향 (굳음)**:
   - ACP backend = overlay 격리 **소켓-시민**, 메일박스 **설계상 부재**(overlay `settings.json` `hooks:{}` → meta-bridge hook 없음 → 메일박스 없음; *같은* minimal 설정이 기본도구만 = 가벼움. 한 결정이 둘을 만듦).
   - **차별 없음 = 시민 층위**(entwurf_peers 가시 / garden id 주소화 / entwurf_v2 도달 / 응답), *레일 동일성 아님*. 메일박스 부재 = right-sizing(라이브라 "나중에 닿기" 불필요).
@@ -25,15 +25,15 @@
   2. v1 **model-side** 배선 이식성 — **채굴결과(06-18): 새 소켓 안 만듦.** `socket-discovery`는 model-agnostic이라 host `--entwurf-control` 세션이 시민권을 공급(소켓 파일명=gardenId, RPC로 cwd/model/idle enrich). → v1의 *model/provider* 배선만 v2 기판으로 이식; 소켓/peers 레이어는 상속.
   3. repo 구조 — **#15 청사진**: `acp/backends/claude.ts` · `acp/overlays/*` · `acp/session-store.ts` · `acp/model-lock.ts` · `acp/compaction-policy.ts` (+ 얇은 facade, **#38 보정**: 중심 아닌 plugin 하나). #15가 extraction으로 못 닿은 shape를 *fresh build*로. **단 물리위치는 #6과 연동 미결**: top-level `acp/*` vs `pi-extensions/lib/acp/*`.
   4. Cortex 검증 한계 — 로컬 완전검증 불가(계정 없음), Claude만 지금 가능.
-  5. fact 표면(#39) — ACP plugin이 core에 노출할 read-only fact: exists / live / socket·control path / replyable·addressable / delivery evidence. *그 이상(memory·planner) 금지.*
+  5. fact 표면(#39) — **socket/liveness/addressability(exists / live / socket·control path / replyable·addressable)는 host `--entwurf-control` 세션이 socket-discovery로 공급**(plugin이 만드는 게 아님 — Q1 결론). ACP plugin 자신의 fact = **backend health / turn evidence**뿐. *그 이상(memory·planner) 금지.*
   6. **ACP entry/fence/pack 위치 (#15 벽 — 반만 해결, GPT 보정)** — pi extension은 **jiti로 TS 로드**(Node strip-types 아님). → 질문은 "strip-types로 로드되나"가 아니라 **"provider entry를 어디 두고, entry+내부모듈이 어떤 typecheck/runtime/pack fence를 타나"**. v2 crossing pattern은 *있음*(lib/* = root exclude → `scripts/tsconfig` allowImportingTsExtensions+noEmit; emit-root는 non-literal dynamic import로 닿음), 단 `scripts/tsconfig` include=`../pi-extensions/lib/**/*.ts`라 **top-level `acp/*`는 자동 진입 안 됨**. **택1(GPT lean=①)**: ① `pi-extensions/acp-provider.ts` entry(`package.json` `pi.extensions` 추가) + 내부 `pi-extensions/lib/acp/*`(기존 fence 탑승) / ② top-level `index.ts` 부활(v0.11 유사 — **중심성 회귀 위험**) + 새 tsconfig 경계. → **S0에서 고정**.
 # 구현 순서 (S0 → S1 → S2 — GPT)
 
 > **첫 slice는 backend가 아니다.** 0.11.0은 behavior oracle이지 architecture oracle 아님. socket/peers/entwurf_v2/v2 core 손대기 금지, v1 부활 금지.
 
-- **S0 loader/fence slice (첫 coding)**: ACP provider extension entry 위치 결정(설계질문 #6, GPT lean=`pi-extensions/acp-provider.ts`) + `package.json` `pi.extensions` 연결 + typecheck fence 결정 + `check-pack`/`check-pack-install` required 목록 정렬 + `pi --list-models pi-shell-acp`에 **curated Claude anchor** 보임. ← backend 없이 plugin이 *설 자리*만.
-- **S1 socket-citizen**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함 + 메일박스 없음(overlay 활성). ← 시민권 증명(host 소켓이 공급).
-- **S2 backend turn**: 그 세션에서 실제 ACP Claude **1턴 성공** + overlay·도구축소·이벤트매핑(rawOutput=array) 안 깨짐. ← ACP backend 건강 증명(S1만으론 미증명).
+- ~~**S0 loader/fence slice (첫 coding)**: ACP provider extension entry 위치 결정 + `pi.extensions` 연결 + typecheck fence + `check-pack`/`check-pack-install` required 정렬 + `pi --list-models`에 curated Claude anchor.~~ **DONE 2026-06-18** (위 NOW 참조). GPT lean ① 채택(`pi-extensions/acp-provider.ts` entry + `lib/acp/*` 내부, `.js` import로 root fence 자동 탑승 — 새 tsconfig 없음). fail-loud stub + 게이트 2개 + pack stale 정리까지.
+- **S1 socket-citizen**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함. ← 시민권 증명(host 소켓이 공급). **메일박스 부재·overlay 활성 증명은 S2로**(S1은 backend turn 전이라 overlay 활성 증명 불가 — GPT).
+- **S2 backend turn**: 그 세션에서 실제 ACP Claude **1턴 성공** + overlay 활성(`settings.json` `hooks:{}` = 메일박스 부재 by design)·도구축소·이벤트매핑(rawOutput=array) 안 깨짐. ← ACP backend 건강 + overlay 증명(S1만으론 미증명).
 - 각 단계 `pnpm check`/typecheck green. **주의: `pnpm check` green ≠ publish 가능** — 아래 §따라온 이슈 pack-install 참조.
 - **Blocker**: none. commit/push/tag/merge = GLG.
 - **Read**: 이 파일 + **AGENTS.md**(영속 경계) + botlog 앵커 + 이슈 **#38**(ACP=plugin)/**#39**(awareness=read-only fact)/**#15**(구조청사진+트러스트경계) + (착수 시) 0.11.0 ACP 코드.
@@ -50,7 +50,7 @@
 - **E. 모델 강제 + 도구 정직성**: 커레이트 모델만(전체 pi-ai 레지스트리 아님), `unstable_setSessionModel`로 강제(=set_model 아날로그). `assertExcludeToolsHonored`=선언(pi)≠실제(backend)면 **fail-fast**(모델에게 거짓말 금지). 확장도구(entwurf*)는 pi-side라 자유 제외.
 - **F. 이벤트 매핑(3방언) + 권한 자동응답**: ACP `session_notification`→pi stream(message_chunk→text / thought→thinking / tool_call→notice / usage→토큰·비용). 3백엔드가 tool 결과 다르게 노출(Claude rawOutput=array / Codex=CallToolResult객체 / Gemini=없음→content[]). entwurf_send→`[entwurf sent →]` 박스(3단 args 복구), `sanitizeNoticeFragment`로 한 줄 notice 보호. 권한 자동응답(YOLO). **Claude-only면 방언 1종.**
 - **G. 기타 이식 대상**: stdio NDJSON JSON-RPC reader / MCP server normalize·validate / `sendPrompt` project-context **de-dup**(entwurf-spawn 시 AGENTS.md 중복 방지) / `assertLegacyCompactionKnobUnset`(compaction off by design).
-- **H. provider no-auth sentinel (구현 때 놓치기 쉬움 — GPT)**: `registerProvider("pi-shell-acp", …)` 재등록 시 "credentials 제공/재판매/우회 아님"을 *등록 형태*로 지키는 장치(0.11.0 `index.ts`). 놓치면 `ANTHROPIC_API_KEY`류 오해/오작동 재발. 게이트 `check-auth-boundary`(index.ts/acp-bridge.ts에 legacy-ENV apiKey 리터럴 금지)가 박음 — **AGENTS §Operating boundaries(trust)의 코드-레벨 짝**.
+- **H. provider no-auth sentinel (구현 때 놓치기 쉬움 — GPT)**: `registerProvider("pi-shell-acp", …)` 재등록 시 "credentials 제공/재판매/우회 아님"을 *등록 형태*로 지키는 장치. 놓치면 `ANTHROPIC_API_KEY`류 오해/오작동 재발. **S0에서 구현됨**: `pi-extensions/lib/acp/models.ts`의 `PI_SHELL_ACP_NO_AUTH_SENTINEL="pi-shell-acp-no-auth"`(lowercase+hyphen → ENV ref 아님). 게이트 `check-auth-boundary`는 **신규 `acp-provider.ts` + `lib/acp/*` retarget**(legacy-ENV ALLCAPS apiKey 리터럴 금지 + sentinel 존재) — **AGENTS §Operating boundaries(trust)의 코드-레벨 짝**. (옛 `index.ts`/`acp-bridge.ts` 기준 아님.)
 - **핵심 발견**: 3544줄 fat의 큰 덩어리 = **3백엔드 방언 화해**. Claude-only면 **캐리어 1슬롯 · overlay 1종 · 이벤트 방언 1종**으로 붕괴 ⇒ *재구현이 port보다 얇다*(코드로 확인됨).
 
 # 0.11.0 읽기 전 규율 (ACP 중심 회귀 방지)
@@ -59,7 +59,7 @@
 # 따라온 이슈 — v2-only 상속 (substrate, ACP와 무관하게 살아있음 → 그대로 따라감)
 
 - **URGENT README/install doc debt (oracle 2026-06-17)**: checkout/pull/branch-switch 후 `pnpm install`; meta-session canonical = `./run.sh install-meta-bridge`; 검증 `./run.sh doctor-meta-bridge` + `claude mcp get pi-tools-bridge`(중립 cwd `/tmp`도 USER scope Connected); 소스 갱신 후 `pnpm install && ./run.sh install-meta-bridge` 재실행. 수동 `~/.mcp.json`/project MCP는 plain external/debug용으로 격하.
-- **pack-install gate stale (GPT, publish ≠ `pnpm check`)**: `run.sh check-pack-install`의 tar-required 목록에 옛 ACP 파일(`index.ts`/`acp-bridge.ts`/`event-mapper.ts`/`engraving.ts`/`pi-context-augment.ts`/`pi-extensions/entwurf.ts`)이 *아직* 박혀 있음. `pnpm check`는 `check-pack`까지만 돌고 `check-pack-install`(heavy/publish gate)은 기본 check에서 빠짐 → 지금 clean/green은 맞지만 **"pnpm check green이니 publish도 됨" 착각 금지.** ACP 재구현(특히 S0) 후 이 목록 **반드시 재정렬**.
+- ~~**pack-install gate stale (GPT, publish ≠ `pnpm check`)**~~: **RESOLVED S0 (2026-06-18).** `check_pack_install` tar_required에서 옛 ACP 6파일(`index.ts`/`acp-bridge.ts`/`event-mapper.ts`/`engraving.ts`/`pi-context-augment.ts`/`pi-extensions/entwurf.ts`) 제거 → 신규 `acp-provider.ts`+`lib/acp/*` 추가. `check-pack-install` 직전 RED였음(삭제파일 required) → 이제 GREEN. **주의 유지: `pnpm check`는 `check-pack`까지만 → publish 전 반드시 `check-pack-install` 별도 실행.**
 - **meta-store hygiene (GLG 숙고, 미결)**:
   - *재현성*: thinkpad만 v1 정리됨, oracle 등은 v1/orphan 누적 잔존. cleanup verb(`prune --apply` / TTL 자동 / `migrate-v1` 일괄) vs 수동 janitor+문서화. 주의: prune 1.0.0 정책 = **listing-only**(보수적, store는 native→garden lookup 권위) → `--apply`는 정책 변경이라 가볍게 추가 말 것.
   - *store 성장 근원*: 매 Claude 세션 1 record mint + 자동 prune 없음 → 부풀음("지저분" 근원). retention/aging 정책 정할지 결정.
