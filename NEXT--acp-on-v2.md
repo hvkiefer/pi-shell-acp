@@ -14,7 +14,7 @@
 # NOW
 
 - **Current**: `v2-only`에서 분기 완료. v2 substrate(컨트롤소켓 / 메타메일박스 두 레일) green + LIVE 확인된 clean base 위. **구현 0줄.**
-- **Next = 설계 고민 단계 (아직 아무것도 정하지 말 것)**: ACP를 *어떻게* 설계/구현할지 **고민만**. **코드·폴더·파일 생성 금지.** 아래 behavior oracle + 설계 질문 6개 숙고가 먼저.
+- **Next = S0 loader/fence slice (다음 세션 첫 coding move — backend 아님)**: ACP provider가 pi extension으로 *어디 살고* 어떤 typecheck/runtime/pack fence를 타는지부터 고정. backend 구현·socket/peers/entwurf_v2 손대기·v1 부활 전부 금지. 상세 = 아래 §구현 순서. (이번 세션은 design-grounding까지 — 코드 0줄.)
 - **잠긴 방향 (굳음)**:
   - ACP backend = overlay 격리 **소켓-시민**, 메일박스 **설계상 부재**(overlay `settings.json` `hooks:{}` → meta-bridge hook 없음 → 메일박스 없음; *같은* minimal 설정이 기본도구만 = 가벼움. 한 결정이 둘을 만듦).
   - **차별 없음 = 시민 층위**(entwurf_peers 가시 / garden id 주소화 / entwurf_v2 도달 / 응답), *레일 동일성 아님*. 메일박스 부재 = right-sizing(라이브라 "나중에 닿기" 불필요).
@@ -26,11 +26,15 @@
   3. repo 구조 — **#15 청사진**: `acp/backends/claude.ts` · `acp/overlays/*` · `acp/session-store.ts` · `acp/model-lock.ts` · `acp/compaction-policy.ts` (+ 얇은 facade, **#38 보정**: 중심 아닌 plugin 하나). #15가 extraction으로 못 닿은 shape를 *fresh build*로. **단 물리위치는 #6과 연동 미결**: top-level `acp/*` vs `pi-extensions/lib/acp/*`.
   4. Cortex 검증 한계 — 로컬 완전검증 불가(계정 없음), Claude만 지금 가능.
   5. fact 표면(#39) — ACP plugin이 core에 노출할 read-only fact: exists / live / socket·control path / replyable·addressable / delivery evidence. *그 이상(memory·planner) 금지.*
-  6. **split-import 물리위치 (#15 벽 — 반만 해결)** — 채굴결과: v2가 검증한 crossing pattern *있음*(lib/* = root에서 exclude → `scripts/tsconfig`(allowImportingTsExtensions+noEmit) → strip-types 실행; emit-root는 non-literal dynamic import로 fence를 닿음). **단 미결**: `scripts/tsconfig` include = `../pi-extensions/lib/**/*.ts`라 **top-level `acp/*`는 fence에 자동 진입 안 됨**. 택1 → (a) `pi-extensions/lib/acp/...`로 기존 fence 탑승 / (b) top-level `acp/...` + 새 tsconfig include/exclude 경계 명시. + 0.11.0 ACP는 emit(`.js` import)였으니 **pi가 ACP entry를 strip-types로 로드하는지 1개 확인**. → #6 = "벽은 뚫림, ACP 모듈을 fence에 넣는 *위치*만 결정/검증".
-- **Green-gate (나중 판정) — 2층 (S1만으론 ACP backend 건강 미증명)**:
-  - **S1 socket-citizen**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함 + 메일박스 없음(overlay 활성). ← 시민권 증명(host 소켓이 공급).
-  - **S2 backend turn**: 그 세션에서 실제 ACP Claude **1턴 성공** + overlay·도구축소·이벤트매핑(rawOutput=array) 안 깨짐. ← ACP backend 건강 증명.
-  - + `pnpm check`/typecheck green.
+  6. **ACP entry/fence/pack 위치 (#15 벽 — 반만 해결, GPT 보정)** — pi extension은 **jiti로 TS 로드**(Node strip-types 아님). → 질문은 "strip-types로 로드되나"가 아니라 **"provider entry를 어디 두고, entry+내부모듈이 어떤 typecheck/runtime/pack fence를 타나"**. v2 crossing pattern은 *있음*(lib/* = root exclude → `scripts/tsconfig` allowImportingTsExtensions+noEmit; emit-root는 non-literal dynamic import로 닿음), 단 `scripts/tsconfig` include=`../pi-extensions/lib/**/*.ts`라 **top-level `acp/*`는 자동 진입 안 됨**. **택1(GPT lean=①)**: ① `pi-extensions/acp-provider.ts` entry(`package.json` `pi.extensions` 추가) + 내부 `pi-extensions/lib/acp/*`(기존 fence 탑승) / ② top-level `index.ts` 부활(v0.11 유사 — **중심성 회귀 위험**) + 새 tsconfig 경계. → **S0에서 고정**.
+# 구현 순서 (S0 → S1 → S2 — GPT)
+
+> **첫 slice는 backend가 아니다.** 0.11.0은 behavior oracle이지 architecture oracle 아님. socket/peers/entwurf_v2/v2 core 손대기 금지, v1 부활 금지.
+
+- **S0 loader/fence slice (첫 coding)**: ACP provider extension entry 위치 결정(설계질문 #6, GPT lean=`pi-extensions/acp-provider.ts`) + `package.json` `pi.extensions` 연결 + typecheck fence 결정 + `check-pack`/`check-pack-install` required 목록 정렬 + `pi --list-models pi-shell-acp`에 **curated Claude anchor** 보임. ← backend 없이 plugin이 *설 자리*만.
+- **S1 socket-citizen**: ACP-model `--entwurf-control` pi 세션이 native 형제처럼 `entwurf_peers`에 뜨고 control RPC(`get_info`: cwd/model/idle)에 답함 + 메일박스 없음(overlay 활성). ← 시민권 증명(host 소켓이 공급).
+- **S2 backend turn**: 그 세션에서 실제 ACP Claude **1턴 성공** + overlay·도구축소·이벤트매핑(rawOutput=array) 안 깨짐. ← ACP backend 건강 증명(S1만으론 미증명).
+- 각 단계 `pnpm check`/typecheck green. **주의: `pnpm check` green ≠ publish 가능** — 아래 §따라온 이슈 pack-install 참조.
 - **Blocker**: none. commit/push/tag/merge = GLG.
 - **Read**: 이 파일 + **AGENTS.md**(영속 경계) + botlog 앵커 + 이슈 **#38**(ACP=plugin)/**#39**(awareness=read-only fact)/**#15**(구조청사진+트러스트경계) + (착수 시) 0.11.0 ACP 코드.
 
@@ -55,6 +59,7 @@
 # 따라온 이슈 — v2-only 상속 (substrate, ACP와 무관하게 살아있음 → 그대로 따라감)
 
 - **URGENT README/install doc debt (oracle 2026-06-17)**: checkout/pull/branch-switch 후 `pnpm install`; meta-session canonical = `./run.sh install-meta-bridge`; 검증 `./run.sh doctor-meta-bridge` + `claude mcp get pi-tools-bridge`(중립 cwd `/tmp`도 USER scope Connected); 소스 갱신 후 `pnpm install && ./run.sh install-meta-bridge` 재실행. 수동 `~/.mcp.json`/project MCP는 plain external/debug용으로 격하.
+- **pack-install gate stale (GPT, publish ≠ `pnpm check`)**: `run.sh check-pack-install`의 tar-required 목록에 옛 ACP 파일(`index.ts`/`acp-bridge.ts`/`event-mapper.ts`/`engraving.ts`/`pi-context-augment.ts`/`pi-extensions/entwurf.ts`)이 *아직* 박혀 있음. `pnpm check`는 `check-pack`까지만 돌고 `check-pack-install`(heavy/publish gate)은 기본 check에서 빠짐 → 지금 clean/green은 맞지만 **"pnpm check green이니 publish도 됨" 착각 금지.** ACP 재구현(특히 S0) 후 이 목록 **반드시 재정렬**.
 - **meta-store hygiene (GLG 숙고, 미결)**:
   - *재현성*: thinkpad만 v1 정리됨, oracle 등은 v1/orphan 누적 잔존. cleanup verb(`prune --apply` / TTL 자동 / `migrate-v1` 일괄) vs 수동 janitor+문서화. 주의: prune 1.0.0 정책 = **listing-only**(보수적, store는 native→garden lookup 권위) → `--apply`는 정책 변경이라 가볍게 추가 말 것.
   - *store 성장 근원*: 매 Claude 세션 1 record mint + 자동 prune 없음 → 부풀음("지저분" 근원). retention/aging 정책 정할지 결정.
@@ -77,7 +82,7 @@
 - **README 재작성**: "v2 core + ACP plugin" 프레임 — 구현 후(위 재triage 참조).
 
 # 넘으면 안 되는 선
-- **지금은 고민 단계 — 코드/폴더/파일 생성 금지. ACP 설계 아무것도 확정 금지.**
+- **다음 세션 첫 coding = S0(loader/fence/pack)만.** backend 구현·socket/peers/`entwurf_v2`/v2 core 손대기 금지. **v1 `entwurf`/`entwurf_send`/`entwurf_resume` 절대 부활 금지.** (이번 세션은 코드 0줄로 마감.)
 - **드리프트 금지**: 옛 칼날("ACP 제거 / rename")로 돌아가지 말 것. ACP는 *데리고 간다*. 흔들리면 botlog 앵커 + 원본 프롬프트 3블록 재독.
 - **경계 금지**: ACP가 다시 *중심 하네스*가 되지 말 것 — ACP는 v2 core 바깥 plugin(상세: AGENTS.md §ACP Plugin Boundary). plugin을 memory/planner/orchestrator/second harness/mailbox citizen으로 키우지 말 것.
 - **`v2-only` 브랜치 불가침**: base/지도라 보존. 작업은 이 브랜치에서만.
