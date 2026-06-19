@@ -1,6 +1,6 @@
 # pi-shell-acp
 
-Use Claude Code and Codex through Agent Client Protocol (ACP) inside pi — and make native Claude Code sessions garden-addressable peers.
+A pi-native v2 dispatch substrate with an ACP plugin: drive Claude Code through the Agent Client Protocol (ACP) inside pi, and make native Claude Code sessions garden-addressable peers.
 
 ![pi-shell-acp — a reproducible agent harness for pi](docs/assets/pi-shell-acp-hero.jpg)
 
@@ -8,32 +8,32 @@ Use Claude Code and Codex through Agent Client Protocol (ACP) inside pi — and 
 
 > **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
 
-> **0.11.0** is a compatibility-preserving Stage 0 for [`entwurf_v2`](#entwurf_v2--additive-dispatch-verb-0110): the pi-only dispatch substrate now proves live control-socket send (including record-less socket-only pi sessions) and spawn-bg resident resume, while the v1 verbs remain available by default and `PI_SHELL_ACP_V2_ONLY=1` is a staging hard-refusal mode. Claude Code tmux-live and the broader Entwurf extraction stay in the next lane.
+> **Current state.** This repo is a **pi-native v2 dispatch substrate (`entwurf-core`) + a meta-bridge + an ACP plugin**. The v1 entwurf verbs are gone; v2 is the spine. [`entwurf_v2`](#entwurf_v2--canonical-dispatch-verb) is the canonical dispatch surface over *existing* garden citizens — live control-socket send (including record-less socket-only pi sessions), spawn-bg resume, and meta-mailbox enqueue. The **ACP plugin** (Claude-first) re-enters as a pi provider/model on a host `--entwurf-control` session that is *already* a v2 socket-citizen; it does not mint its own socket / peers / citizen layer (see [AGENTS.md](./AGENTS.md) §ACP Plugin Boundary). Fresh sibling minting and non-Claude ACP backends are deferred lanes.
 
 ![pi-shell-acp demo](docs/assets/pi-shell-acp-demo.gif)
 
 ```text
 pi
-  → pi-shell-acp
-    → claude-agent-acp | codex-acp
-      → Claude Code | Codex
+  → pi-shell-acp (ACP plugin)
+    → claude-agent-acp
+      → Claude Code
 ```
 
 `pi-shell-acp` is a thin ACP provider for pi: no OAuth proxy, no CLI transcript scraping, no Claude Code emulation. It connects pi to locally authenticated ACP backends with no core patch and no bypass. Each backend keeps its own model, API, and tool semantics; the bridge shapes only the pi-facing operating surface.
 
-**0.10.0 expands the bridge beyond ACP transport.** The same narrow surface now also fronts native Claude Code sessions: a global `SessionStart` hook registers each native Claude session as a **garden-native meta-session** with a garden id, a mailbox, and a trusted sender marker. That makes an already-running Claude Code terminal addressable through `entwurf_send`, self-identifying through `entwurf_self`, and replyable by garden id — without turning pi into a second harness or importing Claude's transcript. ACP is one transport; the durable address is the garden id.
+**The meta-bridge reaches beyond ACP transport.** The same narrow surface also fronts native Claude Code sessions: a global `SessionStart` hook registers each native Claude session as a **garden-native meta-session** with a garden id, a mailbox, and a trusted sender marker. That makes an already-running Claude Code terminal addressable through `entwurf_v2` (the mailbox path), self-identifying through `entwurf_self`, and replyable by garden id — without turning pi into a second harness or importing Claude's transcript. ACP is one ingress; the durable address is the garden id.
 
 ```text
 native Claude Code
   → SessionStart hook
     → meta-session <garden-id>
       → pi-tools-bridge MCP
-        → entwurf_self | entwurf_send | entwurf_inbox_read
+        → entwurf_self | entwurf_v2 | entwurf_inbox_read
 ```
 
-For 0.10.0 this meta-bridge installer/doctor is **Claude Code only**. Codex and Antigravity delivery probes are recorded in [DELIVERY.md](./DELIVERY.md) as future adapter evidence, not shipped install surfaces.
+This meta-bridge installer/doctor is **Claude Code only**. Codex and Antigravity delivery probes are recorded in [DELIVERY.md](./DELIVERY.md) as future adapter evidence, not shipped install surfaces.
 
-> **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends — and, from 0.10.0, lets native Claude Code sessions join the same garden-id messaging surface.
+> **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `pi-shell-acp` lets pi talk *to* ACP backends — and also lets native Claude Code sessions join the same garden-id messaging surface.
 
 > **Project boundary.** `pi-shell-acp` is not a fork, plugin, dependency, or integration layer of `oh-my-pi`, and it is not developed in coordination with `oh-my-pi`. Issues in other Pi / ACP projects may be useful as general implementation references, but they are not `pi-shell-acp` integration issues unless this repository explicitly links them as such.
 
@@ -47,7 +47,7 @@ A few words that look unusual for a coding tool.
 
 - **Entwurf** (기투, projection-of-self) — sibling sessions with their own runtime boundary. Not "delegate," not "worker," not "sub-agent." Spawn, resume, and live peer messaging are first-class.
 - **Engraving** — optional short operator text delivered through each backend's native identity carrier. Not a giant hidden prompt, not a tool catalog.
-- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Antigravity, …) when the operator chooses. `entwurf_self` returns an authoritative pi-session or trusted meta-session identity envelope; `entwurf_send` can deliver from plain external MCP hosts, but only pi-session and trusted meta-session senders are replyable.
+- **MCP** — in this repo, MCP is just the transport by which ACP-backed sessions receive pi capabilities that native pi exposes directly as extensions. It is not a general MCP platform. Explicit `piShellAcpProvider.mcpServers` only; no ambient `~/.mcp.json` scanning, no automatic retrieval. The same `pi-tools-bridge` entry can also be wired into another host's MCP catalog (Claude Code, Codex, Antigravity, …) when the operator chooses. `entwurf_self` returns an authoritative pi-session or trusted meta-session identity envelope; `entwurf_v2` can deliver from plain external MCP hosts, but only pi-session and trusted meta-session senders are replyable.
 - **Session persistence** — re-attaches pi to the same remote ACP session. Does not hydrate backend transcripts into pi history.
 
 ## Install
@@ -64,7 +64,7 @@ After installing the package, run `run.sh install .` in your target project. The
 pi install npm:@junghanacs/pi-shell-acp
 cd /path/to/your-project
 "$(npm root -g)/@junghanacs/pi-shell-acp/run.sh" install .
-"$(npm root -g)/@junghanacs/pi-shell-acp/run.sh" smoke-all .
+"$(npm root -g)/@junghanacs/pi-shell-acp/run.sh" check-bridge
 ```
 
 ### From npm — project (`-l` flag)
@@ -73,7 +73,7 @@ cd /path/to/your-project
 cd /path/to/your-project
 pi install -l npm:@junghanacs/pi-shell-acp
 ./.pi/npm/node_modules/@junghanacs/pi-shell-acp/run.sh install .
-./.pi/npm/node_modules/@junghanacs/pi-shell-acp/run.sh smoke-all .
+./.pi/npm/node_modules/@junghanacs/pi-shell-acp/run.sh check-bridge
 ```
 
 ### From source via pi — global (alternative)
@@ -82,7 +82,7 @@ pi install -l npm:@junghanacs/pi-shell-acp
 pi install git:github.com/junghan0611/pi-shell-acp
 cd /path/to/your-project
 ~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh install .
-~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh smoke-all .
+~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh check-bridge
 ```
 
 ### From source via pi — project (`-l` flag)
@@ -91,7 +91,7 @@ cd /path/to/your-project
 cd /path/to/your-project
 pi install -l git:github.com/junghan0611/pi-shell-acp
 ./.pi/git/github.com/junghan0611/pi-shell-acp/run.sh install .
-./.pi/git/github.com/junghan0611/pi-shell-acp/run.sh smoke-all .
+./.pi/git/github.com/junghan0611/pi-shell-acp/run.sh check-bridge
 ```
 
 ### Local development clone
@@ -102,38 +102,26 @@ cd ~/repos/gh/pi-shell-acp
 pnpm install
 pi install ./
 ./run.sh install /path/to/your-project
-./run.sh smoke-all /path/to/your-project
+./run.sh check-bridge
 ```
 
-> **First time on a clean Ubuntu / Debian / macOS host?** See the [clean-host walk-through](./docs/setup-clean-host.md) — Stages 0–4b verified end-to-end: `nvm` + `pnpm` + `pi` install, `pi install git:...`, `run.sh install .`, missing-auth boundary surface, and authenticated runtime smoke for Claude / Codex.
+> **First time on a clean Ubuntu / Debian / macOS host?** See the [clean-host walk-through](./docs/setup-clean-host.md) — `nvm` + `pnpm` + `pi` install, `pi install git:...`, `run.sh install .`, the missing-auth boundary surface, and an authenticated runtime smoke for Claude.
 
-> **Two independent post-install checks.** `run.sh smoke-all .` proves *provider registration + backend runtime* (the bridge loads and Claude answers — `smoke-all` is the claude-only floor as of 0.11.0; verify Codex on demand with `smoke-codex`). It does **not** exercise Entwurf's package-source routing. If you delegate to a `provider=pi-shell-acp` Entwurf target from a package-installed setup (`git:` / `npm:` source, not a local checkout), also run `run.sh smoke-installed-entwurf-acp` — it confirms the installed bridge resolves so an Entwurf child does not die with `Unknown provider "pi-shell-acp"` (#29). The resolver math behind it is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
+> **Post-install checks.** `run.sh check-bridge` proves the `pi-tools-bridge` MCP surface loads (provider registration + protocol/negative-path), with no backend auth needed. To prove the **ACP backend actually answers** — the bridge spawns Claude through the provider path and a real turn comes back — run `LIVE=1 run.sh smoke-acp-provider-live` (it needs the operator's local Claude auth/credit). Package-source routing — so that a `provider=pi-shell-acp` Entwurf target from a `git:` / `npm:` install resolves and does not die with `Unknown provider "pi-shell-acp"` (#29) — is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
 
 > The OpenClaw plugin sibling at [`plugins/openclaw`](https://github.com/junghan0611/pi-shell-acp/tree/main/plugins/openclaw) is **deprecated and unmaintained** as of 2026-06-10. It is not part of the root `pi-shell-acp` install above — see [Host adapters](#host-adapters).
 
-> **Extension set — do not filter.** `pi-shell-acp` ships four `pi.extensions` entries as a single set: the provider extension (`index.ts`) plus three `pi-extensions/*.ts` modules (entwurf, entwurf-control, model-lock). Filtering some out via pi's object-form package configuration can leave the model lock or entwurf surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
+> **Extension set — do not filter.** `pi-shell-acp` ships three `pi.extensions` entries as a single set: the ACP provider extension (`pi-extensions/acp-provider.ts`) plus `pi-extensions/entwurf-control.ts` and `pi-extensions/model-lock.ts`. Filtering some out via pi's object-form package configuration can leave the model lock or entwurf-control surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
 
 ### Backend prerequisites
 
-Claude / Codex ACP server packages (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`) ship as pinned `dependencies` of `pi-shell-acp`; backend authentication still belongs to the operator's local CLI / runtime. Once the bridge is installed, the resolver picks the ACP server in this order:
+The ACP plugin is **Claude-first**. The Claude ACP server package (`@agentclientprotocol/claude-agent-acp`, pinned with `@agentclientprotocol/sdk`) ships as a pinned `dependency` of `pi-shell-acp`; backend authentication still belongs to the operator's local `claude` CLI / runtime. Once the bridge is installed, the resolver picks the ACP server in this order:
 
-1. **`CLAUDE_AGENT_ACP_COMMAND` / `CODEX_ACP_COMMAND` env override** — explicit override for an alternative binary or a wrapper command.
-2. **`require.resolve(...)` against the bundled package dependency** — `@agentclientprotocol/claude-agent-acp` for Claude, `@zed-industries/codex-acp` for Codex. This is the default path; no extra global install needed.
-3. **`PATH:claude-agent-acp` / `PATH:codex-acp` fallback** — used when the package resolution fails (e.g. a hand-edited `node_modules`).
+1. **`CLAUDE_AGENT_ACP_COMMAND` env override** — explicit override for an alternative binary or a wrapper command.
+2. **`require.resolve(...)` against the bundled package dependency** (`@agentclientprotocol/claude-agent-acp`). This is the default path; no extra global install needed.
+3. **`PATH:claude-agent-acp` fallback** — used when the package resolution fails (e.g. a hand-edited `node_modules`).
 
-Codex smoke (no global install required — the codex-acp pinned in `dependencies` is resolved automatically):
-
-```bash
-./run.sh smoke-codex /path/to/your-project
-```
-
-To force a global `codex-acp` (PATH fallback or development override):
-
-```bash
-pnpm add -g @zed-industries/codex-acp@0.15.0
-```
-
-Backend is inferred from the model — Anthropic → `claude`, OpenAI → `codex`. Set `backend` only to pin.
+The curated model registry exposes Claude models only, so the ACP backend is Claude. Codex is *not* an ACP backend here — a native Codex session is already a first-class garden citizen via direct injection, so it needs no ACP plugin (see [AGENTS.md](./AGENTS.md)). Vendor / governed CLIs (e.g. Cortex) are a later ACP backend lane.
 
 ### Host adapters
 
@@ -198,17 +186,17 @@ Reference shape lives in [`pi/settings.reference.json`](./pi/settings.reference.
 - **plain external MCP host**: no garden meta-record / sender marker. It can call tools, but its sender envelope is external/non-replyable.
 - **garden-native meta-session**: the native `SessionStart` hook minted a garden id and wrote a trusted sender marker. It is not a pi control-socket session, but it **is replyable by garden id**.
 
-**Which verb an external agent should reach for (0.11.0):** to deliver to / reply to a garden id, use **`entwurf_v2`** — it is the canonical delivery surface and the only one that reads the target's type (live pi vs. dormant pi vs. Claude Code meta-session, which a bare garden id does not reveal) and routes correctly. **Do not default to `entwurf_send` for an arbitrary garden id** — it is the lower-level direct control-socket compat tool, and poking a live-socket transport at a Claude Code meta-session that needs the mailbox is exactly the failure mode `entwurf_v2` exists to prevent. Fresh sibling creation remains v1 `entwurf`. Installing the bridge wires *both* the v1 verbs and `entwurf_v2`; the rule is **send/reply → `entwurf_v2`, create → v1 `entwurf`.**
+**Which verb an external agent should reach for:** to deliver to / reply to a garden id, use **`entwurf_v2`** — it is the canonical delivery surface and the only one that reads the target's type (live pi vs. dormant pi vs. Claude Code meta-session, which a bare garden id does not reveal) and routes correctly. Discover targets with `entwurf_peers`, confirm your own identity with `entwurf_self`, and drain your mailbox with `entwurf_inbox_read`. Fresh sibling creation from nothing is a deferred lane. (The old v1 verbs `entwurf` / `entwurf_resume` / `entwurf_send` are gone — the bridge wires only the v2 dispatch surface.)
 
-Observed 2026-05-28: Claude Code, Codex CLI, and Antigravity CLI all successfully called `entwurf` and then `entwurf_resume` through this MCP bridge against `gpt-5.4`. In all three plain external-host cases, sync result delivery was the correct baseline. Meta-sessions keep that sync baseline for `entwurf_resume` (no pi followUp channel), but `entwurf_send` is symmetric/replyable over the mailbox once sender identity is proven.
+Observed: Claude Code, Codex CLI, and Antigravity CLI all reach garden citizens through this MCP bridge from a plain external host; sync result delivery is the baseline, and a garden-native meta-session is symmetric/replyable over the mailbox once sender identity is proven.
 
 Prerequisites on the host running the external MCP client:
 
-- `pi` on PATH (for `entwurf` / `entwurf_resume` spawn paths).
-- `~/.pi/agent/entwurf-targets.json` (target registry) when calling `entwurf`.
-- A live pi session launched with `--entwurf-control` populates `~/.pi/entwurf-control/<sessionId>.sock`; required for `entwurf_send` and `entwurf_peers`.
+- `pi` on PATH (for the `owned-outcome` spawn-bg resume path).
+- `~/.pi/agent/entwurf-targets.json` (target registry) when dispatching to a target that resolves to a spawn-bg resume.
+- A live pi session launched with `--entwurf-control` populates `~/.pi/entwurf-control/<sessionId>.sock`; required for `entwurf_v2` control-socket dispatch and `entwurf_peers`.
 
-> **PATH boundary.** MCP servers are often launched by GUI/editor daemons and may not inherit the interactive shell's PATH. If `pi` works in your terminal but external-host `entwurf` fails with `spawn pi ENOENT`, pass a full PATH in the MCP server `env`, set `PI_TOOLS_BRIDGE_ENV_FILE` to a small shell file that exports PATH, or point the host at a wrapper that can find `pi`. `start.sh` sources only the explicit `PI_TOOLS_BRIDGE_ENV_FILE`; it never reads personal dotfiles automatically.
+> **PATH boundary.** MCP servers are often launched by GUI/editor daemons and may not inherit the interactive shell's PATH. If `pi` works in your terminal but an external-host `entwurf_v2` spawn-bg resume fails with `spawn pi ENOENT`, pass a full PATH in the MCP server `env`, set `PI_TOOLS_BRIDGE_ENV_FILE` to a small shell file that exports PATH, or point the host at a wrapper that can find `pi`. `start.sh` sources only the explicit `PI_TOOLS_BRIDGE_ENV_FILE`; it never reads personal dotfiles automatically.
 
 Example env file:
 
@@ -232,10 +220,9 @@ Emergency/manual workaround when the MCP server environment is wrong but an exis
 
 External/meta-session semantics:
 
-- `entwurf` works directly and returns the sync spawn result inline.
-- `entwurf_resume` defaults to sync for plain external hosts **and** meta-sessions; explicit `mode="async"` is rejected unless the caller is a replyable pi control-socket session, because completion followUp needs a pi session address.
-- `entwurf_send` from a plain external host delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected.
-- `entwurf_send` from a trusted meta-session delivers with `origin: "meta-session"` / `replyable: true`; `wants_reply: true` is allowed and the receiver can reply to the sender's garden id.
+- `entwurf_v2` from a plain external host delivers with `origin: "external-mcp"` / `replyable: false`; `wants_reply: true` is rejected (no reply address).
+- `entwurf_v2` from a trusted meta-session delivers with `origin: "meta-session"` / `replyable: true`; `wants_reply: true` is allowed and the receiver can reply to the sender's garden id.
+- `entwurf_v2` with `intent: "owned-outcome"` to a dormant pi target needs `pi` on PATH (it spawns a `pi --entwurf-control` resume child); async completion followUp requires a replyable pi control-socket caller.
 - `entwurf_self` returns the same authoritative identity for pi sessions **and** trusted meta-sessions. A plain external host with no pi env and no trusted sender marker still fails because there is no reply address to report.
 
 #### Claude Code
@@ -270,7 +257,7 @@ This writes the entry into `~/.claude.json`'s top-level `mcpServers`. Good for o
 }
 ```
 
-Claude Code reads `~/.mcp.json` in addition to `~/.claude.json`'s top-level `mcpServers`. The `env` block identifies the calling host on the receiver render — omit it and `entwurf_send` shows `external-mcp/unknown-host`. If Claude Code permissions are locked down, allow `mcp__*` or `mcp__pi-tools-bridge__*` in `~/.claude/settings.json`.
+Claude Code reads `~/.mcp.json` in addition to `~/.claude.json`'s top-level `mcpServers`. The `env` block identifies the calling host on the receiver render — omit it and `entwurf_v2` shows `external-mcp/unknown-host`. If Claude Code permissions are locked down, allow `mcp__*` or `mcp__pi-tools-bridge__*` in `~/.claude/settings.json`.
 
 #### Codex CLI
 
@@ -315,21 +302,29 @@ For the maintained multi-harness setup and skill/command packaging details, see 
 
 ## Per-backend operating surface
 
-Each backend keeps its native model / API / tools; pi-shell-acp shapes only what enters from pi. Claude and Codex honor explicit `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `CODEX_SQLITE_HOME` exports when set by the operator.
+The Claude ACP backend keeps its native model / API / tools; pi-shell-acp shapes only what enters from pi. Claude honors an explicit `CLAUDE_CONFIG_DIR` export when set by the operator.
 
-**Claude** uses `_meta.systemPrompt` for engraving and `CLAUDE_CONFIG_DIR` for a whitelist overlay so auth/runtime entries stay available while operator memory, hooks, agents, history, local settings, and project memory remain hidden. The overlay writes an explicit empty `hooks: {}` because Claude SDK organic compaction needs the configured-empty shape; no operator hook definitions are inherited. The four-tool baseline (`Read`, `Bash`, `Edit`, `Write`) is enforced through `tools` + `permissionAllow`; `Skill` is added automatically when `skillPlugins` is non-empty. Operator context cap override: `PI_SHELL_ACP_CLAUDE_CONTEXT=<int>`.
+**Claude** uses `_meta.systemPrompt` for the engraving carrier (kept short and pure — billing-safe; rich operator context rides the first user message instead, see [Context carriers](#context-carriers)) and `CLAUDE_CONFIG_DIR` for a whitelist overlay so auth/runtime entries stay available while operator memory, hooks, agents, history, local settings, and project memory remain hidden. The overlay writes an explicit empty `hooks: {}` because Claude SDK organic compaction needs the configured-empty shape; no operator hook definitions are inherited. The four-tool baseline (`Read`, `Bash`, `Edit`, `Write`) is enforced through `tools` + `permissionAllow`; `Skill` is added automatically when `skillPlugins` is non-empty. Operator context cap override: `PI_SHELL_ACP_CLAUDE_CONTEXT=<int>`.
 
-**Codex** has no `_meta.systemPrompt`, so engraving rides codex-rs `-c developer_instructions="<...>"`. Defaults: `approval_policy=never`, `sandbox_mode=danger-full-access`, `web_search=disabled`. `codexDisabledFeatures` (default: `image_generation`, `tool_suggest`, `tool_search`, `multi_agent`, `apps`, `memories`) fails closed on surfaces that would bypass pi's MCP/tool model; `codexDisabledFeatures: []` opts out and emits a warning. `PI_SHELL_ACP_CODEX_MODE=auto|read-only` narrows the default mode. `CODEX_HOME` + `CODEX_SQLITE_HOME` point at a pi-owned overlay that keeps auth/runtime entries and codex state DBs but hides operator history, rules, top-level `AGENTS.md`, personal config, sessions, logs, and memories. codex-rs registers some native tools (`update_plan`, `request_user_input`, `view_image`, MCP resource readers) without config gates; pi-shell-acp documents this mismatch — closing it requires codex-rs changes.
+(Codex is *not* an ACP backend here — it reaches the garden natively. Vendor / governed CLIs are a later ACP backend lane.)
 
-Pi is the canonical memory authority (semantic-memory + Denote llmlog); Claude and Codex native memory layers are pinned off.
+Pi is the canonical memory authority (semantic-memory + Denote llmlog); Claude's native memory layer is pinned off.
 
 ## Smoke commands
 
 ```bash
-./run.sh smoke-all .        # claude-only floor (0.11.0); codex via smoke-codex below
-./run.sh smoke-claude .
-./run.sh smoke-codex .
-./run.sh verify-resume .    # cross-process continuity with acpSessionId diagnostics
+pnpm check                              # full deterministic floor (all check-* gates, incl. check-acp-*)
+./run.sh check-bridge                   # pi-tools-bridge direct MCP smoke (no backend auth)
+
+# ACP plugin LIVE acceptance — need the operator's local Claude auth/credit:
+LIVE=1 ./run.sh smoke-acp-socket-citizen-live   # turn-free socket citizenship (S1)
+LIVE=1 ./run.sh smoke-acp-raw-turn-live         # pinned ACP pipe + raw 1 turn (S2a)
+LIVE=1 ./run.sh smoke-acp-overlay-live          # config overlay + hooks:{} + tool meta (S2b)
+LIVE=1 ./run.sh smoke-acp-provider-live         # real pi provider path + progress/L3 (S2c/S2f)
+LIVE=1 ./run.sh smoke-acp-session-reuse-live    # process-scoped reuse + codeword recall (S2d)
+LIVE=1 ./run.sh smoke-acp-carrier-augment-live  # augment delivery + empty-carrier billing clean (S2e-1)
+
+LIVE=1 ./run.sh release-gate /tmp/scratch       # the single cut gate (MUST + BEHAVIOR, SKIP=0 for a real cut)
 ```
 
 ## Custom skills
@@ -367,9 +362,9 @@ For a real consumer arranging many skills, see [agent-config](https://github.com
 
 **Entwurf is a pi capability with two surfaces.** Native pi exposes it directly as an extension tool; ACP-backed sessions reach the same capability through pi-shell-acp's MCP/Unix-socket bridge. The purpose is not to invent a different sub-agent system, but to preserve the same sibling-based model across backends.
 
-Spawning creates a sibling, not a worker, delegate, or sub-agent — the spawned session has its own runtime boundary and its own provider/model identity. Resume preserves model identity (no override). Native pi `entwurf` / `entwurf_resume` default to `async`; `sync` is opt-in for short status checks (<5s). On the MCP bridge, `entwurf` spawn remains sync-only, while `entwurf_resume` uses a conditional default: only pi-session callers with a control socket get async followUp delivery; plain external hosts and garden-native meta-sessions get sync and cannot request async.
+A sibling has its own runtime boundary and its own provider/model identity — not a worker, delegate, or sub-agent. Minting a brand-new sibling from nothing is a deferred v2 lane (`spawn-fresh`); today every transport targets an *existing* garden citizen. `entwurf_v2` dispatches over those: it reads the target's liveness as a fact and routes a `fire-and-forget` send (live pi), an `owned-outcome` spawn-bg resume (dormant pi, a real `pi --entwurf-control` child), or a meta-mailbox enqueue (active self-fetch receiver) — under a per-target lock, reporting one honest outcome.
 
-A two-pane recording covers the surface end-to-end — sibling spawn, cross-process MCP resume across a different cwd, and a live peer greeting through `entwurf_send`:
+A two-pane recording covers the surface end-to-end — sibling resume, cross-process MCP dispatch across a different cwd, and a live peer greeting:
 
 <details>
 <summary>Watch (518×1030 GIF, click to expand)</summary>
@@ -378,13 +373,13 @@ A two-pane recording covers the surface end-to-end — sibling spawn, cross-proc
 
 </details>
 
-Live peer messaging (`entwurf_send`, `/entwurf-send`, in-process tool) carries a sender envelope `{ sessionId, agentId, cwd, timestamp }` by default; `entwurf_self` returns the same authoritative envelope for the current pi session or trusted meta-session. Plain external MCP hosts can call `entwurf_send` with a marked non-replyable envelope. Garden-native meta-sessions call it with a trusted `meta-session` envelope and are replyable by garden id. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected only from non-replyable external senders.
+Live peer messaging carries a sender envelope `{ sessionId, agentId, cwd, timestamp }`; `entwurf_self` returns that authoritative envelope for the current pi session or trusted meta-session. Plain external MCP hosts are non-replyable; garden-native meta-sessions carry a trusted `meta-session` envelope and are replyable by garden id. `wants_reply` is an etiquette marker rendered as a `(wants reply)` badge — not a transport contract, no wait, no polling — and is rejected only from non-replyable external senders.
 
-In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self`, `entwurf_v2`, `entwurf_inbox_read`) auto-attach through `pi-tools-bridge`; in native pi sessions, the same capability is available directly through the extension surface. **Picking the right verb (0.11.0): for garden-id delivery/reply use `entwurf_v2` (the canonical surface — it classifies the target and routes to live-pi / dormant-resume / Claude-Code-meta-mailbox); `entwurf_send` is the lower-level direct control-socket compat tool (use only with a known live pi socket); fresh sibling creation is v1 `entwurf`. "send/reply → v2, create → v1."** Operator slash commands (`/entwurf`, `/entwurf-status`, `/entwurf-sessions`, `/entwurf-send`) require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
+In ACP-backed sessions, agent tools (`entwurf_v2`, `entwurf_peers`, `entwurf_self`, `entwurf_inbox_read`) auto-attach through `pi-tools-bridge`; in native pi sessions the same capability is available directly through the extension surface (`entwurf_v2`, `entwurf_peers` tools + `/entwurf-sessions`, `/gnew` commands). **For garden-id delivery/reply use `entwurf_v2`** — the canonical surface that classifies the target and routes to live-pi / dormant-resume / Claude-Code-meta-mailbox. Fresh sibling creation from nothing is a deferred lane. (The v1 verbs `entwurf` / `entwurf_resume` / `entwurf_send` are gone — replaced by the v2 dispatch surface.) Garden-native operator commands require `--entwurf-control`. The spawn target allowlist is [`pi/entwurf-targets.json`](./pi/entwurf-targets.json).
 
-### `entwurf_v2` — additive dispatch verb (0.11.0)
+### `entwurf_v2` — canonical dispatch verb
 
-`entwurf_v2` / `runEntwurfV2` is an **additive** v2 dispatch verb over **existing** garden targets — record-backed citizens plus live socket-only `pi` endpoints (a record-less but live `pi --entwurf-control` peer is a *target*, intentionally **not** an owned citizen). You give a target garden id plus an intent (`fire-and-forget` or `owned-outcome`); one decider reads the target's liveness as a fact (via the `entwurf_peers` fact surface) and picks the transport from a frozen table keyed on **both** the target's state **and** the intent — never on state alone — then reports one outcome under the v2 lock policy (the pi control-socket and spawn-bg paths take a per-target lock; the meta-mailbox path is lock-free but guarded by active-receiver deliverability):
+`entwurf_v2` / `runEntwurfV2` is the canonical v2 dispatch verb over **existing** garden targets — record-backed citizens plus live socket-only `pi` endpoints (a record-less but live `pi --entwurf-control` peer is a *target*, intentionally **not** an owned citizen). You give a target garden id plus an intent (`fire-and-forget` or `owned-outcome`); one decider reads the target's liveness as a fact (via the `entwurf_peers` fact surface) and picks the transport from a frozen table keyed on **both** the target's state **and** the intent — never on state alone — then reports one outcome under the v2 lock policy (the pi control-socket and spawn-bg paths take a per-target lock; the meta-mailbox path is lock-free but guarded by active-receiver deliverability):
 
 | target state | intent | transport |
 |---|---|---|
@@ -396,15 +391,13 @@ In ACP-backed sessions, agent tools (`entwurf`, `entwurf_resume`, `entwurf_send`
 | inactive / terminated self-fetch receiver | fire-and-forget | **reject** (`mailbox-undeliverable` — no `.msg`, no doorbell) |
 | self-fetch | owned-outcome | **reject** (no owned result over a mailbox) |
 
-**`entwurf_v2` is the canonical surface for garden-id delivery.** When you have a garden id and want to reach whoever it names — message, reply, or hand-off — reach for `entwurf_v2`, **not** `entwurf_send`. A garden id alone does not tell you whether the target is a live pi session, a dormant pi session, or a Claude Code meta-session — they look alike — and `entwurf_v2` is the one surface that reads that and routes correctly; *when unsure which transport, use `entwurf_v2`*. `entwurf_send` is the **lower-level direct control-socket** compatibility tool: use it only when you already hold a known live pi control socket (or for its `get_message`/`clear` debug actions). Defaulting to `entwurf_send` for an unclassified garden id is the wrong move — it is exactly how an agent ends up poking a live-socket transport at a Claude Code meta-session that needs the mailbox. (The deeper convergence — folding `entwurf_send` delivery into `entwurf_v2` and keeping only the debug actions — is a 0.11.x / `entwurf`-repo lane.)
+**`entwurf_v2` is the canonical surface for garden-id delivery.** When you have a garden id and want to reach whoever it names — message, reply, or hand-off — `entwurf_v2` is the one surface that reads whether the target is a live pi session, a dormant pi session, or a Claude Code meta-session (they look alike) and routes correctly; *when unsure which transport, use `entwurf_v2`*. This is exactly what prevents an agent from poking a live-socket transport at a Claude Code meta-session that needs the mailbox.
 
-What v2 **newly provides** is exactly this: a **deterministic dispatch substrate** that moves the "which transport?" decision out of the fallible caller/model and into the decider, under a per-target lock, with an honest reject (no `✓ delivered`, no `.msg` garbage) when a target cannot receive. What it does **not** do is **fresh sibling creation** — making a brand-new sibling from a provider/model/prompt is still the v1 `entwurf` verb's job (the `dormant pi → spawn-bg resume` row above resumes an *already-identified* citizen, it does not mint a new one). It does **not** replace the v1 verbs: `entwurf`, `entwurf_resume`, and `entwurf_send` remain available and unchanged. The meta-mailbox row requires an **active** self-fetch receiver; Claude↔Claude / Claude tmux-live transport is **out of scope for 0.11.0** (the contract enum names `tmux-live` but no production path executes it).
+What v2 provides is a **deterministic dispatch substrate** that moves the "which transport?" decision out of the fallible caller/model and into the decider, under a per-target lock, with an honest reject (no `✓ delivered`, no `.msg` garbage) when a target cannot receive. What it does **not** do is **fresh sibling creation** — minting a brand-new sibling from a provider/model/prompt is a deferred lane (the `dormant pi → spawn-bg resume` row above resumes an *already-identified* citizen, it does not mint a new one). The meta-mailbox row requires an **active** self-fetch receiver; Claude↔Claude / Claude tmux-live transport is a later lane (the contract enum names `tmux-live` but no production path executes it).
 
-A live pi target is addressed by its **control socket**, so a record-less but live `pi --entwurf-control` session (an operator-greeted peer with no meta-record) is accepted as a `fire-and-forget` control-send target, matching what `entwurf_peers` lists as alive. An `owned-outcome` resume, however, needs a record-backed citizen (its cwd/launch authority); a record-less endpoint is a socket-only fire-and-forget target only — record-less dormant resume is out of scope for 0.11.0 (a 0.11.1 lane).
+A live pi target is addressed by its **control socket**, so a record-less but live `pi --entwurf-control` session (an operator-greeted peer with no meta-record) is accepted as a `fire-and-forget` control-send target, matching what `entwurf_peers` lists as alive. An `owned-outcome` resume, however, needs a record-backed citizen (its cwd/launch authority); a record-less endpoint is a socket-only fire-and-forget target only — record-less dormant resume is a later lane.
 
-`PI_SHELL_ACP_V2_ONLY=1` is a **staging** switch, not a removal. It hard-refuses every v1 entrypoint so a deployment can rehearse the v2-only world ahead of the **0.12** cutover, but it does not delete or unregister v1 — v1 sibling-create and v1 followUp are intentionally unavailable *under the flag* until 0.12 removes them. 0.11.0 ships v2 as Stage 0 (pi-only substrate); Claude↔Claude live (Stage 1) is out of scope.
-
-> 0.12+ direction: extract an Entwurf core (peer identity / garden id / inbox / liveness / dispatch / replyability / evidence) with per-backend plugins, leaving `pi-shell-acp` as the compatibility adapter. ACP is one plugin, not the boundary. Rationale: [#37](https://github.com/junghan0611/pi-shell-acp/issues/37).
+> **Direction.** An Entwurf core (peer identity / garden id / inbox / liveness / dispatch / replyability / evidence) could later extract into its own repo with per-backend plugins; today this repo holds the v2 core + meta-bridge + ACP plugin together. ACP is one plugin, not the boundary — rationale: [#38](https://github.com/junghan0611/pi-shell-acp/issues/38).
 
 ### Garden launcher
 
@@ -440,9 +433,9 @@ The resumed session keeps its garden header id (so the guard passes) and carries
 
 Enforcement (no uuid / back-compat path): a `--entwurf-control` session whose id is not garden-native is refused at `session_start` and the process **hard-exits before any model turn** (a `uuidv7` from a raw `pi --entwurf-control` blows up immediately — nonzero exit, no socket, no tokens). The status bar reads `🪛 ready` until the first assistant turn writes the session file (model still changeable), then `🪛 <gardenId>` (model locked). The resident session name is set lazily on that first turn, tagged `control` (never `entwurf`, so it is not resumable as an Entwurf child). Gates: `run.sh check-entwurf-session-identity` (deterministic) + `run.sh smoke-resident-garden-guard` (live).
 
-The human-greeted 담당자 pattern is first-class: the operator opens a pi-shell-acp session in repo B, greets it directly, then passes that `sessionId` to another session via `entwurf_send`. Spawned siblings and human-opened peers share the same messaging semantics; only the creation sequence differs.
+The human-greeted 담당자 pattern is first-class: the operator opens a pi-shell-acp session in repo B, greets it directly, then passes that `sessionId` to another session, which reaches it via `entwurf_v2`. Resumed citizens and human-opened peers share the same messaging semantics; only how they came to exist differs.
 
-**Mitsein over MCP** (공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Antigravity used as a human terminal) without spawning it. A plain external host is one-directional in shape: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_send`. A garden-native meta-session closes that gap for `entwurf_send` — both sides are addressable by garden id through the mailbox, and `wants_reply` is allowed when the sender marker proves the native session identity, so send/inbox is symmetric. The one remaining asymmetry is the followUp channel: `entwurf_resume` async delivery still needs a pi control socket, which a meta-session does not have. This is still not a second harness — no control daemon and no transcript scraping are introduced; the bridge only fronts the mailbox/send surface.
+**Mitsein over MCP** (공존) — the cross-harness counterpart. Pi may collaborate with an external interactive coding session (Claude Code, Codex, Antigravity used as a human terminal) without spawning it. A plain external host is one-directional in shape: outbound `pi → external` rides whatever the operator already uses (tmux send-keys, manual paste, any interactive input path), while inbound `external → pi` returns through this bridge's `entwurf_v2`. A garden-native meta-session closes that gap — both sides are addressable by garden id through the mailbox, and `wants_reply` is allowed when the sender marker proves the native session identity, so send/inbox is symmetric. The one remaining asymmetry is the followUp channel: async owned-outcome delivery still needs a pi control socket, which a meta-session does not have. This is still not a second harness — no control daemon and no transcript scraping are introduced; the bridge only fronts the mailbox/dispatch surface.
 
 After a session is anchored, pi-shell-acp locks its model identity: switches that touch `pi-shell-acp` are reverted; native-to-native and pre-turn selection remain free. `ensureBridgeSession` refuses direct reuse-path mismatches before backend handoff.
 

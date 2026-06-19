@@ -7,52 +7,69 @@
 
 ---
 
-## 현재 — 0.11.0 (Stage 0: pi-only v2 dispatch substrate)
+## 현재 — `acp-on-v2` / next release candidate: v2 core + ACP plugin
 
-0.11.0 = **v1 replacement가 아니라 v2 Stage 0 substrate 릴리즈**다. `entwurf_v2`는 기존
-garden citizen에 대해 liveness + intent를 읽고, per-target lock 아래에서 control-socket /
-spawn-bg resume / meta-mailbox 중 하나를 결정적으로 고르는 dispatch surface. v1 기능은
-계속 지원되고 programmatic gate는 PASS. fresh sibling creation은 아직 v1 `entwurf`가 담당
-(0.12 cutover lane).
+이 repo는 **pi-native v2 dispatch substrate (entwurf-core) + meta-bridge + ACP plugin**이다.
+v1 entwurf verbs(`entwurf`/`entwurf_resume`/`entwurf_send`)는 끝났고 사라졌다(v2 core). v2가 척추.
+ACP는 중심이 아니라 v2 core 위에 provider/model로 들어오는 **plugin 하나**(#38) — host
+`--entwurf-control` pi 세션이 *이미* v2 socket-citizen이고, plugin은 socket/peers/citizen 층을
+새로 만들지 않는다. 패키지명 `pi-shell-acp` 유지(ACP가 살아있으니 이름이 정직, rename 없음).
 
-**한 줄:** 0.11.0은 fresh creation 릴리즈가 아니라, 기존 garden citizen dispatch를 정직하고
-결정적으로 만드는 v2 Stage 0 릴리즈. **send/reply → `entwurf_v2`, create → v1 `entwurf`.**
+**한 줄:** v2 substrate가 spine, ACP는 그 위 plugin. 기존 citizen 대상 send/reply → `entwurf_v2`
+(무에서 새 형제 만드는 fresh creation은 deferred lane).
 
-### 되는것 (LIVE 증명, log `…20260616T141023`: MUST PASS=17 FAIL=0)
+### ACP plugin on v2 core — S0~S2f DONE (전부 GPT 적대 검수 GREEN, 2026-06-18~19)
+
+ACP가 0.11.0 fat bridge의 기계적 port가 아니라 v2 core 위 plugin으로 *새로* 구현됨
+(0.11.0 `acp-bridge.ts`는 behavior oracle이지 architecture oracle 아님). Claude-first.
+
+| 단계 | 능력 | LIVE 증거 |
+|---|---|---|
+| S0 | loader/fence + provider 등록 + curated Claude + no-auth sentinel | `pi --list-models` · check-auth-boundary / check-acp-provider-surface |
+| S1 | turn-free socket citizenship (ACP model이 `entwurf_peers` 1급 시민) | `smoke-acp-socket-citizen-live` |
+| S2a | pinned ACP deps + raw 1턴 (stdio JSON-RPC) | `smoke-acp-raw-turn-live` |
+| S2b | config overlay (격리 + 도구축소 + `hooks:{}`) + tool-surface preflight | `smoke-acp-overlay-live` |
+| S2c | event mapping + `streamSimple` 실 backend (fail-loud stub 제거) | `smoke-acp-provider-live` |
+| S2d | in-memory session reuse + delta-only prompt + carrier(핀1) + first-user augment | `smoke-acp-session-reuse-live` · `smoke-acp-carrier-augment-live` |
+| S2e | RGG — ACP-target garden guard (deterministic 30/0) | `smoke-acp-rgg-live` |
+| S2f | always-on turn-progress visibility (lifecycle notices, display-only marker) | `smoke-acp-provider-live` (L3 marker) |
+
+deterministic 짝(check-acp-overlay/tool-surface/event-mapper/prompt-builder/session-store/session-reuse/
+carrier-augment 등)은 `pnpm check`에, LIVE 짝 7개는 release-gate **MUST** tier(LIVE=1·SKIP=0이 cut 조건).
+
+### v2 substrate 증거 (이전 floor, 그대로 유효)
 
 | 기능 | 증거 |
 |---|---|
 | v2 pi live send | `smoke-entwurf-v2-matrix-live` C1 |
 | v2 recordless live pi socket-only send (A1 narrow) | matrix-live C1b |
-| v2 dormant pi → spawn-bg resume (실 `pi --entwurf-control` child + model turn) | `smoke-entwurf-v2-spawn-resume-live` 22 PASS |
+| v2 dormant pi → spawn-bg resume (실 `pi --entwurf-control` child + model turn) | `smoke-entwurf-v2-spawn-resume-live` |
 | v2 active Claude Code meta → meta-mailbox enqueue + doorbell | matrix-live C2 |
 | v2 honest reject (false-delivered/`.msg` garbage 0) | matrix-live C3 + deliverability gates |
-| v1 fresh sibling creation (entwurf spawn/resume/send) | programmatic gate PASS |
-| floor 0.79.4 parity | `pnpm check` + release-gate MUST PASS=17 |
+| floor 0.79.4 parity | `pnpm check` + release-gate MUST |
 
-### 안되는것 (0.11.0 범위 밖 — 정직히)
+### 다음 — PR-polish → tag (GLG)
 
-- **v2 fresh sibling creation** (무에서 새 형제) → v1 `entwurf`, **0.12 cutover lane**
-- **recordless DORMANT pi resume** (record 없는 dormant) → **0.11.1**(cwd/launch authority 없음)
-- **Claude↔Claude / Claude tmux-live transport** → contract enum에 이름만, production path 없음 → **0.11.1 / Stage 1**
-- **모델이 MCP entwurf를 Bash 대신 신뢰성 있게 자율 선택** → flaky(sentinel S7 advisory) → **usability lane**
+README/ROADMAP/CHANGELOG/release-gate를 "v2 core + ACP plugin" 현실에 정렬(이 lane). version bump/tag는
+GLG가 컷. **0.11.0은 이미 cut된 과거 태그**라 이 컷을 다시 0.11.0으로 부르지 않는다(CHANGELOG는
+Unreleased 유지).
 
-### v1 / v2 분리 결론 (GLG+GPT+Opus 수렴)
+### deferred (범위는 보임)
 
-- **v2 (0.11.0 핵심) = PASS.** 옵셔널 아님 — 추가됨+테스트됨.
-- **v1 compatibility "있는 기능" = 전부 PASS** (programmatic gate: async-resume / entwurf-resume /
-  check-native-async). v1 도구는 살아있음.
-- **두 model-in-loop FAIL(sentinel·resident-garden-guard positive) = v1 기능 결함 아님.** "모델이 v1
-  도구를 *자율 호출*하는가"를 보는 behavior probe. Claude Sonnet이 entwurf MCP 안 부르고 Bash/pi-CLI
-  우회·포기에 노출 → flaky. release-gate는 이걸 **two-tier**로 분리: MUST(차단)는 기능/transport,
-  BEHAVIOR(advisory·비차단)는 자율 tool-selection. **S7(Bash 우회)은 BEHAVIOR lane 안에서도 hard FAIL**
-  — 우회를 PASS로 둔갑 안 시킴, 단 컷은 안 막음.
-- **왜 그동안 안 터졌나:** model-in-loop 축은 0.11 작업기 신규 커버리지(sentinel `6592c5f` 5/29,
-  RGG/T3 `440afba`·`7d45346` 6/4). "문제 없었다"가 아니라 "검증 안 했다" — v2 작업이 v1의 숨은
-  허점을 드러낸 **선물**.
-- **0.79.4 = deterministic 회귀 없음**(probe·강제호출 A/B 확인) → floor bump 안전.
-- **surface affordance fix (voscli 사건):** garden id만 보면 pi인지 Claude Code meta인지 모름 → 에이전트가
-  "send" 이름에 끌려 v1 고르고 실패. canonical delivery = `entwurf_v2`로 못박고 `entwurf_send` 설명 격하.
+- **persisted resume/load (1b-2c)** — 현재는 in-memory reuse + record write만, persisted read/use는 OFF.
+- **non-Claude ACP backend / Cortex lane** — vendor/governed CLI는 로컬 완전검증 가능해지면.
+- **fresh sibling minting (v2 `spawn-fresh`)** — v2 3 transport는 전부 기존 citizen 대상. 무에서 새
+  형제 만드는 verb는 의도적 부재(능력 구멍을 문서에 못박음, silent regression 아님).
+- **test/release-gate taxonomy (#41)** — 검증 자산을 deterministic / MUST live / BEHAVIOR / utility로 재분류.
+
+### two-tier release-gate 원리 (그대로 유효)
+
+release-gate는 MUST(차단·exit code 소유 — transport/provider/backend invariant)와 BEHAVIOR(advisory·
+비차단 — 모델이 MCP entwurf를 *자율 호출*하는가)를 분리한다. model-in-loop tool-selection은 Claude
+Sonnet에서 flaky(Bash/pi-CLI 우회·포기 노출)라 한 번의 flake가 컷을 막으면 안 되기 때문. **S7(Bash
+우회)은 BEHAVIOR lane 안에서도 hard FAIL** — 우회를 PASS로 둔갑시키지 않되 컷은 안 막음. ACP plugin의
+7개 LIVE smoke는 programmatic invariant라 MUST(BEHAVIOR 아님). surface affordance(voscli 사건): garden
+id만으론 pi인지 Claude Code meta인지 모름 → canonical delivery = `entwurf_v2`로 못박음.
 
 ---
 
@@ -62,38 +79,36 @@ spawn-bg resume / meta-mailbox 중 하나를 결정적으로 고르는 dispatch 
 - **Claude Code tmux-live / Claude↔Claude live transport** — v2 production transport 구현(현재 enum만).
 - **recordless dormant pi resume** — record 없이 cwd/model/resume authority 확보(JSONL-header authority
   resume 별도 설계 / A2 / Entwurf-core identity layer).
-- **unregister-토글** (V2_ONLY일 때 v1 surface hide) — 잠긴 spec(`check-entwurf-v2-only` + SSOT "neither
-  deleted nor unregistered") 변경이라 docs+gate 동반. 현재는 hard-refuse만(invocation refusal).
-- **GC** (meta-record 117개+ 누적) — `entwurf_peers` default live+recent+cwd 제한, dormant/meta 옵션화,
+- **GC** (meta-record 누적) — `entwurf_peers` default live+recent+cwd 제한, dormant/meta 옵션화,
   stale marker·read body GC, record archive/TTL/lastSeen. **GC = 프로세스 자원 회수만, 데이터 삭제 아님.**
 - **SE-3 readability** — 정직한 `replyable:false`가 버그로 오인되는 silent degraded addressability(가독성).
 - **`/gnew` T3 backend axis** — 현재 claude-sonnet-4-6만 측정. codex/gemini로 확장.
 
-### 0.12 / cutover lane
-- **v1 removal** — 11-scenario v2 replacement 증명 + v1 삭제. `entwurf_send` 전달을 `entwurf_v2`로
-  수렴(redirect), `get_message`/`clear` debug action만 잔존.
+### fresh-mint lane (v1 제거는 이미 완료)
+- **v1 removal — DONE (v2 core).** v1 entwurf verbs(`entwurf`/`entwurf_resume`/`entwurf_send`), pi-native
+  `entwurf_send`, `/entwurf*` 명령은 모두 제거됨. 현 surface = `entwurf_v2` + `entwurf_peers` +
+  `entwurf_self` + `entwurf_inbox_read`. (옛 "unregister-토글 / V2_ONLY hide" lane은 v1이 사라져 moot.)
 - **🔴 fresh sibling minting = 명시적 연기 (GLG 결정 2026-06-16).** v1 `entwurf.ts`("spawn a dedicated
-  pi process to run a NEW task")가 fresh-mint 본체였고 v2-only 브랜치에서 통째 삭제됨. v2의 3 transport
+  pi process to run a NEW task")가 fresh-mint 본체였고 v2 core에서 통째 삭제됨. v2의 3 transport
   (control-socket / spawn-bg **resume** / meta-mailbox)는 전부 **기존** garden citizen 대상 — 무에서
-  새 형제를 만드는 verb는 v2에 없다. **0.12 = "기존 citizen dispatch만, fresh creation 없음"으로 능력
-  축소**가 의도된 상태. fresh-mint의 v2 대체(4번째 transport `spawn-fresh` + 11-scenario gate)는 **0.12.x
-  후속 lane**으로 분리. 그동안 v2-only 트리는 "새 분신 생성"이 필요한 데일리 드라이버로는 안 쓴다
-  (기존 citizen resume/dispatch 전용). 이 결정 없이 머지하면 "entwurf로 새 분신을 못 만든다"는 능력
-  구멍이 조용히 생기므로, 축소를 문서에 못박는 게 머지 전제.
+  새 형제를 만드는 verb는 v2에 없다(능력 구멍을 문서에 못박음, silent regression 아님). fresh-mint의
+  v2 대체(4번째 transport `spawn-fresh` + 11-scenario gate)는 후속 lane. 그동안 이 트리는 "새 분신
+  생성"이 필요한 데일리 드라이버로는 안 쓴다(기존 citizen resume/dispatch 전용).
 
 ---
 
 ## 큰 방향 — 새 `entwurf` repo (GLG 결정 2026-06-16)
 
-**새 repo `entwurf`를 만들어 v2 인터페이스만 옮긴다.** pi-shell-acp를 버리는 게 아니라, v1/v2 혼재가
-만든 혼선을 줄이려 **집중을 위해 분리**하는 것.
+**언젠가 새 repo `entwurf`를 만들어 v2 인터페이스(entwurf-core)만 옮길 수 있다.** pi-shell-acp를
+버리는 게 아니라 집중을 위해 분리하는 것 — 단 이것은 **deferred coordinate**(#38), 이번 lane이 아니다.
+지금 이 repo가 v2 dispatch substrate + meta-bridge + ACP plugin을 한 몸으로 들고 간다.
 
 - v2(garden citizen에 대한 결정적 dispatch substrate: liveness×intent → control-socket / spawn-bg
-  resume / meta-mailbox)는 새 `entwurf` repo에서 깨끗이 자란다.
+  resume / meta-mailbox)는 분리 시 새 `entwurf` repo에서 깨끗이 자랄 후보다.
 - **entwurf-core** = identity / garden id / inbox / liveness / dispatch / replyability / evidence 추출이
-  새 repo의 첫 몸.
-- pi-shell-acp는 **v1 + ACP compatibility adapter**로 잔존. ACP는 plugin, boundary 아님(#37/#38).
-- **0.11.0 안전 컷 = 이 분리의 출발선.**
+  그 첫 몸.
+- 그때까지 pi-shell-acp = **v2 core + meta-bridge + ACP plugin**(v1은 이미 제거됨, rename 없음). ACP는
+  plugin, boundary 아님(#38).
 
 ---
 
