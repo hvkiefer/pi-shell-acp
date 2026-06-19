@@ -22,7 +22,7 @@
 
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,8 +46,12 @@ if (process.env.LIVE !== "1") {
 // output cannot pass the assertion. Date.now is fine in a normal smoke script.
 const nonce = `${process.pid.toString(36)}${Date.now().toString(36)}`;
 const expected = `OK_${nonce}`;
+// A known session id + an isolated session dir let us inspect the on-disk JSONL
+// after the turn (S2f Amber 1 — marker persistence).
+const sessionId = `psa-s2f-${nonce}`;
 
 const scratch = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2c-provider-"));
+const sessionDir = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2f-sessions-"));
 try {
 	// --no-extensions + explicit -e REPO_ROOT: load ONLY this checkout's
 	// extensions (matches the S1 smoke). --mode text prints the assistant reply
@@ -59,6 +63,10 @@ try {
 		REPO_ROOT,
 		"--mode",
 		"text",
+		"--session-id",
+		sessionId,
+		"--session-dir",
+		sessionDir,
 		"-p",
 		"--approve",
 		"--provider",
@@ -103,13 +111,52 @@ try {
 		`assistant reply did not contain ${expected} (stdout tail: ${JSON.stringify(stdout.slice(-300))})`,
 	);
 
+	// S2f: turn-lifecycle progress must be VISIBLE on a real turn (always-on, no
+	// gate). The bootstrap (overlay → spawn → init → newSession → setModel → first
+	// token) is otherwise silent and reads as a hang. The deterministic gate owns
+	// order/replay/signature; this proves the notices actually surface live.
+	for (const marker of ["[acp: preparing claude session]", "[acp: session ready model=", "[acp: sending prompt]"]) {
+		assert.ok(
+			combined.includes(marker),
+			`S2f lifecycle notice "${marker}" missing — turn progress must always be visible (output tail: ${JSON.stringify(tail)})`,
+		);
+	}
+
+	// S2f Amber 1 (L3 marker persistence): the lifecycle marker must SURVIVE pi's
+	// JSONL serialization. If pi dropped the textSignature on save, a later `new`
+	// rebuild from a reloaded Context would lose the filter and replay the notice
+	// into the ACP prompt. The deterministic Section F proves the in-memory filter;
+	// this closes the on-disk round-trip the filter depends on. Inspect the saved
+	// transcript directly (the marker string is used ONLY as a textSignature, so
+	// its presence in the JSONL is proof the field was persisted).
+	const jsonl = readdirSync(sessionDir, { recursive: true })
+		.filter((f): f is string => typeof f === "string" && f.endsWith(".jsonl"))
+		.map((f) => readFileSync(join(sessionDir, f), "utf8"))
+		.join("\n");
+	assert.ok(
+		jsonl.length > 0,
+		`no session JSONL written under ${sessionDir} — cannot verify marker persistence (check --session-dir support)`,
+	);
+	assert.ok(
+		jsonl.includes("[acp: preparing claude session]"),
+		"lifecycle notice text reached the persisted JSONL transcript (display-only, but still saved as assistant text)",
+	);
+	assert.ok(
+		jsonl.includes("pi-shell-acp:lifecycle-notice-v1"),
+		"the textSignature marker SURVIVED pi JSONL serialization — a `new` rebuild from a reloaded Context will still filter it (no replay, no signature drift)",
+	);
+
 	console.log("[smoke-acp-provider-live] PASS — pi provider path drove a live ACP turn through streamShellAcp");
-	console.log(`  model:  ${PROVIDER}/${MODEL}`);
-	console.log(`  nonce:  ${expected} present in assistant reply`);
+	console.log(`  model:    ${PROVIDER}/${MODEL}`);
+	console.log(`  nonce:    ${expected} present in assistant reply`);
+	console.log("  progress: [acp: preparing…] → [acp: session ready…] → [acp: sending prompt] all visible");
+	console.log("  persist:  textSignature marker survived JSONL serialization (L3 round-trip closed)");
 } finally {
-	try {
-		rmSync(scratch, { recursive: true, force: true });
-	} catch {
-		// best-effort cleanup
+	for (const d of [scratch, sessionDir]) {
+		try {
+			rmSync(d, { recursive: true, force: true });
+		} catch {
+			// best-effort cleanup
+		}
 	}
 }

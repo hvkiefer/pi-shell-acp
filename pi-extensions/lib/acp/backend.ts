@@ -55,6 +55,7 @@ import {
 	applyAcpSessionUpdate,
 	createAcpStreamState,
 	finalizeAcpStreamState,
+	pushAcpLifecycleNotice,
 	pushPermissionNotice,
 } from "./event-mapper.js";
 import { claudeLaunchEnvDefaults, ensureClaudeConfigOverlay } from "./overlay.js";
@@ -548,6 +549,9 @@ export function streamAcpTurn(
 		try {
 			if (signal?.aborted) throw new Error("aborted before launch");
 
+			// S2f visibility: surface the otherwise-silent bootstrap so a slow
+			// overlay/spawn/init does not read as a hang. Display-only (marked).
+			pushAcpLifecycleNotice(state, "preparing claude session");
 			deps.ensureOverlay();
 			const launch = deps.resolveLaunch();
 			child = deps.spawnChild(launch, cwd);
@@ -652,6 +656,10 @@ export function streamAcpTurn(
 				SET_MODEL_TIMEOUT_MS,
 			);
 
+			// S2f visibility: the session is live and model-locked — the next gap is
+			// the prompt round-trip to the first token.
+			pushAcpLifecycleNotice(state, `session ready model=${model.id}`);
+
 			session.activePromptHandler = makePromptHandler(session);
 			// new session holds NO history → the full transcript is the only carrier.
 			const basePrompt = buildAcpPrompt(context, "new");
@@ -668,6 +676,10 @@ export function streamAcpTurn(
 				emacsAgentSocket: process.env.PI_EMACS_AGENT_SOCKET?.trim() || undefined,
 			});
 
+			// S2f visibility: about to send — say "sending" (not "sent") because the
+			// prompt could still sync-reject before the wire write; the next visible
+			// event after this is the backend's own first token / tool notice.
+			pushAcpLifecycleNotice(state, "sending prompt");
 			const promptResult = await withTimeout(
 				"prompt",
 				connection.prompt({ sessionId: acpSessionId, prompt }),
@@ -717,6 +729,9 @@ export function streamAcpTurn(
 		try {
 			if (signal?.aborted) throw new Error("aborted before prompt");
 
+			// S2f visibility: reuse skips spawn/init entirely — say so, otherwise a
+			// resident turn looks identical to a cold start that stalled.
+			pushAcpLifecycleNotice(state, "reusing live session");
 			session.busy = true;
 			session.activePromptHandler = makePromptHandler(session);
 			if (signal) {
@@ -729,6 +744,8 @@ export function streamAcpTurn(
 			const prompt = buildAcpPrompt(context, "reuse");
 			if (prompt.length === 0) throw new Error("empty delta — a reuse turn has no new user message");
 
+			// S2f visibility: about to send the delta to the resident child.
+			pushAcpLifecycleNotice(state, "sending prompt");
 			const promptResult = await withTimeout(
 				"prompt",
 				session.connection.prompt({ sessionId: session.acpSessionId, prompt }),

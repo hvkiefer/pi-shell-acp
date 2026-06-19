@@ -19,6 +19,14 @@
 
 import type { AssistantMessage, Context, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 
+// MUST equal event-mapper.ts `LIFECYCLE_NOTICE_SIGNATURE` (the SSOT/producer).
+// It is mirrored, not imported: the strip-types deterministic gates load these
+// lib files by their `.ts` source and cannot resolve a cross-sibling VALUE
+// import (`./event-mapper.js`) — the lib modules share TYPES only. The mirror is
+// kept honest behaviorally by check-acp-session-reuse (a drift would leave the
+// `[acp: …]` notices in the captured ACP prompt and fail the gate).
+const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+
 /** An ACP text content block. */
 export interface AcpTextBlock {
 	type: "text";
@@ -44,10 +52,16 @@ function textFromAssistantContent(content: AssistantMessage["content"]): string 
 	// Assistant text only — thinking is omitted and tool calls are not replayed
 	// (the ACP child executes its own tools; replaying structured calls would be
 	// a lie). Tool RESULTS still appear via their own toolResult message below.
-	return content
-		.filter((c): c is { type: "text"; text: string; textSignature?: string } => c.type === "text")
-		.map((c) => c.text)
-		.join("");
+	return (
+		content
+			.filter((c): c is { type: "text"; text: string; textSignature?: string } => c.type === "text")
+			// Drop S2f lifecycle progress notices (`[acp: …]`): display-only, stamped
+			// with LIFECYCLE_NOTICE_SIGNATURE. Replaying them into a `new` rebuild's
+			// full transcript would inject bridge-internal chatter into the ACP prompt.
+			.filter((c) => c.textSignature !== LIFECYCLE_NOTICE_SIGNATURE)
+			.map((c) => c.text)
+			.join("")
+	);
 }
 
 /** Render one pi message as a transcript line, or undefined to skip it. */

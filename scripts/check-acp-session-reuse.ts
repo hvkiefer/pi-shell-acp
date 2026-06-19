@@ -30,7 +30,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Api, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessageEvent, Context, Message, Model } from "@earendil-works/pi-ai";
 
 const sonnet = { id: "claude-sonnet-4-6" } as unknown as Model<Api>;
 const opus = { id: "claude-opus-4-8" } as unknown as Model<Api>;
@@ -154,6 +154,29 @@ function makeHarness(recordDir: string) {
 			block = p;
 		},
 	};
+}
+
+const ZERO_USAGE = {
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+/** An assistant message with arbitrary content blocks (S2f signature/replay tests). */
+function mkAssistant(content: Array<{ type: "text"; text: string; textSignature?: string }>): Message {
+	return {
+		role: "assistant",
+		content,
+		api: "x",
+		provider: "x",
+		model: "x",
+		usage: ZERO_USAGE,
+		stopReason: "stop",
+		timestamp: 0,
+	} as unknown as Message;
 }
 
 // A multi-turn (reuse-shaped) context: a prior user, an assistant, a new user.
@@ -384,6 +407,102 @@ try {
 	}
 
 	// ----------------------------------------------------------------------
+	// Section F — S2f progress visibility: lifecycle notices are emitted in the
+	//             right order, are display-only (NEVER replayed into a `new`
+	//             full-transcript ACP prompt), and do NOT perturb the reuse
+	//             signature. Without these the "output-side only" claim is L0.
+	// ----------------------------------------------------------------------
+	{
+		const contextUrl = pathToFileURL(resolve(TMP_EMIT, "pi-extensions/lib/acp/context.js")).href;
+		const eventUrl = pathToFileURL(resolve(TMP_EMIT, "pi-extensions/lib/acp/event-mapper.js")).href;
+		const ctxMod = (await import(contextUrl)) as any;
+		const eventMod = (await import(eventUrl)) as any;
+		const MARKER: string = eventMod.LIFECYCLE_NOTICE_SIGNATURE;
+		assert.equal(typeof MARKER, "string", "event-mapper exports the lifecycle marker (SSOT)");
+		// The two consumer mirrors MUST equal the producer SSOT (strip-types gates
+		// forbid a cross-sibling value import, so the constant is mirrored). A drift
+		// is what F3/F5 below would catch behaviorally; this is the direct check.
+		assert.ok(
+			readFileSync("pi-extensions/lib/acp/context.ts", "utf8").includes(`"${MARKER}"`),
+			"context.ts mirrors the lifecycle marker exactly (no drift)",
+		);
+		assert.ok(
+			readFileSync("pi-extensions/lib/acp/session-store.ts", "utf8").includes(`"${MARKER}"`),
+			"session-store.ts mirrors the lifecycle marker exactly (no drift)",
+		);
+
+		// F1: new-turn notice order — preparing → session ready → prompt sent.
+		const h = makeHarness(recordDir);
+		const t1 = await collect(
+			backend.streamAcpTurn(
+				sonnet,
+				{ messages: [{ role: "user", content: "hi NONCE-F", timestamp: 0 }] },
+				{ sessionId: "gate-F" },
+				h.deps,
+			) as Stream,
+		);
+		const d1 = deltaText(t1);
+		const iPrep = d1.indexOf("[acp: preparing claude session]");
+		const iReady = d1.indexOf("[acp: session ready model=claude-sonnet-4-6]");
+		const iSent = d1.indexOf("[acp: sending prompt]");
+		assert.ok(
+			iPrep >= 0 && iReady > iPrep && iSent > iReady,
+			"new turn emits preparing → session ready(model) → sending prompt, in order (no silent bootstrap)",
+		);
+
+		// F2: reuse-turn notice — reusing → prompt sent, and NO spawn re-announce.
+		const t2 = await collect(
+			backend.streamAcpTurn(sonnet, reuseCtx("hi NONCE-F", "again NONCE-G"), { sessionId: "gate-F" }, h.deps) as Stream,
+		);
+		const d2 = deltaText(t2);
+		const iReuse = d2.indexOf("[acp: reusing live session]");
+		const iSent2 = d2.indexOf("[acp: sending prompt]");
+		assert.ok(iReuse >= 0 && iSent2 > iReuse, "reuse turn emits reusing → sending prompt, in order");
+		assert.ok(!d2.includes("[acp: preparing"), "reuse turn does NOT re-announce spawn/preparing (it skipped them)");
+
+		// F3: lifecycle notices NEVER reach the ACP wire — display-only, not replayed.
+		assert.ok(
+			h.promptCalls.every((p) => !p.text.includes("[acp:")),
+			"no captured ACP prompt carries a lifecycle notice (display-only, never on the wire)",
+		);
+
+		// F4: a `new` full-transcript rebuild DROPS a lifecycle-marked assistant block
+		// (context.ts filter) while keeping the real transcript text.
+		const ctxWithNotice: Context = {
+			messages: [
+				{ role: "user", content: "real user line", timestamp: 0 },
+				mkAssistant([
+					{ type: "text", text: "\n[acp: session ready model=claude-sonnet-4-6]\n", textSignature: MARKER },
+					{ type: "text", text: "real assistant line" },
+				]),
+			],
+		};
+		const built = ctxMod
+			.buildAcpPrompt(ctxWithNotice, "new")
+			.map((b: { text: string }) => b.text)
+			.join("\n");
+		assert.ok(!built.includes("[acp:"), "buildAcpPrompt('new') drops lifecycle-marked blocks (no transcript replay)");
+		assert.ok(
+			built.includes("real assistant line") && built.includes("real user line"),
+			"buildAcpPrompt('new') keeps the real transcript text",
+		);
+
+		// F5: a lifecycle-marked block does NOT change the reuse-compat signature —
+		// the per-message signature is identical with and without the notice.
+		const ctxNoNotice: Context = {
+			messages: [
+				{ role: "user", content: "real user line", timestamp: 0 },
+				mkAssistant([{ type: "text", text: "real assistant line" }]),
+			],
+		};
+		assert.deepEqual(
+			store.contextMessageSignatures(ctxWithNotice),
+			store.contextMessageSignatures(ctxNoNotice),
+			"a lifecycle notice is signature-invariant (display-only does not perturb reuse compatibility)",
+		);
+	}
+
+	// ----------------------------------------------------------------------
 	// Section C — source-shape locks
 	// ----------------------------------------------------------------------
 	{
@@ -428,5 +547,6 @@ console.log(
 		"resumed in 1b-2b; concurrent prompts fail loud BOTH on a retained busy session AND on a same-key first-turn race " +
 		"(no double spawn); incompatible existing → new closes the old child (no orphan) while a model-lock throw leaves " +
 		"the live child alive + reusable; source locks buildAcpPrompt wiring + single-site applyAcpSessionUpdate + unref + " +
-		"in-flight claim",
+		"in-flight claim; S2f progress notices emit in order (new: preparing→ready→sending prompt / reuse: reusing→sending " +
+		"prompt), are display-only (never on the ACP wire, dropped from a `new` rebuild, signature-invariant)",
 );

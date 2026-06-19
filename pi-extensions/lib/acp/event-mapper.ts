@@ -252,6 +252,36 @@ export function pushPermissionNotice(state: AcpPiStreamState, title: string, dec
 }
 
 /**
+ * The textSignature marker stamped on lifecycle progress notices (S2f). It is
+ * what lets the transcript flatten (context.ts) and the reuse-compat signature
+ * (session-store.ts) EXCLUDE these blocks: a lifecycle notice is display-only —
+ * it must never replay into an ACP prompt nor perturb a reuse signature, whether
+ * present or absent. Without the marker the "output-side only" claim is L0 hope.
+ */
+export const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+
+/**
+ * Push a one-line ACP turn-lifecycle progress notice (`[acp: …]`) as its own
+ * text block, stamped with LIFECYCLE_NOTICE_SIGNATURE. Two ways it differs from
+ * tool/permission notices:
+ *   1. It IGNORES `showToolNotifications`. Turn progress is ALWAYS visible — a
+ *      silent bootstrap (overlay → spawn → init → newSession → setModel → first
+ *      token) reads as a hang. Only the verbose tool stream is suppressible.
+ *   2. The marker keeps it display-only — out of the transcript replay and the
+ *      reuse-compat signature (the two consumers filter on the signature).
+ */
+export function pushAcpLifecycleNotice(state: AcpPiStreamState, text: string): void {
+	const line = `\n[acp: ${sanitizeNoticeFragment(text, NOTICE_TITLE_MAX)}]\n`;
+	closeThinkingBlock(state);
+	closeTextBlock(state);
+	const index = state.output.content.length;
+	state.output.content.push({ type: "text", text: line, textSignature: LIFECYCLE_NOTICE_SIGNATURE });
+	state.stream.push({ type: "text_start", contentIndex: index, partial: state.output });
+	state.stream.push({ type: "text_delta", contentIndex: index, delta: line, partial: state.output });
+	state.stream.push({ type: "text_end", contentIndex: index, content: line, partial: state.output });
+}
+
+/**
  * Apply one ACP `session_notification` update to the stream state. Unknown
  * update kinds are ignored (forward-compatible).
  */

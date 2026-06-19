@@ -30,6 +30,13 @@ import { join } from "node:path";
 import type { Context, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AcpBootstrapPath } from "./context.js";
 
+// MUST equal event-mapper.ts `LIFECYCLE_NOTICE_SIGNATURE` (the SSOT/producer).
+// Mirrored, not imported — the strip-types gates load this file by its `.ts`
+// source and cannot resolve a cross-sibling VALUE import; lib modules share
+// TYPES only. check-acp-session-reuse enforces equality behaviorally (a drift
+// would let display-only notices perturb the reuse-compat signature).
+const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+
 /** sha256 hex digest. Used so on-disk records carry digests, never raw prompt text. */
 function sha256(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
@@ -155,23 +162,37 @@ export function bridgeConfigSignature(input: BridgeConfigInput): string {
 function messageContentSignature(content: unknown): string {
 	if (typeof content === "string") return `text:${content}`;
 	if (!Array.isArray(content)) return "";
-	return content
-		.map((block: Record<string, unknown>) => {
-			if (!block || typeof block !== "object") return "";
-			switch (block.type) {
-				case "text":
-					return `text:${String(block.text ?? "")}`;
-				case "image":
-					return `image:${String(block.mimeType ?? "")}`;
-				case "thinking":
-					return `thinking:${String(block.thinking ?? "")}`;
-				case "toolCall":
-					return `tool:${String(block.name ?? "")}:${JSON.stringify(block.arguments ?? {})}`;
-				default:
-					return `${String(block.type ?? "unknown")}:${JSON.stringify(block)}`;
-			}
-		})
-		.join("|");
+	return (
+		content
+			// Exclude S2f lifecycle progress notices ENTIRELY (not as an empty entry) so
+			// the per-message signature is byte-identical whether or not display-only
+			// `[acp: …]` blocks were appended to this assistant message. A null/empty
+			// map entry would shift the `|`-join and perturb the prefix-compat check.
+			.filter(
+				(block) =>
+					!(
+						block &&
+						typeof block === "object" &&
+						(block as { textSignature?: unknown }).textSignature === LIFECYCLE_NOTICE_SIGNATURE
+					),
+			)
+			.map((block: Record<string, unknown>) => {
+				if (!block || typeof block !== "object") return "";
+				switch (block.type) {
+					case "text":
+						return `text:${String(block.text ?? "")}`;
+					case "image":
+						return `image:${String(block.mimeType ?? "")}`;
+					case "thinking":
+						return `thinking:${String(block.thinking ?? "")}`;
+					case "toolCall":
+						return `tool:${String(block.name ?? "")}:${JSON.stringify(block.arguments ?? {})}`;
+					default:
+						return `${String(block.type ?? "unknown")}:${JSON.stringify(block)}`;
+				}
+			})
+			.join("|")
+	);
 }
 
 /**
