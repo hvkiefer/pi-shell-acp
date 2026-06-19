@@ -16,7 +16,7 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Api, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
@@ -60,14 +60,40 @@ try {
 	assert.match(overflowHint, /context-window overflow/, "hint names the overflow");
 	assert.match(overflowHint, /persisted resume|window/, "hint names the follow-up root fix");
 	assert.match(overflowHint, /locks the model, not resume/, "hint keeps resume legitimate");
-	assert.equal(
-		mod.actionableAcpBackendHint("connect ECONNREFUSED /tmp/acp.sock"),
-		undefined,
-		"an unrelated failure must NOT be misclassified as overflow",
-	);
+	// AMBER1 (GPT review): the hint must NOT assert "turn-scoped" outright — finishError also
+	// runs on a resident's first/incompatible turn. It says "FRESH ACP backend session" instead.
+	assert.match(overflowHint, /fresh ACP backend session/i, "hint does not over-assert turn-scoped");
+	assert.doesNotMatch(overflowHint, /this is a turn-scoped session/, "hint dropped the false-on-resident wording");
+	// Positive corpus — real Anthropic overflow phrasings (FN coverage, GPT review).
 	assert.ok(
 		mod.actionableAcpBackendHint("Error: input is too long for the context window"),
 		"context-window phrasing also classifies",
+	);
+	assert.ok(
+		mod.actionableAcpBackendHint("Please reduce the length of the messages or completion."),
+		"the 'reduce the length' overflow guidance also classifies",
+	);
+	// Negative corpus — unrelated failures must NOT be misclassified as overflow. More than one
+	// case so the "no misclassification" claim is honestly bounded (GPT review: ECONNREFUSED alone
+	// over-claims). These deliberately include near-miss words (exceeded / too many / denied).
+	for (const benign of [
+		"connect ECONNREFUSED /tmp/acp.sock",
+		"rate limit exceeded (429 Too Many Requests)",
+		"spawn claude ENOENT",
+		"permission denied reading credentials",
+	]) {
+		assert.equal(mod.actionableAcpBackendHint(benign), undefined, `must NOT misclassify: ${benign}`);
+	}
+
+	// Seam guard (GPT review): finishError must call the classifier and must GATE it on
+	// `aborted` (an aborted turn gets no overflow hint — abort is not an overflow). A source
+	// guard, not a behavioral harness: the wiring is a one-liner and the classifier itself is
+	// proven above, so this proves the integration without driving a fake overflowing turn.
+	const backendSrc = readFileSync(resolve("pi-extensions/lib/acp/backend.ts"), "utf8");
+	assert.match(
+		backendSrc,
+		/aborted\s*\?\s*undefined\s*:\s*actionableAcpBackendHint\(/,
+		"finishError gates the overflow hint on `aborted` (no hint on abort) and calls the classifier",
 	);
 
 	const stream = mod.streamShellAcp(model, context);

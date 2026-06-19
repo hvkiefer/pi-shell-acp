@@ -394,16 +394,18 @@ const ACP_CONTEXT_OVERFLOW_SIGNATURES: readonly RegExp[] = [
 	/(?:maximum|max) context/i,
 	/context (?:window|length)/i,
 	/too many (?:input )?tokens/i,
-	/exceeds? the (?:maximum|context|model)/i,
+	/exceeds? the (?:maximum|context)/i,
+	/reduce the length of/i,
 ];
 
 export function actionableAcpBackendHint(message: string): string | undefined {
 	if (!ACP_CONTEXT_OVERFLOW_SIGNATURES.some((re) => re.test(message))) return undefined;
 	return [
 		"[acp] likely context-window overflow — the backend model rejected the input as too long.",
-		"  Why: this is a turn-scoped session (no --entwurf-control), so every turn resends the FULL",
-		"       transcript + augment as one prompt; a long or resumed conversation can exceed the",
-		"       backend model's input window. (Resume is legitimate — pi-shell-acp locks the model, not resume.)",
+		"  Why: this turn used a FRESH ACP backend session (common in a turn-scoped / no --entwurf-control",
+		"       session, but also a resident's first or incompatible turn), so it resent the FULL transcript",
+		"       + augment as one prompt; a long or resumed conversation can exceed the backend model's input",
+		"       window. (Resume is legitimate — pi-shell-acp locks the model, not resume.)",
 		"  Now: start a fresh or shorter session to get unblocked.",
 		"  Root fix (follow-up): persisted resume (delta-only) or a window/summary policy.",
 	].join("\n");

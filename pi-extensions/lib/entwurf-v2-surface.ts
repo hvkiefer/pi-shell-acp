@@ -99,7 +99,8 @@ export function actionableRejectHint(reason: string): string | undefined {
 			// owned-outcome has nothing to own. Replies go to the mailbox via fire-and-forget.
 			return (
 				"meta-session backend has no liveness predicate → owned-outcome is unsupported. " +
-				"To reply, dispatch with intent: fire-and-forget — it routes to the meta-mailbox (enqueue + doorbell). " +
+				"To reply, dispatch with intent: fire-and-forget — it routes to the meta-mailbox when a " +
+				"deliverable/active receiver is armed (else it fail-closes as mailbox-undeliverable). " +
 				"(Intent is not auto-converted; you choose it.)"
 			);
 		case "owned-live-no-autosend":
