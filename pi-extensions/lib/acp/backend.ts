@@ -372,6 +372,43 @@ function persistRecord(session: BridgeSession, deps: AcpTurnDeps): void {
 	}
 }
 
+// Detour A (A-c) — actionable rendering of a context-window overflow.
+//
+// An interactive / one-shot pi-shell-acp turn is `turn-scoped`, so it is ALWAYS
+// `new`: every turn spawns a fresh ACP child and resends the FULL transcript +
+// first-user augment as one prompt (there is no persisted resume yet — that is
+// the deferred 1b-2c lane). A long, or resumed, conversation can therefore
+// exceed the backend model's input window, which the backend returns as a
+// terse 400 the operator sees only as "API Error". This pure classifier turns
+// that into an honest, actionable hint. It does NOT change routing or suppress
+// the error — it only makes the broken state legible (Code Principle: surface
+// broken tool state AS broken).
+//
+// Resume itself is legitimate — pi-shell-acp locks the MODEL, not resume — so
+// the hint never tells the operator to stop resuming; it names the real cause
+// (turn-scoped full-transcript replay) and the real follow-up fix.
+const ACP_CONTEXT_OVERFLOW_SIGNATURES: readonly RegExp[] = [
+	/prompt is too long/i,
+	/input (?:is )?too long/i,
+	/input length and `?max_tokens`? exceed/i,
+	/(?:maximum|max) context/i,
+	/context (?:window|length)/i,
+	/too many (?:input )?tokens/i,
+	/exceeds? the (?:maximum|context|model)/i,
+];
+
+export function actionableAcpBackendHint(message: string): string | undefined {
+	if (!ACP_CONTEXT_OVERFLOW_SIGNATURES.some((re) => re.test(message))) return undefined;
+	return [
+		"[acp] likely context-window overflow — the backend model rejected the input as too long.",
+		"  Why: this is a turn-scoped session (no --entwurf-control), so every turn resends the FULL",
+		"       transcript + augment as one prompt; a long or resumed conversation can exceed the",
+		"       backend model's input window. (Resume is legitimate — pi-shell-acp locks the model, not resume.)",
+		"  Now: start a fresh or shorter session to get unblocked.",
+		"  Root fix (follow-up): persisted resume (delta-only) or a window/summary policy.",
+	].join("\n");
+}
+
 /**
  * streamSimple for the pi-shell-acp provider. Returns the event stream
  * synchronously and drives the ACP turn on a microtask.
@@ -436,7 +473,12 @@ export function streamAcpTurn(
 		state.output.stopReason = aborted ? "aborted" : "error";
 		const base = err instanceof Error ? err.message : String(err);
 		const tail = (stderrTail ?? []).join("").trim().slice(-1_000);
-		state.output.errorMessage = tail ? `${base}\n--- backend stderr (tail) ---\n${tail}` : base;
+		const full = tail ? `${base}\n--- backend stderr (tail) ---\n${tail}` : base;
+		// A-c: a real failure (not an abort) that looks like a context-window
+		// overflow gets an actionable hint appended, so "API Error" stops hiding
+		// the turn-scoped full-transcript-replay cause.
+		const hint = aborted ? undefined : actionableAcpBackendHint(full);
+		state.output.errorMessage = hint ? `${full}\n\n${hint}` : full;
 		stream.push({ type: "error", reason: aborted ? "aborted" : "error", error: state.output });
 		stream.end();
 	}

@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EntwurfV2RunResult } from "../pi-extensions/lib/entwurf-v2-runner.ts";
 import {
+	actionableRejectHint,
 	ENTWURF_PREFIX_ROOTS_ENV,
 	parseEntwurfPrefixRootsEnv,
 	renderEntwurfV2Result,
@@ -203,6 +204,34 @@ async function main(): Promise<void> {
 			retrySafe: false,
 		};
 		ok("2: plain execution-failed → isError", renderEntwurfV2Result(failed).isError);
+
+		// Detour B (B-a): backend-liveness-unsupported reject → still a reject (isError),
+		// but the text carries the actionable "use fire-and-forget → mailbox" hint. The
+		// reject stays honest (reason unchanged, no auto-convert) — only the render guides.
+		const metaReject: EntwurfV2RunResult = {
+			kind: "rejected",
+			receipt: { ok: false, reason: "backend-liveness-unsupported", observedLiveness: "unsupported" },
+		};
+		const mr = renderEntwurfV2Result(metaReject);
+		ok(
+			"2: backend-liveness-unsupported reject → isError + actionable fire-and-forget/mailbox hint",
+			mr.isError &&
+				mr.text.includes("backend-liveness-unsupported") &&
+				mr.text.includes("fire-and-forget") &&
+				mr.text.includes("mailbox"),
+		);
+		ok(
+			"2B: actionableRejectHint guides meta-session owned → fire-and-forget mailbox",
+			(actionableRejectHint("backend-liveness-unsupported") ?? "").includes("fire-and-forget"),
+		);
+		ok(
+			"2B: actionableRejectHint guides owned-live → fire-and-forget",
+			(actionableRejectHint("owned-live-no-autosend") ?? "").includes("fire-and-forget"),
+		);
+		ok(
+			"2B: actionableRejectHint returns undefined for a reject with no next step",
+			actionableRejectHint("bad-target") === undefined,
+		);
 	}
 
 	// ── 6: parseEntwurfPrefixRootsEnv (5d-4b operator-policy SSOT) ─────────────

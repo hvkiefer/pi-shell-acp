@@ -48,7 +48,27 @@ try {
 		) => AsyncIterable<AssistantMessageEvent> & {
 			result: () => Promise<{ stopReason: string; errorMessage?: string }>;
 		};
+		actionableAcpBackendHint: (message: string) => string | undefined;
 	};
+
+	// Detour A (A-c): the pure context-overflow classifier turns a terse backend
+	// 400 into an actionable hint, WITHOUT changing routing or hiding the error.
+	// Resume must stay legitimate, so the hint names the turn-scoped full-transcript
+	// cause and never tells the operator to stop resuming.
+	const overflowHint = mod.actionableAcpBackendHint("prompt is too long: 215345 tokens > 200000 maximum");
+	assert.ok(overflowHint, "a 'prompt is too long' 400 must classify as a context-overflow hint");
+	assert.match(overflowHint, /context-window overflow/, "hint names the overflow");
+	assert.match(overflowHint, /persisted resume|window/, "hint names the follow-up root fix");
+	assert.match(overflowHint, /locks the model, not resume/, "hint keeps resume legitimate");
+	assert.equal(
+		mod.actionableAcpBackendHint("connect ECONNREFUSED /tmp/acp.sock"),
+		undefined,
+		"an unrelated failure must NOT be misclassified as overflow",
+	);
+	assert.ok(
+		mod.actionableAcpBackendHint("Error: input is too long for the context window"),
+		"context-window phrasing also classifies",
+	);
 
 	const stream = mod.streamShellAcp(model, context);
 	const events: AssistantMessageEvent[] = [];
@@ -79,5 +99,6 @@ try {
 
 console.log(
 	"[check-acp-backend-preflight] ok — streamShellAcp runs assertExcludeToolsHonored before spawn; a declared-vs-actual " +
-		"tool-surface lie fails fast into the stream as an error event (no backend launched, no done)",
+		"tool-surface lie fails fast into the stream as an error event (no backend launched, no done); " +
+		"actionableAcpBackendHint (A-c) classifies a context-window 400 into an actionable hint without misclassifying unrelated failures",
 );
