@@ -75,8 +75,12 @@ export const OVERLAY_PASSTHROUGH: ReadonlySet<string> = new Set([
 /**
  * Directories owned by the overlay itself (empty trees). The binary
  * auto-creates and writes per-cwd state under these; an empty overlay-scoped
- * tree keeps operator data at ~/.claude/{projects,sessions} unread/unwritten
- * AND closes the auto-memory leak (missing-path-graceful → injects nothing).
+ * tree keeps operator data at ~/.claude/{projects,sessions} unread/unwritten.
+ * Memory containment is NOT provided by this directory shape alone: if the
+ * backend preset advertises project memory, Claude can still write overlay-local
+ * projects/<cwd>/memory files. The engraving carrier's tiny non-empty preset
+ * replacement strips that advertisement; the empty tree is read-isolation and
+ * defense-in-depth, not the primary write-containment lever.
  */
 export const OVERLAY_EMPTY_DIRS: ReadonlySet<string> = new Set(["projects", "sessions"]);
 
@@ -96,7 +100,8 @@ export const OVERLAY_BINARY_OWNED: ReadonlySet<string> = new Set([".claude.json"
  *     "auto"; combined with the explicit `tools`/`permissionAllow` surface,
  *     "default" auto-passes every tool we expose without prompts.
  *   - `autoMemoryEnabled: false` — SDK opt-out for auto-memory (defense in
- *     depth; the empty `projects/` tree is the real closure).
+ *     depth; the tiny non-empty engraving/preset replacement is the primary
+ *     write-containment lever for Claude ACP).
  *   - `hooks: {}` — configured-but-empty (NOT absent): inherits no operator
  *     hook (mailbox absence by design) while keeping the compaction turn honest.
  */

@@ -7,11 +7,12 @@
 // NOT via `_meta.systemPrompt`.
 //
 // Why first-user-message and not the carrier (NEXT §S2-scout 핀1, oracle A):
-// growing `_meta.systemPrompt` past the SDK-default shape reclassifies a
+// growing `_meta.systemPrompt` materially past the SDK-default size reclassifies a
 // subscription call as metered → HTTP 400. A long FIRST USER MESSAGE is
 // structurally identical to any other user prompt and does not touch billing
 // classification, so the rich context rides here while engraving.ts keeps the
-// carrier tiny.
+// carrier tiny (a small non-empty string whose real job is replacing the preset
+// to strip auto-memory, not carrying context).
 //
 // once-only (NEXT §S2d gate ②, GPT c32a6c8): this augment is prepended to the
 // `new` prompt ONLY. `new` happens exactly once per ACP session lifecycle

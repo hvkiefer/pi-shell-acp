@@ -23,10 +23,11 @@
 //     the record is WRITTEN (so 1b-2c can use it) but never READ/used here, and no
 //     resume/load capability is passed to decideBootstrap.
 //   - S2d-1c carrier + augment: the engraving carrier (`_meta.systemPrompt`,
-//     SHORT, EMPTY by default → absent) feeds BOTH the config signature and the
-//     session meta from one rendered string; the rich first-user augment (bridge
-//     identity + AGENTS + pi base) is prepended to the `new` prompt ONLY, on the
-//     wire, so it never enters the reuse-compat signature.
+//     SHORT, NON-EMPTY by default → v1 preset-replacement memory-containment
+//     lever) feeds BOTH the config signature and the session meta from one
+//     rendered string; the rich first-user augment (bridge identity + AGENTS + pi
+//     base) is prepended to the `new` prompt ONLY, on the wire, so it never enters
+//     the reuse-compat signature.
 //
 // CRITICAL — mutable activePromptHandler routing: a retained ClientSideConnection
 // outlives the turn, so its sessionUpdate/requestPermission callbacks must NOT
@@ -521,14 +522,16 @@ export function streamAcpTurn(
 
 		const policy = deps.lifecyclePolicy();
 		const sessionKey = resolveSessionKey(opts, cwd);
-		// Billing carrier (S2d-1c): SHORT operator-authored system-prompt additions,
-		// EMPTY by default → null → carrier absent. The SAME rendered string feeds
-		// BOTH the config signature (appendSystemPrompt) and _meta.systemPrompt (in
-		// runNewTurn), so a carrier change invalidates reuse; loadEngraving is pure
-		// (no clock/random/env) so the signature stays a per-(model,template)
-		// constant and does NOT rebuild every turn (NEXT §S2-scout 핀1 / oracle C,
-		// GPT c32a6c8 ②). null → "" keeps a carrier-absent run byte-identical to 1b-2b.
-		// mcpServerNames feed the carrier so `{{mcp_servers}}` lists the real set.
+		// Billing/memory carrier (S2d-1c): SHORT operator-authored system-prompt
+		// additions. The shipped default is NON-empty → tiny string carrier →
+		// claude_code preset replacement, which strips auto-memory. The SAME rendered
+		// string feeds BOTH the config signature (appendSystemPrompt) and
+		// _meta.systemPrompt (in runNewTurn), so a carrier change invalidates reuse;
+		// loadEngraving is pure (no clock/random/env) so the signature stays a
+		// per-(model,template) constant and does NOT rebuild every turn (NEXT
+		// §S2-scout 핀1 / oracle C, GPT c32a6c8 ②). null → "" is the explicit
+		// operator opt-out branch. mcpServerNames feed the carrier so
+		// `{{mcp_servers}}` lists the real set.
 		const engraving = loadEngraving({ backend: "claude", mcpServerNames: serverNames });
 		// S2g: the signature folds the FULL resolved config (mcpServersHash + tool
 		// surface + skillPlugins + flags) so any operator config change invalidates

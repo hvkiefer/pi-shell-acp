@@ -1,8 +1,9 @@
 // Deterministic gate for the S2b Claude tool surface + truthfulness preflight.
 //
 // Matrix over assertExcludeToolsHonored (the preflight truthfulness check — NOT
-// a wire read) and a shape lock on buildClaudeSessionMeta, including the S2b
-// billing-carrier guard (no _meta.systemPrompt unless a caller passes one).
+// a wire read) and a shape lock on buildClaudeSessionMeta, including the carrier
+// absent-branch guard (no _meta.systemPrompt unless a caller passes one). The
+// shipped path passes the non-empty v1 engraving from loadEngraving.
 //
 // Pure/deterministic — IN pnpm check.
 
@@ -113,8 +114,9 @@ assert.deepEqual(
 	"non-empty disallowedTools must propagate",
 );
 
-// S2b billing-carrier guard: NO systemPrompt unless a caller supplies one.
-assert.ok(!("systemPrompt" in meta), "S2b meta must NOT carry _meta.systemPrompt (billing carrier stays absent)");
+// Carrier contract: NO systemPrompt key unless a caller supplies one (the absent
+// opt-out branch; the shipped default DOES supply the non-empty v1 engraving lever).
+assert.ok(!("systemPrompt" in meta), "no-carrier-arg branch must omit _meta.systemPrompt (absent → no key)");
 
 // empty disallowedTools → field omitted entirely (full opt-out).
 const metaNoDisallow = buildClaudeSessionMeta({ ...baseParams, disallowedTools: [] });
@@ -142,5 +144,5 @@ assert.equal(metaCarrier.systemPrompt, "CARRIER", "an explicit carrier must pass
 
 console.log(
 	"[check-acp-tool-surface] ok — exclude-tools truthfulness matrix (claude narrows / native always-exposes / extension-free) " +
-		"+ buildClaudeSessionMeta shape (tools/allow/disallowed/extraArgs/plugins) + S2b no-carrier guard",
+		"+ buildClaudeSessionMeta shape (tools/allow/disallowed/extraArgs/plugins) + carrier absent-branch guard",
 );

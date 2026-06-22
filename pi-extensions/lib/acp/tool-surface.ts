@@ -15,10 +15,11 @@
 // the "claude narrows via tools" and "native always exposes" branches, but the
 // only backend this lane supplies is claude.
 //
-// S2b billing-carrier guard (NEXT §S2-scout 핀1): `buildClaudeSessionMeta` only
-// attaches `_meta.systemPrompt` when a caller passes one. S2b passes NONE — the
-// carrier stays absent so subscription billing is never reclassified as metered.
-// The rich-context-as-first-user-message path is S2d, not here.
+// Carrier guard (NEXT §S2-scout 핀1): `buildClaudeSessionMeta` only attaches
+// `_meta.systemPrompt` when a caller passes one. The shipped S2d path passes the
+// tiny non-empty engraving carrier (v1 preset replacement / memory containment);
+// an absent argument remains a true opt-out branch. Rich context is never carried
+// here — it rides the S2d first-user-message augment.
 
 /**
  * pi baseline tools (Claude-capitalized) — mirrors what pi advertises as
@@ -125,10 +126,13 @@ export interface ClaudeSessionMetaParams {
 /**
  * Build the `_meta` object handed to `newSession` for a Claude ACP session.
  *
- * `normalizedSystemPrompt` is OPTIONAL and OMITTED in S2b: when absent, the
- * result carries NO `systemPrompt` key, so claude-agent-acp keeps its default
- * preset and the billing carrier never grows (NEXT §S2-scout 핀1). The rich
- * identity/context path lands in S2d as a first-user-message prepend, not here.
+ * `normalizedSystemPrompt` is OPTIONAL. The SHIPPED default supplies it (the
+ * non-empty v1 engraving): a string carrier makes claude-agent-acp REPLACE its
+ * `claude_code` preset, stripping auto-memory (see engraving.ts). When absent
+ * (operator opt-out — emptied engraving), the result carries NO `systemPrompt`
+ * key and claude-agent-acp keeps its default preset. Either way the carrier stays
+ * SHORT so it never grows past the SDK-default size (NEXT §S2-scout 핀1). Rich
+ * identity/context rides a first-user-message prepend, never this carrier.
  */
 export function buildClaudeSessionMeta(
 	params: ClaudeSessionMetaParams,

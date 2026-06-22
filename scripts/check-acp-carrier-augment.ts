@@ -3,8 +3,9 @@
 // session lifecycle; THIS owns the two prompt-shaping surfaces.
 //
 // The two hard invariants it locks (NEXT §S2-scout 핀1 / §S2d gate ②③):
-//   - the carrier (`_meta.systemPrompt`) is SHORT, EMPTY by default, a PURE
-//     function of (template, backend, sorted mcpServerNames), and folds into
+//   - the carrier (`_meta.systemPrompt`) is SHORT, NON-EMPTY by default (the v1
+//     preset-replacement memory-containment lever), a PURE function of
+//     (template, backend, sorted mcpServerNames), and folds into
 //     bridgeConfigSignature so a carrier change invalidates reuse but a stable
 //     carrier never forces a per-turn rebuild;
 //   - the rich augment rides the `new` prompt on the WIRE only — never the pi
@@ -64,7 +65,7 @@ const BRIDGE_MARK = "operating through pi-shell-acp";
 }
 
 // ===========================================================================
-// 2) empty/whitespace/missing → null; shipped default → null;
+// 2) empty/whitespace/missing → null; shipped default → the non-empty v1 lever;
 //    buildClaudeSessionMeta omits the systemPrompt key when carrier absent
 // ===========================================================================
 {
@@ -97,16 +98,21 @@ const BRIDGE_MARK = "operating through pi-shell-acp";
 		else process.env.PI_SHELL_ACP_ENGRAVING_PATH = prev;
 	}
 
-	// No override → the shipped default prompts/engraving.md is EMPTY → null.
+	// No override → the shipped default prompts/engraving.md is NON-EMPTY (the v1
+	// engraving lever): a string carrier is emitted, which makes claude-agent-acp
+	// REPLACE its `claude_code` preset with this string (acp-agent.js: string-form
+	// `_meta.systemPrompt` → full preset replacement). That replacement is what
+	// strips the preset's auto-memory section so the model never learns it has a
+	// per-session memory store — the memory containment v1 shipped, restored here.
 	assert.equal(
 		loadEngraving({ backend: "claude", mcpServerNames: [] }),
-		null,
-		"shipped default engraving is empty → null",
+		"# Engraving Here",
+		"shipped default engraving is the non-empty v1 lever → string carrier (preset replaced, auto-memory stripped)",
 	);
 
 	// carrier absent (undefined) → NO systemPrompt key at all.
 	const metaAbsent = buildClaudeSessionMeta(metaParams, undefined);
-	assert.ok(!("systemPrompt" in metaAbsent), "carrier absent → _meta has NO systemPrompt key (billing-safe default)");
+	assert.ok(!("systemPrompt" in metaAbsent), "carrier absent opt-out → _meta has NO systemPrompt key");
 	// carrier present → the exact string is the systemPrompt.
 	const metaPresent = buildClaudeSessionMeta(metaParams, "tiny carrier");
 	assert.equal(metaPresent.systemPrompt, "tiny carrier", "carrier present → _meta.systemPrompt is the rendered string");
@@ -283,7 +289,7 @@ function ctxWith(firstUser: string): Context {
 
 console.log(
 	"[check-acp-carrier-augment] ok — engraving carrier: pure/deterministic, sorted mcp interpolation, " +
-		"empty/whitespace/missing/shipped-default → null, carrier absent → no _meta.systemPrompt key, carrier change → " +
+		"empty/whitespace/missing → null, shipped-default → non-empty v1 lever (preset replaced), carrier absent → no _meta.systemPrompt key, carrier change → " +
 		"signature change (stable carrier → stable signature); augment: prepended on `new` only (reuse delta has none), " +
 		"wire-only so it never enters contextMessageSignatures, entwurf cwd/AGENTS.md de-dup (present → drop only that " +
 		"section, home kept; absent → kept), day-granularity date, 50KB truncation marker",

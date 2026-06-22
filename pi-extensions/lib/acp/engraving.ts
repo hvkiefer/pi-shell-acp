@@ -6,13 +6,22 @@
 // narrative: that rich context rides the first-user-message augment (augment.ts)
 // because the system-prompt carrier MUST stay tiny.
 //
-// Why tiny (NEXT §S2-scout 핀1, oracle A — the most expensive hard-won rule):
-// Anthropic subscription billing (Claude Code OAuth, 정액제) classifies a call by
-// how close `_meta.systemPrompt` stays to the SDK-default shape. The moment the
-// carrier materially exceeds that shape (e.g. by injecting AGENTS.md or the pi
-// base prompt), the call is reclassified as metered "extra usage" → subscription
-// users with no metered balance get HTTP 400. So this surface stays SHORT, and
-// ships EMPTY by default (carrier absent) — operators opt in via the file or env.
+// Why a SMALL but NON-EMPTY default (the v1 memory-containment lever, restored):
+// shipping a non-empty string here makes claude-agent-acp REPLACE its
+// `claude_code` preset with this string (acp-agent.js: string-form
+// `_meta.systemPrompt` → full preset replacement). That replacement strips the
+// preset's auto-memory section, so the ACP model never learns it has a per-session
+// memory store — the containment the operator baseline depends on. An EMPTY
+// carrier keeps the preset and re-leaks auto-memory (the model writes memory/*.md
+// via Write): that regression is exactly what a non-empty default fixes.
+//
+// Billing axis is SIZE, not SHAPE (NEXT §S2-scout 핀1, oracle A): Anthropic
+// subscription billing (Claude Code OAuth, 정액제) reclassifies a call as metered
+// "extra usage" — HTTP 400 for users with no metered balance — when the carrier
+// materially GROWS past the SDK-default size (e.g. by injecting AGENTS.md or the
+// pi base prompt). A tiny placeholder string is shape-deviant yet v1-production-
+// safe, so the rule is keep the carrier SHORT, never "absent". Rich context still
+// rides the first-user-message augment (augment.ts), never this carrier.
 //
 // Stability contract (NEXT oracle C / 핀1): the rendered output MUST be a pure
 // function of (template content on disk, backend, mcpServerNames). No clock /
@@ -76,7 +85,8 @@ function interpolate(template: string, params: EngravingParams): string {
  * whitespace-only, missing, or unreadable. Callers MUST treat null as "no
  * carrier configured" and omit `_meta.systemPrompt` entirely (and pass "" as the
  * `appendSystemPrompt` signature input) so subscription billing is never
- * reclassified. Absence is the normal, default state.
+ * reclassified. The shipped default is NON-empty (the v1 memory-containment
+ * lever); null is the operator opt-out reached by emptying the file.
  */
 export function loadEngraving(params: EngravingParams): string | null {
 	const filePath = resolveEngravingPath();
