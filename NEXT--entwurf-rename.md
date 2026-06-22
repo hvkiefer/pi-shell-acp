@@ -93,6 +93,36 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 
 README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted continuity·config passthrough · **compaction 가드 docs-only — 5개 문서가 `assertLegacyCompactionKnobUnset`/`ALLOW_COMPACTION` 거부를 주장하나 코드에 없음**) + ROADMAP 하단 "legacy verbs maintained" historical 표기. `AGENTS.md`는 GLG rename 지시에 따라 S0.5에서 정책 정렬했고, 이후 source rename과 맞물리는 잔여 문자열만 결합 규칙으로 갱신.
 
+# Consumer (agent-config) lockstep map — S1 prep (ACP Claude 1차 나열 / GPT adversarial review 분담, 2026-06-22)
+
+> `~/repos/gh/agent-config` 실측. 23파일이 `pi-shell-acp`/`piShellAcp` 참조. **dirty baseline:** `pi/settings.server.json` M = `lastChangelogVersion` 0.79.6→0.79.8 (pi 런타임 자동 마커, rename 무관·benign) — S1 patch는 그 줄 비건드림.
+
+## S1 identity atom (repo S1과 같은 beat)
+- `pi/settings.json` + `pi/settings.server.json:14` `"piShellAcpProvider"` 블록 키 → `entwurfProvider`.
+- `pi/claude-plugin.json:3` description "pi-shell-acp Claude … `piShellAcpProvider`.skillPlugins" (소프트 docs+키 참조).
+
+## S2 bridge (`mcp__pi-tools-bridge` → `mcp__entwurf-bridge`)
+- `claude/settings.server.json:17` allow `"mcp__pi-tools-bridge__*"`.
+- `antigravity/mcp_config.json`+`.server.json`, `codex/config.toml:48` 서버명 `pi-tools-bridge` → `entwurf-bridge` (+ start.sh 경로는 아래 (f)).
+- README/AGENTS/CHANGELOG/NEXT(agent-config) docs 참조.
+
+## S3 env (consumer 자체 env)
+- `run.sh`: `PI_SHELL_ACP_DIR`·`PI_SHELL_ACP_INSTALL_SPEC`·`PI_SHELL_ACP_TRACKING_REF` → `ENTWURF_*`.
+- ⚠️ `PI_ENTWURF_BOT_TOKEN`(run.sh:639-655) = agent-config/telegram 자체 var. **pi-shell-acp가 읽나? 아니면 우리 repo rename 범위 밖(cross-repo 결정)** — 분류 필요(GPT review 포인트).
+
+## ★ (f) physical-path coupling — consumer S1을 GATE함 (GPT cut-choreography)
+GLG가 GitHub repo + 로컬 checkout dir를 rename하기 전엔 `entwurf`로 못 바꾸는 경로들:
+- `pi/settings*.json:11` `"../../repos/gh/pi-shell-acp"` (local package source path).
+- `pi/settings*.json:22` + MCP configs: `/home/junghan/repos/gh/pi-shell-acp/mcp/pi-tools-bridge/start.sh` (절대경로).
+- `run.sh`: checkout `~/repos/gh/pi-shell-acp` · pi-managed `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp` · `PI_SHELL_ACP_INSTALL_SPEC="git:github.com/junghan0611/pi-shell-acp"`(GitHub URL).
+- → 결론: **consumer S1 = repo S1 직후가 아니라 (f) physical rename과 같은 beat.** migration wrapper가 한 beat 동안 옛 경로 허용할지 stage 전 결정.
+
+## ★★ 역사데이터 coupling — consumer-side "keep-old" 클래스는 NON-empty (실측, repo 내부와 대조)
+repo 내부 negative-guard는 공집합이었으나 **consumer는 다르다 — 진짜 silent-break 부류 존재:**
+- `session-recap.py:172` `if "pi-shell-acp" in api or "pi-shell-acp" in provider or model.startswith("claude-")` — **기존 세션 JSONL의 provider 문자열 = "pi-shell-acp"**. 단순 치환하면 rename *이전* 모든 세션을 못 찾음(recall이 조용히 과거를 잃음).
+- `entwurf-peek.py:243`/`test-discovery.py` — 세션 헤더 provider 파싱 + `pi-shell-acp/claude-…` id 그래미. 동일.
+- → 이 consumer들은 **old(`pi-shell-acp`) OR new(`entwurf`) 둘 다 수용**해야 한다(역사 데이터는 불변 → 옛 문자열 못 지움). **일격 전 반드시 박을 것.**
+
 # 넘으면 안 되는 선
 
 - **아직 치환 시작 금지** — 「나열」 완성 + GLG 비준 후. 몇 번 더 조인다.
