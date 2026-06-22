@@ -1,23 +1,25 @@
-# AGENTS.md — Maintainer Guidelines for pi-shell-acp
+# AGENTS.md — Maintainer Guidelines for entwurf (currently pi-shell-acp during rename)
 
 For agents that own this repo: invariant principles + reproducible verification, not release-story drift.
 
-> **Direction (read first).** This repo is a **pi-native v2 dispatch substrate
-> (entwurf-core) + a meta-bridge + an ACP plugin**. v1 entwurf verbs are done
+> **Direction (read first).** This repo is the **entwurf capability package**:
+> a v2 garden-citizen dispatch substrate (entwurf-core) + a meta-bridge + an
+> ACP plugin + the pi adapter that hosts it today. v1 entwurf verbs are done
 > and gone; v2 is the spine. ACP is **not** the project's center — it is one
 > **plugin** that enters as a provider/model on a host `--entwurf-control`
 > pi session — which is *already* a v2 socket-citizen — rather than minting
-> citizens of its own (#38: *"ACP is a plugin, not the boundary."*). The package keeps the name `pi-shell-acp` —
-> ACP lives, so the name is honest; there is **no rename** (#38's eventual
-> `entwurf` package extraction is a deferred coordinate, not this work). The
-> transient current-state and the ACP re-implementation plan live in the branch
-> NEXT ([NEXT--acp-on-v2.md](./NEXT--acp-on-v2.md)); this file holds only what
-> does **not** change week-to-week. Fresh sibling minting (the old v1 `entwurf`
-> verb) stays deferred — see the branch NEXT.
+> citizens of its own (#38: *"ACP is a plugin, not the boundary."*). GLG has
+> decided to rename `pi-shell-acp` → `entwurf` in place: package/repo/runtime
+> identity follows the spine, while pi remains an adapter/runtime contract, not
+> the center. The deferred #38 coordinate is a later physical extraction of
+> entwurf-core into a separate repo, not this rename. The transient rename map
+> lives in the branch NEXT ([NEXT--entwurf-rename.md](./NEXT--entwurf-rename.md));
+> this file holds durable invariants. Fresh sibling minting (the old v1
+> `entwurf` verb) stays deferred — see the branch NEXT.
 
 ## North Star — One Forged Screwdriver
 
-`pi-shell-acp`를 만질 때 먼저 이 형상을 붙든다.
+`entwurf`(rename 전 현재 코드명 `pi-shell-acp`)를 만질 때 먼저 이 형상을 붙든다.
 이 저장소는 스위스 아미 나이프가 아니다. 두 번째 하네스도 아니다.
 이것은 **담금질된 드라이버 한 자루**다. 작고, 명시적이고, 자기가 맡은 접점에서만 강해야 한다.
 
@@ -26,7 +28,7 @@ For agents that own this repo: invariant principles + reproducible verification,
 
 ### 먼저 붙들 정체성
 
-- **pi가 하네스다.** 이 repo는 pi의 세션 모델, transcript, UI, tool semantics와 경쟁하지 않는다.
+- **entwurf가 주어이고 pi는 한 adapter다.** pi는 지금 이 repo가 가장 깊게 붙어 있는 하네스지만 4번째 하네스일 뿐이다. 이 repo는 pi의 세션 모델, transcript, UI, tool semantics와 경쟁하지 않는다.
 - **다른 하네스의 세션은 형제다.** Claude Code, Codex, Antigravity는 학교가 달라도 모두 frontier 친구들이다. meta-bridge는 그들을 garden id로 호명 가능한 citizen으로 등록할 뿐, 누구를 다른 누구로 위장시키지 않는다.
 - **표면은 달라도 능력의 존엄은 낮추지 않는다.** 어떤 backend에서 `mcp__...`가 직접 보이지 않는다고 해서, 곧바로 그 backend를 "못하는 존재"로 취급하지 마라. 먼저 capability를 보고, 그 capability가 어떤 surface로 열리는지 확인하라.
 - **substrate는 결정적 dispatch만 맡는다.** target liveness를 fact로 읽고, intent와 곱해 transport를 고른다. 그 이상 마술을 부리면 안 된다.
@@ -48,7 +50,7 @@ For agents that own this repo: invariant principles + reproducible verification,
 - 어떤 tool이 schema에 직접 안 보인다고 해서, 곧바로 "이 backend는 여기까지"라고 결론내리는 것
 - surface 차이를 capability 포기로 번역하는 것
 - 문서에 적힌 asymmetry를 면책조항처럼 사용하는 것
-- `pi-shell-acp`를 하네스 런타임이나 범용 AI 작업실로 설명하는 것 — pi가 하네스고, 이 repo는 dispatch substrate다
+- `entwurf`를 하네스 런타임이나 범용 AI 작업실로 설명하는 것 — pi가 하네스 중 하나이고, 이 repo는 garden-citizen dispatch capability다
 - MCP를 자동 맥락 검색이나 ambient tool scanning처럼 설명하는 것 — explicit injection만 허용된다
 - `entwurf_v2`를 "새 분신을 만드는 도구"로 설명하는 것 — v2의 3 transport는 전부 **기존** garden citizen 대상이다. fresh sibling 생성은 0.12.x로 연기된 별개 능력이다
 - 사용자가 이미 철학과 방향을 준 문제를 다시 사용자에게 되묻는 것
@@ -58,11 +60,11 @@ For agents that own this repo: invariant principles + reproducible verification,
 
 ## What This Repo Is
 
-A **pi-native garden-citizen dispatch substrate** + a **meta-bridge** + an **ACP plugin**. Pi stays the harness; every addressed session keeps its own identity.
+An **entwurf garden-citizen dispatch substrate** + a **meta-bridge** + an **ACP plugin** + a **pi adapter**. Pi stays a harness/runtime, not the project center; every addressed session keeps its own identity.
 
 - **Meta-bridge**: a global `SessionStart` hook registers a native-harness session (Claude Code / Codex / Antigravity) as a **garden-native meta-session** — a garden id, a mailbox, a trusted sender marker — without importing that harness's transcript or pretending pi owns it. Installed/inspected via `./run.sh install-meta-bridge` / `doctor-meta-bridge`.
 - **v2 dispatch (`entwurf_v2`)**: one verb that delivers to / wakes an *already-identified* garden citizen. A pure decider reads target liveness as a fact and picks transport from a frozen table keyed on **target state × intent**: live pi + fire-and-forget → **control-socket** send; dormant pi + owned-outcome → **spawn-bg resume**; active self-fetch meta-session + fire-and-forget → **meta-mailbox** enqueue; every other state×intent pair is an honest reject. It does **not** mint new siblings.
-- **ACP plugin** (the pi-harness ingress): registers `pi-shell-acp` as a pi session provider/model and drives the chosen ACP backend (Claude first; vendor/governed CLIs like Cortex next) under an isolated config overlay. It owns the backend process, the overlay, and the per-backend ACP dialect — **not** socket-citizenship. The host `--entwurf-control` pi session that selected the ACP model is *already* a v2 socket-citizen; the plugin does **not** mint a socket / peers / citizen layer. It is not the substrate and not a second harness. v1 entwurf verbs (`entwurf` / `entwurf_resume` / `entwurf_send`) are gone for good; the ACP plugin is a fresh build on the v2 core (0.11.0's `acp-bridge.ts` is a behavior oracle, not architecture to re-center). See §ACP Plugin Boundary.
+- **ACP plugin** (one pi-adapter ingress): registers the package provider (currently `pi-shell-acp`, target `entwurf` after the rename stage) as a pi session provider/model and drives the chosen ACP backend (Claude first; vendor/governed CLIs like Cortex next) under an isolated config overlay. It owns the backend process, the overlay, and the per-backend ACP dialect — **not** socket-citizenship. The host `--entwurf-control` pi session that selected the ACP model is *already* a v2 socket-citizen; the plugin does **not** mint a socket / peers / citizen layer. It is not the substrate and not a second harness. v1 entwurf verbs (`entwurf` / `entwurf_resume` / `entwurf_send`) are gone for good; the ACP plugin is a fresh build on the v2 core (0.11.0's `acp-bridge.ts` is a behavior oracle, not architecture to re-center). See §ACP Plugin Boundary.
 
 ## Code Principle — Crash, Don't Warn
 
@@ -78,7 +80,7 @@ Warnings make agents blame themselves and flail. Broken tool state must surface 
 
 ## Hard Rules
 
-1. **One surface name, no rename**: provider/model/routing strings stay `pi-shell-acp`. No legacy aliases. ACP lives, so the name is honest — there is no `entwurf` package rename on this lane. The `provider: "pi-shell-acp"` strings (`getRegistryRouting`, `model-lock.ts`) are the routing the returning ACP plugin re-uses — keep them, do not "trim as residue".
+1. **One surface name, hard-cut rename**: after the rename, provider/model/routing strings are `entwurf`, not `pi-shell-acp`. No permanent runtime aliases. During the rename branch, old strings are inventory targets, not durable identity. If existing operator state must be helped across, do it as an explicit installer/state migration or a documented break, never as hidden dual routing. The `provider:` routing strings (`getRegistryRouting`, `model-lock.ts`) are **load-bearing** — they get *renamed* to `entwurf`, not trimmed as residue.
 2. **Dispatch is a function of liveness, not session type.** `entwurf_v2` never asks "is this a resume or a send" up front — it probes liveness and routes: live→control-socket, dormant→spawn-bg resume, active self-fetch→meta-mailbox. State is computed, never stored (a stored liveness bit is a lie).
 3. **A reject is honest, never cosmetic.** When a target cannot receive (dead, drifted identity, wrong state×intent), the decider returns a reject — no `✓ delivered`, no `.msg` written, no signal poke. Silent degraded "delivery" is forbidden.
 4. **MCP injection**: only via explicit `mcpServers` wiring. No ambient `~/.mcp.json` scanning, no automatic retrieval.
@@ -105,7 +107,7 @@ Warnings make agents blame themselves and flail. Broken tool state must surface 
 
 These claims must stay true on every install surface; they are the first thing a re-implementation silently drops, so they are pinned here:
 
-- `pi-shell-acp` does **not** provide, resell, or bypass Claude/vendor credentials, tokens, or subscription access. It connects only to the operator's **existing local authenticated backend** through an explicit plugin boundary.
+- `entwurf` (currently published as `pi-shell-acp` until the rename lands) does **not** provide, resell, or bypass Claude/vendor credentials, tokens, or subscription access. It connects only to the operator's **existing local authenticated backend** through an explicit plugin boundary.
 - No auth bypass, no subscription sharing, no hidden transcript restoration.
 - Expert escape hatches are **explicit and documented**, never accidental backdoors.
 - The plugin **fails loud / fails closed** when an invariant is broken.
@@ -181,10 +183,10 @@ Messages are thrown, not awaited.
 
 | File | Purpose |
 |------|---------|
-| `pi-extensions/acp-provider.ts` | ACP plugin entry: registers the `pi-shell-acp` provider + curated Claude model surface; wires `streamSimple` to the real ACP backend |
+| `pi-extensions/acp-provider.ts` | ACP plugin entry: registers the package provider (`pi-shell-acp` before rename, `entwurf` after) + curated Claude model surface; wires `streamSimple` to the real ACP backend |
 | `pi-extensions/lib/acp/*.ts` | ACP plugin internals: curated Claude surface + no-auth sentinel (`models.ts`), Claude config overlay (`overlay.ts`), tool surface + exclude-tools preflight (`tool-surface.ts`), ACP→pi event mapper (`event-mapper.ts`), pi Context→ACP prompt (`context.ts`), spawn-per-turn `streamSimple` backend (`backend.ts`) |
 | `pi-extensions/entwurf-control.ts` | control plane: `--entwurf-control` socket, RPC, `entwurf_v2` / `entwurf_peers` tools, `/entwurf-sessions` / `/gnew` |
-| `pi-extensions/model-lock.ts` | pi-shell-acp model lock (pi.extension) |
+| `pi-extensions/model-lock.ts` | package-provider model lock (pi.extension) |
 | `pi-extensions/meta-bridge-hook.ts` | global `SessionStart` hook: register native-harness session as a garden meta-session |
 | `pi-extensions/lib/entwurf-v2-*.ts` | v2 substrate: contract / lock / decider / matrix / release / send / mailbox / runner / production / surface / spawn(+production) + resume-marker |
 | `pi-extensions/lib/meta-*.ts` | meta-record authority, mailbox state, dual-read/migration, receiver marker |
@@ -211,7 +213,7 @@ Code-level invariants pinned at the same time:
 - **typebox single-source.** `pi-extensions/entwurf-control.ts` imports `Type` / `StringEnum` from `@earendil-works/pi-ai` (which re-exports typebox 1.x). `@sinclair/typebox` is not a direct dependency. Mixing the two universes silently widens `StringEnum`-typed parameters to `unknown`.
 - **garden-id addressing for entwurf.** Every entwurf addressing surface takes a sessionId / garden id, never a session name. Entwurf / resident garden sessions use garden ids (`YYYYMMDDTHHMMSS-[0-9a-f]{6}`); generic live pi peers may still surface pi-assigned uuids.
 - **sender envelope contract.** `{ sessionId, agentId, cwd, timestamp, origin?, replyable? }`. `agentId` is one field (`<provider>/<model>` for `origin: "pi-session"`, `meta-session/<backend>` for `origin: "meta-session"`). `PI_SESSION_ID` + `PI_AGENT_ID` are the canonical pi-session carriers; meta-session markers are pid+start-key hints backed by the meta-record store — no cryptographic non-forgery; cross-process env injection is the operator's responsibility.
-- **pi-shell-acp session model lock.** After a session is anchored, a model switch touching `pi-shell-acp` is reverted by `pi-extensions/model-lock.ts`; native-to-native switching stays free; fresh startup/new sessions stay unlocked until the first prompt.
+- **entwurf provider session model lock.** After a session is anchored, a model switch touching the package provider (`pi-shell-acp` before the rename, `entwurf` after it) is reverted by `pi-extensions/model-lock.ts`; native-to-native switching stays free; fresh startup/new sessions stay unlocked until the first prompt.
 
 ## Runtime Dependencies
 

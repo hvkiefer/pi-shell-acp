@@ -13,7 +13,7 @@
 
 import { getModels } from "@earendil-works/pi-ai";
 
-/** Provider id — one surface name, no rename (AGENTS Hard Rule #1). */
+/** Provider id — current pre-rename surface; S1 renames this load-bearing id to `entwurf`. */
 export const PROVIDER_ID = "pi-shell-acp";
 
 // #26 auth-boundary sentinel. `pi.registerProvider` requires an apiKey when a

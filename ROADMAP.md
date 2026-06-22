@@ -85,9 +85,10 @@ carrier-augment 등)은 `pnpm check`에, LIVE 짝 7개는 release-gate **MUST** 
 세 식별자는 *서로 다르며* 따로 바꿀 수 있다 — 호환성 위험도 다르다:
 - **npm 패키지명** `@junghanacs/pi-shell-acp` → `@junghanacs/entwurf` (`package.json` name + `repository.url`). bin 없음.
 - **GitHub repo 이름** `junghan0611/pi-shell-acp` → `junghan0611/entwurf` (GitHub repo rename + git remote URL + README 배지/링크).
-- **런타임 provider id** `pi-shell-acp` (`acp-provider.ts` 등록 키 + Entwurf target `provider=` 라우팅) —
+- **런타임 provider id** `pi-shell-acp` (`acp-provider.ts` 등록 키 + Entwurf target `provider=` 라우팅) → `entwurf` —
   **여기가 호환성 최대 위험**: 기존 `provider=pi-shell-acp` Entwurf target / package-source-routing(#29)이
-  깨진다. CP2에서 hard-cut vs alias(구 id 라우팅 호환 유지) 결정.
+  깨진다. 결정: **hard-cut, no permanent runtime alias**. 필요한 보조는 installer/state one-shot migration 또는
+  명시적 breakage 문서화로 처리하고, 숨은 dual-routing은 만들지 않는다.
 
 소스/게이트 — **결합 규칙**(source와 그 게이트를 *같이* 바꿔 `pnpm check`가 silent red 안 되게):
 - 소스: `entwurf-core.ts`(44) · `run.sh`(49) · `model-lock.ts`(23) · `sentinel-runner.sh`(22) ·
@@ -95,10 +96,11 @@ carrier-augment 등)은 `pnpm check`에, LIVE 짝 7개는 release-gate **MUST** 
 - 이름을 assert하는 게이트: `check-package-source-routing.ts`(30) · `check-entwurf-session-identity.ts`(39) ·
   `check-model-lock.ts`(12) — provider id/패키지명 기대값 동시 갱신.
 - published 문서(결합 동시 갱신): README(48) · VERIFY.md(110) · docs/setup-clean-host.md(110) ·
-  CHANGELOG(90) · demo/README(20) · BASELINE.md(10) · AGENTS.md(11, **명시 요청 시에만**).
+  CHANGELOG(90) · demo/README(20) · BASELINE.md(10). AGENTS.md는 rename 브랜치에서 이미 durable
+  정책을 `entwurf` 중심으로 정렬하고, 이후 source rename에 맞춰 잔여 문자열만 함께 갱신한다.
 
 게이트: rename 후 `pnpm check` EXIT0 + `LIVE=1 ./run.sh release-gate` MUST(SKIP=0) 재확인. published
-consumer 호환성(provider id)은 cut 전 GLG와 alias/hard-cut 확정.
+consumer 호환성(provider id)은 hard-cut 전제로 installer/state one-shot migration 범위만 cut 전 GLG와 확정.
 
 ### deferred (범위는 보임)
 

@@ -21,16 +21,19 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 
 # 나열 — 토큰 매트릭스 (실측, node_modules 제외 · "몇 번 더 조여" 완성 대상)
 
+> 숫자는 치환 전 탐색을 돕는 **rough snapshot**일 뿐이다. NEXT/문서 자체가 토큰을 늘리므로 실행 기준이 아니다.
+> 각 stage 직전에 `rg`를 다시 찍고, 토큰별 파일목록을 눈으로 확인한 뒤 치환한다.
+
 ## RENAME → entwurf (정체성 / 하네스 무관 capability)
 
 | 토큰 (변종) | 측정 | → |
 |---|---:|---|
-| `pi-shell-acp` (kebab) | 906 | `entwurf` |
-| `piShellAcp…` (camel, = `piShellAcpProvider`) | 67 | `entwurfProvider` |
-| `PiShellAcp` (Pascal 타입) | 3 | `Entwurf` |
-| `PI_SHELL_ACP_*` (SCREAMING, 26 vars) | 163 | `ENTWURF_*` |
-| `pi_shell_acp` (snake, log reason/sentinel) | 5 | `entwurf` |
-| `pi-tools-bridge` (MCP dir/server명) | 230 | `entwurf-bridge` |
+| `pi-shell-acp` (kebab) | rough | `entwurf` |
+| `piShellAcp…` (camel, = `piShellAcpProvider`) | rough | `entwurfProvider` |
+| `PiShellAcp` (Pascal 타입) | rough | `Entwurf` |
+| `PI_SHELL_ACP_*` (SCREAMING env) | rough | taxonomy 아래 참조 |
+| `pi_shell_acp` (snake, log reason/sentinel) | rough | `entwurf` |
+| `pi-tools-bridge` (MCP dir/server명) | rough | `entwurf-bridge` |
 | `mcp__pi-tools-bridge__*` (tool id, allow 패턴) | — | `mcp__entwurf-bridge__*` |
 | `PI_TOOLS_BRIDGE_*` (3 vars) | — | `ENTWURF_BRIDGE_*` |
 | `PI_ENTWURF_*` (우리 substrate env) | — | `ENTWURF_*` |
@@ -44,25 +47,38 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 
 `pi-native` · `pi-session` · `PI_SESSION_ID` · `PI_AGENT_ID` · `pi-coding-agent` · `PI_CODING_AGENT_DIR` · `pi-core`/`pi-mono`/`pi-tui` · `PI_SETTINGS_PATH` · `PI_EMACS_AGENT_SOCKET` · `pi-extensions/` · `pi-context-augment` · `--entwurf-control`(pi-core flag) · `pi-acp`(svkozak 외부 프로젝트).
 
-## 회색지대 — 수렴 (GLG 비준 대기)
+## 회색지대 — 수렴
 
 - **C4** 패키지/repo/provider = **순수 `entwurf`** (entwurf-acp ✗ — ACP는 plugin 하나지 정체성 아님). 문서: "entwurf 패키지 = core substrate + pi adapter + ACP plugin + meta bridge".
 - **C5** MCP bridge = **`entwurf-bridge`** (entwurf-mcp=transport종속, -tools-bridge=잡다; 설명에 "MCP adapter/server" 명시).
 - **C1** `PI_ENTWURF_*` → **`ENTWURF_*`**.   **C2** `PI_META_*` → **`ENTWURF_META_*`**.
 - **C3** `pi-extensions/` **KEEP**.   **C6** `pi-context-augment` **KEEP** (둘 다 pi adapter — entwurf-*면 거짓말).
-- (재검토) `PI_ENTWURF_ACP_FOR_CODEX` 의미 → `ENTWURF_CODEX_ACP_*` 류로 구체화?
+- **Provider compatibility:** hard-cut. **permanent runtime alias 금지**. 필요한 보조는 installer/state one-shot migration 또는 명시적 breakage 문서화만.
+- **State/cache migration:** `~/.pi/agent/cache/pi-shell-acp/...`, target allowlist의 `provider`, package-source routing state, model-lock 기대값은 S1에서 끊김 후보. hard-cut을 하되, installer migration 범위/문구를 stage 전에 확정.
+
+## Env namespace taxonomy (PI_ 접두 제거 ≠ pi 단어 전부 제거)
+
+> 아래는 **버킷+규칙과 대표 예시**일 뿐 전수(全數) 매핑이 아니다. `PI_SHELL_ACP_*`는 실측 **27개**(node_modules 제외) — S3 직전 `rg`로 27개 전부를 버킷에 배정하고 눈으로 확인한 뒤 치환한다("나열 후 치환"). 자명하지 않아 **stage 전 선결**할 항목: `LIVE_{MODEL,PROVIDER,TARGET}`(release-gate harness — core/test?) · `RGG_TARGET` · `S1_MODEL` · `CODEX_MODE`(ACP codex backend vs `PI_ENTWURF_ACP_FOR_CODEX`와 구분) · 위 legacy `ALLOW_COMPACTION` 가드. 자명한 것: `*_CONTEXT`/`*_MODEL`/`*_SENTINEL`/`TRUST_ROOTS`→ACP, `V2_ONLY`/`DEBUG`→core.
+
+- **Core/substrate:** `PI_ENTWURF_TARGETS_PATH` → `ENTWURF_TARGETS_PATH`, `PI_ENTWURF_DIR` → `ENTWURF_DIR`, `PI_SHELL_ACP_V2_RESUME_RESIDENT_SESSION_ID` → `ENTWURF_V2_RESUME_RESIDENT_SESSION_ID`.
+- **ACP plugin:** `PI_SHELL_ACP_PROVIDER_MODEL` → `ENTWURF_ACP_PROVIDER_MODEL`, `PI_SHELL_ACP_CLAUDE_CONTEXT` → `ENTWURF_ACP_CLAUDE_CONTEXT`, `PI_SHELL_ACP_ENGRAVING_PATH` → `ENTWURF_ACP_ENGRAVING_PATH`, `PI_SHELL_ACP_MEMORY_*`/`*_OVERLAY_*`/`*_RAW_TURN_*` → `ENTWURF_ACP_*`.
+- **MCP bridge:** `PI_TOOLS_BRIDGE_ENV_FILE` → `ENTWURF_BRIDGE_ENV_FILE`, `PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID` → `ENTWURF_BRIDGE_EXTERNAL_AGENT_ID`, `PI_TOOLS_BRIDGE_REQUIRE_META_SENDER` → `ENTWURF_BRIDGE_REQUIRE_META_SENDER`.
+- **Meta bridge:** `PI_META_SENDER_MARKER` → `ENTWURF_META_SENDER_MARKER`, `PI_META_SESSIONS_DIR` → `ENTWURF_META_SESSIONS_DIR`, `PI_META_MAILBOX_DIR` → `ENTWURF_META_MAILBOX_DIR`.
+- **Pi adapter target:** if the variable controls pi-side behavior, keep `PI` as object not prefix: `PI_SHELL_ACP_ALLOW_PI_COMPACTION` → **`ENTWURF_ALLOW_PI_COMPACTION` (확정).** `_ALLOWED` 접미는 코드베이스 선례 0건; `ALLOW_` 동사-접두가 관용(`ALLOW_COMPACTION`, `MEMORY_/OVERLAY_/RAW_TURN_ALLOW_PATH_FALLBACK`). `PI`가 object(=압축 대상이 pi-side transcript)라 의미도 보존.
+- **★ legacy compaction guard 트랩 (누락 A — 실측: env가 둘이다):** 현행 `PI_SHELL_ACP_ALLOW_PI_COMPACTION` 외에 **legacy `PI_SHELL_ACP_ALLOW_COMPACTION`** 이 spawn intent에서 fail-fast로 거부됨(`assertLegacyCompactionKnobUnset`). 이 가드의 존재 이유 = operator env에 남은 묵은 knob 적발. **rename 시 가드가 검사하는 이름을 `ENTWURF_ALLOW_COMPACTION`으로 바꾸면, 잡으려던 그 케이스(`PI_SHELL_ACP_ALLOW_COMPACTION=1`이 아직 set된 env)를 조용히 통과시킨다.** → legacy 가드는 **옛 이름 `PI_SHELL_ACP_ALLOW_COMPACTION`을 계속(또는 both) 검사**해야 한다. S3 전 명시 결정.
 
 # 스테이징 (각 = 변종 일괄치환 + 게이트 동시 + `pnpm check` green + commit · bisect 가능)
 
 - **S0** docs map 고정 ✅ (이 파일)
+- **S0.5 — SSOT 정렬 (NOW):** AGENTS의 no-rename 잔재 제거, ROADMAP/NEXT alias 정책 hard-cut으로 정렬, env taxonomy/state migration 후보 명시. **아직 source 치환 아님**.
 - **S1 — package/repo/provider identity (원자, 쪼개지 말 것):** 중간상태 "package=entwurf인데 provider=pi-shell-acp" 금지 → 통째로. 패키지명 + provider id(acp-provider.ts baseUrl/api) + model prefix + `piShellAcpProvider`→`entwurfProvider` + `PiShellAcp*`/`piShellAcp*`/`pi_shell_acp` + Symbol + repo URL. 게이트 동시: `check-package-source-routing`·`check-model-lock`·`check-entwurf-session-identity`·`check-auth-boundary`. **agent-config consumer lockstep** (`pi/settings.json` model prefix + `piShellAcpProvider` block). → `pnpm check` EXIT0.
 - **S2 — MCP bridge:** `mcp/pi-tools-bridge`→`mcp/entwurf-bridge` (dir+서버명) + **tool id `mcp__pi-tools-bridge__*`→`mcp__entwurf-bridge__*`** 전수 + install/remove/prune settings + `check-pi-tools-bridge-boot` + consumer mcpServers lockstep.
-- **S3 — env namespace:** 위 RENAME env들(`PI_SHELL_ACP_*`→`ENTWURF_*`, `PI_TOOLS_BRIDGE_*`→`ENTWURF_BRIDGE_*`, `PI_ENTWURF_*`→`ENTWURF_*`, `PI_META_*`→`ENTWURF_META_*`) + env명 assert 게이트(`check-entwurf-v2-surface` 등). **런타임 영구 alias 금지**, 필요시 installer one-shot migration만.
+- **S3 — env namespace:** taxonomy에 따라 `PI_SHELL_ACP_*`를 core/ACP/pi-adapter 의미별로 분해, `PI_TOOLS_BRIDGE_*`→`ENTWURF_BRIDGE_*`, `PI_ENTWURF_*`→`ENTWURF_*`, `PI_META_*`→`ENTWURF_META_*` + env명 assert 게이트(`check-entwurf-v2-surface` 등). **런타임 영구 alias 금지**, 필요시 installer one-shot migration만.
 - **S4 deferred (구조개편, 텍스트치환 아님):** `pi/entwurf-targets.json` 경로 재검토 · `pi-extensions/`→`adapters/pi/extensions/` layout.
 
 # PR-polish (rename과 별개, S1~S3 중/후)
 
-README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted continuity·config passthrough) + ROADMAP 하단 "legacy verbs maintained" historical 표기. `AGENTS.md`(11 refs)는 **GLG 명시 요청 시에만** 편집.
+README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted continuity·config passthrough) + ROADMAP 하단 "legacy verbs maintained" historical 표기. `AGENTS.md`는 GLG rename 지시에 따라 S0.5에서 정책 정렬했고, 이후 source rename과 맞물리는 잔여 문자열만 결합 규칙으로 갱신.
 
 # 넘으면 안 되는 선
 

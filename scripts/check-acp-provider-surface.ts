@@ -36,8 +36,8 @@ import {
 // Layer 1 — lib-level surface (real modules, real behavior)
 // ---------------------------------------------------------------------------
 
-// one surface name, no rename (AGENTS Hard Rule #1).
-assert.equal(PROVIDER_ID, "pi-shell-acp", "PROVIDER_ID must stay 'pi-shell-acp' — no rename");
+// Current pre-rename provider id. S1 must rename this load-bearing routing id to `entwurf` together with its gates.
+assert.equal(PROVIDER_ID, "pi-shell-acp", "PROVIDER_ID must match the current pre-rename provider id");
 
 // no-auth sentinel shape: lowercase + hyphen only, so pi does not read it as an
 // ENV reference. An ALL-CAPS value would trip the legacy-env path.
