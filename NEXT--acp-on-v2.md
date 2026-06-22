@@ -14,32 +14,31 @@
 ## Current stem
 
 - **Stem:** finish ACP-on-v2 trust blockers → PR-polish docs/release-gate → merge/cut decision by GLG.
-- **Current repo state:** branch `acp-on-v2`, pushed at `3181746` (`fix(acp): restore v1 engraving lever to contain Claude auto-memory`). Detour C **core fix landed**; tree clean. Commit/push = GLG.
+- **Current repo state:** branch `acp-on-v2`, Gate D landed `2c35c5a` (`test(detour-c): add Gate D — ACP memory-containment live smoke`). Detours A/B/C all closed (C closed by gate D + LIVE sonnet PASS). Commit/push = GLG; gate D already committed under this session's explicit authorization.
 - **Next concrete move:**
-  1. **Detour C close-out:** GLG runs the **Sonnet** baseline on a *fresh process* (Opus baseline already PASSED 2026-06-22). Then decide the remaining C hardening (runtime gate D + optional defense-in-depth) below.
-  2. **Detour B fresh-session smoke:** prove fresh tool descriptions make live/meta replies choose `fire-and-forget`(+`wants_reply`) rather than `owned-outcome`.
-  3. Only after B/C are clear, return to **PR-polish**: README/ROADMAP/CHANGELOG/release-gate stale claims.
+  1. **PR-polish (the stem is now clear):** README/ROADMAP/CHANGELOG/release-gate stale claims (backend support, packaged docs, persisted continuity, config passthrough overclaim; ROADMAP lower historical "legacy verbs maintained" language).
+  2. **Optional C defense-in-depth (backlog, not release-blocking):** reviewer-flagged `loadEngraving` fail-loud when the default engraving is missing/empty/unpackaged (it is a trust lever now). `autoMemoryEnabled:false` already pinned as backup.
+  3. Then GLG's merge/cut decision.
 - **Optional only:** rerun `LIVE=1 ./run.sh smoke-claude-native-resume-live` Sonnet-only when Claude service is stable; 529/service failures are not repo mutations.
 
 ## Active detours
 
-### Detour C — ACP Claude memory containment regression (CORE FIXED `3181746`)
+### Detour C — ACP Claude memory containment regression (CLOSED — core `3181746`, gate D `2c35c5a` + LIVE sonnet PASS)
 
 **Root cause (proven, code-level):** the shipped engraving.md was 0-byte → `_meta.systemPrompt` absent → claude-agent-acp kept its `claude_code` preset → the preset's auto-memory section taught the model it had a per-session memory store → it wrote `projects/<cwd>/memory/*.md` via `Write`. v1 shipped a NON-empty engraving (`# Engraving Here`); a string `_meta.systemPrompt` makes claude-agent-acp REPLACE the preset (acp-agent.js:1482-1483), stripping the auto-memory advertisement. Reviewer (Claude Code Opus) independently confirmed via acp-agent.js + sdk.d.ts:1860-1874. **Not** a billing-driven empty default — the carrier's real job is preset replacement; billing axis is SIZE, not absence.
 
-- **DONE:** v1 engraving restored + stale "ships EMPTY for billing" doctrine reconciled across 8 files (`3181746`). Leaked memory (4 files / 2 repos + 6 empty dirs) deleted; content preserved in session transcripts. Live Opus baseline PASSED (model saw `Engraving Here` in its system prompt; routed "remember" to shared records only; zero `projects/**/memory/**`).
-- **Open — confirm:** GLG runs the **Sonnet** baseline on a *fresh process* (a process-scoped resident caches the default engraving path).
-- **Open — D (the real gap):** no gate asserts "ACP `new` turn → no `projects/**/memory/**` created." This is what let the regression pass silently. Add a deterministic + LIVE memory-containment gate.
-- **Optional — defense-in-depth:** `autoMemoryEnabled:false` already pinned (read/write opt-out, "knows-but-can't" — weaker than preset-strip "doesn't-know", so it is backup not primary). Reviewer also flagged: `loadEngraving` should **fail-loud** if the default file is missing/empty/unpackaged now that it is a trust lever, instead of silently falling back to null.
-- **Return:** C closes when the Sonnet baseline confirms + the D runtime gate exists, or GLG accepts a documented residual.
+- **DONE (core):** v1 engraving restored + stale "ships EMPTY for billing" doctrine reconciled across 8 files (`3181746`). Leaked memory (4 files / 2 repos + 6 empty dirs) deleted; content preserved in session transcripts. Live Opus baseline PASSED.
+- **DONE (gate D — the real gap, now closed):** `scripts/smoke-acp-memory-containment-live.ts` (`2c35c5a`) is THE missing regression guard — drives the shipped overlay + PRESENT engraving carrier with a memory-directed turn and asserts zero `projects/**/memory/**`. Four load-bearing anti-false-green choices: carrier-present assertion, permission GRANTED (not cancelled), writeTextFile PERFORMED, benign memory-directed prompt. LIVE-gated, OUT of pnpm check, wired into release-gate MUST tier. **LIVE sonnet PASS (2026-06-22):** carrier `# Engraving Here` present → preset replaced; model reply: *"I don't have a dedicated memory tool available in my current toolset…"*; **0 permissions even attempted** (model didn't try the Write — containment from the lever, not from denial); 0 overlay memory files. This is the automated Sonnet baseline — strongest evidence (L1 self-recognition + L2 fs-assert agree).
+- **Optional — defense-in-depth (backlog, not release-blocking):** `autoMemoryEnabled:false` already pinned (read/write opt-out, "knows-but-can't" — weaker than preset-strip "doesn't-know", so backup not primary). Reviewer also flagged: `loadEngraving` should **fail-loud** if the default file is missing/empty/unpackaged now that it is a trust lever, instead of silently falling back to null.
+- **Honest residual (documented in the smoke header):** a treatment-only fs assert cannot fully separate "contained" from "model didn't try"; here the model's own "no memory tool" reply resolves that ambiguity. A counterfactual control arm (carrier absent → expect leak) is deferred (behaviorally flaky), not a release gate.
 
-### Detour B — live/meta peer intent UX (mostly closed, needs fresh uptake proof)
+### Detour B — live/meta peer intent UX (CLOSED by uptake proof)
 
 `5e260fd` already pinned both MCP and pi-native `entwurf_v2` descriptions: live pi/socket-citizen messages/replies/handoffs use `intent:fire-and-forget`; answer needed = `wants_reply:true`; meta-session replies are also fire-and-forget→mailbox; `owned-outcome` is dormant pi spawn-bg resume only and rejects live/unsupported targets.
 
-- **Next:** start a fresh `/gnew` or new resident so the model sees the updated tool description, then verify a live peer handoff/reply chooses `fire-and-forget`.
-- **Failure meaning:** if a fresh session still chooses `owned-outcome` for a live peer, this is a caller/schema uptake bug. Do not change the decider to auto-convert.
-- **Return:** B closes when fresh-session behavior matches the pinned surface.
+- **Evidence:** 2026-06-22 current fresh review session inspected `entwurf_peers`, selected live socket peer `20260622T105037-3df0e7`, and called `entwurf_v2` with `intent:fire-and-forget`, `wants_reply:true`, `mode:steer`; result = `control-socket → sent`. Peer ACK replied: “Replying with intent=fire-and-forget (live socket peer, not owned-outcome), wants_reply=true. Updated live-peer semantics confirmed in use.”
+- **Conclusion:** the updated live-peer surface steers caller and receiver behavior away from `owned-outcome`; Detour B is closed unless a later fresh session regresses.
+- **Regression meaning:** if a future fresh session chooses `owned-outcome` for a live peer, this is a caller/schema uptake bug. Do not change the decider to auto-convert.
 
 ### Detour A — Claude Code native resume classifier (record-only unless evidence changes)
 
@@ -66,10 +65,12 @@ When B/C are clear, return to docs/release gate:
 
 ## RECENT
 
+- **[2026-06-22] Detour C CLOSED — gate D built + LIVE sonnet PASS (`2c35c5a`).** Added `smoke-acp-memory-containment-live` (the missing end-to-end regression guard) and proved it: shipped overlay + present `# Engraving Here` carrier → preset replaced → sonnet replies "I don't have a dedicated memory tool", attempts **0** writes, leaves **0** `projects/**/memory/**`. Floor: pnpm check exit0 (pack 182), typecheck 3-config fence, skip path clean. This is the automated Sonnet baseline; all three detours (A/B/C) now closed → stem returns to PR-polish.
 - **[2026-06-22] NEXT alignment after fresh-mint confusion.** `entwurf_v2` is existing-citizen dispatch/resume/mailbox only; v1 fresh spawn is not present. If no exact cwd/role citizen exists, stop and report instead of routing to a similar repo. Future `spawn-fresh` is a deferred v2 lane.
-- **[2026-06-22] Detour C core fixed + pushed (`3181746`).** Root cause = 0-byte engraving left the `claude_code` preset (incl. auto-memory) in place. Restored v1 non-empty `# Engraving Here` → string `_meta.systemPrompt` → preset replacement strips auto-memory. Reconciled the stale "ships EMPTY for billing" doctrine (8 files); deleted leaked memory (content kept in transcripts). Live Opus baseline PASSED. Remaining: Sonnet baseline confirm + runtime gate D + optional fail-loud/defense-in-depth.
+- **[2026-06-22] Detour C core fixed + pushed (`3181746`, NEXT tidy `35da7a4`).** Root cause = 0-byte engraving left the `claude_code` preset (incl. auto-memory) in place. Restored v1 non-empty `# Engraving Here` → string `_meta.systemPrompt` → preset replacement strips auto-memory. Reconciled the stale "ships EMPTY for billing" doctrine (8 files); deleted leaked memory (content kept in transcripts). Live Opus baseline PASSED. Remaining residuals: Sonnet baseline confirm + runtime gate D + optional fail-loud/defense-in-depth; proceed to Detour B now.
 - **[2026-06-22] Detour A classifier smoke added.** Claude Code native resume smoke classifies service/529 vs transcript poison/context issues. Opus fallback proved meta-bridge neutrality; Sonnet-only 529 is not a repo mutation trigger.
-- **[2026-06-19] Detour B preventive steer done (`5e260fd`).** `entwurf_v2` descriptions now instruct live/meta replies/handoffs to use `fire-and-forget`(+`wants_reply`) and reserve `owned-outcome` for dormant pi resume. Needs fresh-session uptake proof only.
+- **[2026-06-22] Detour B closed by uptake proof.** Current fresh review session chose `intent:fire-and-forget` + `wants_reply:true` for live socket peer `20260622T105037-3df0e7`; `entwurf_v2` returned `control-socket → sent`; peer ACK confirmed it received/replied under live-peer `fire-and-forget`, not `owned-outcome`.
+- **[2026-06-19] Detour B preventive steer done (`5e260fd`).** `entwurf_v2` descriptions now instruct live/meta replies/handoffs to use `fire-and-forget`(+`wants_reply`) and reserve `owned-outcome` for dormant pi resume.
 - **[2026-06-19] ACP-on-v2 S0~S2g practical implementation done.** Provider/overlay/event mapping/reuse/carrier+augment/RGG/config passthrough are implemented and had GPT/Opus review trails. Remaining work is trust blockers + PR-polish, not reopening S2 casually.
 
 ## Durable guardrails still relevant to the next move
@@ -77,7 +78,7 @@ When B/C are clear, return to docs/release gate:
 - **ACP is a plugin, not the boundary.** Host `--entwurf-control` pi session supplies socket-citizenship; ACP backend must not grow a peers/socket/mailbox/orchestrator/memory layer.
 - **Carrier rule:** keep Claude `_meta.systemPrompt`/engraving short, pure, and stable; rich context belongs in first-user augment. Breaking this risks subscription billing turning metered/HTTP400.
 - **Reuse prompt rule:** `new` may carry transcript; `reuse` is delta-only. Lifecycle notices are display-only and must not re-enter backend prompts/signatures.
-- **Memory rule:** durable memory goes to pi/Denote/NEXT/botlog/semantic-memory. Backend-native memory writes under `~/.pi/agent/claude-config-overlay/projects/<cwd>/memory/` are contained by the non-empty engraving (preset replacement strips auto-memory, `3181746`) — keep the default engraving non-empty; emptying it re-opens the leak.
+- **Memory rule:** durable memory goes to pi/Denote/NEXT/botlog/semantic-memory. Backend-native memory writes under `~/.pi/agent/claude-config-overlay/projects/<cwd>/memory/` are contained by the non-empty engraving (preset replacement strips auto-memory, `3181746`) — keep the default engraving non-empty; emptying it re-opens the leak. **Gate `smoke-acp-memory-containment-live` (`2c35c5a`) now guards this** — it fails loud if the engraving is emptied (carrier OFF) and asserts a real turn leaves zero overlay memory.
 - **Entwurf rule:** v1 verbs stay dead. Current `entwurf_v2` does not mint fresh siblings; future fresh-mint must be explicit and gated.
 - **Release rule:** commit/push/tag/publish/merge = GLG. No `--no-verify`; do not touch `core.hooksPath` / `.git-hooks-mode`.
 
