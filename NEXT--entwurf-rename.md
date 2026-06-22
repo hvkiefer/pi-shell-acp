@@ -54,7 +54,8 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 - **C1** `PI_ENTWURF_*` → **`ENTWURF_*`**.   **C2** `PI_META_*` → **`ENTWURF_META_*`**.
 - **C3** `pi-extensions/` **KEEP**.   **C6** `pi-context-augment` **KEEP** (둘 다 pi adapter — entwurf-*면 거짓말).
 - **Provider compatibility:** hard-cut. **permanent runtime alias 금지**. 필요한 보조는 installer/state one-shot migration 또는 명시적 breakage 문서화만.
-- **State/cache migration:** `~/.pi/agent/cache/pi-shell-acp/...`, target allowlist의 `provider`, package-source routing state, model-lock 기대값은 S1에서 끊김 후보. hard-cut을 하되, installer migration 범위/문구를 stage 전에 확정.
+- **State/cache migration (비봇 격상 — 이건 "남 배려"가 아니라 *내 살아있는 세션*이다):** `~/.pi/agent/cache/pi-shell-acp/...` + **garden meta-records(=identity 층) + mailbox 경로**를 hard-cut하면, rename 순간 지금 돌고 있는 Claude Code citizen / ACP Claude의 state가 orphan된다(running citizen이 비행 중 깜빡 꺼짐). target allowlist의 `provider`, package-source routing state, model-lock 기대값도 S1 끊김 후보. hard-cut 하되 installer one-shot migration 범위/문구를 stage 전에 확정 — **그리고 그 migration을 내 실제 `~/.pi`로 cut 전 리허설**(덮는지 실측).
+  - **실측 (bf0e221) — 위험이 작다:** package-keyed live state는 `~/.pi/agent/cache/pi-shell-acp/sessions`(`session-store.ts:146`, ACP session-reuse 캐시) **단 하나**. meta-records/mailbox는 **garden-id-keyed**(`<pi-agent-dir>/meta-sessions|meta-mailbox/<gardenId>`, 패키지명 무관) = **rename-immune → identity 층은 안 흔들린다**(비봇 최대 우려 해소). orphan 위험 = 그 캐시 1경로뿐 → installer migration = `mv cache/pi-shell-acp → cache/entwurf` 하나 + 새 `PROVIDER_ID` 경로 read 확인. (캐시 잃어도 정체성 아닌 reuse만 리셋.)
 
 ## Env namespace taxonomy (PI_ 접두 제거 ≠ pi 단어 전부 제거)
 
@@ -65,7 +66,19 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 - **MCP bridge:** `PI_TOOLS_BRIDGE_ENV_FILE` → `ENTWURF_BRIDGE_ENV_FILE`, `PI_TOOLS_BRIDGE_EXTERNAL_AGENT_ID` → `ENTWURF_BRIDGE_EXTERNAL_AGENT_ID`, `PI_TOOLS_BRIDGE_REQUIRE_META_SENDER` → `ENTWURF_BRIDGE_REQUIRE_META_SENDER`.
 - **Meta bridge:** `PI_META_SENDER_MARKER` → `ENTWURF_META_SENDER_MARKER`, `PI_META_SESSIONS_DIR` → `ENTWURF_META_SESSIONS_DIR`, `PI_META_MAILBOX_DIR` → `ENTWURF_META_MAILBOX_DIR`.
 - **Pi adapter target:** if the variable controls pi-side behavior, keep `PI` as object not prefix: `PI_SHELL_ACP_ALLOW_PI_COMPACTION` → **`ENTWURF_ALLOW_PI_COMPACTION` (확정).** `_ALLOWED` 접미는 코드베이스 선례 0건; `ALLOW_` 동사-접두가 관용(`ALLOW_COMPACTION`, `MEMORY_/OVERLAY_/RAW_TURN_ALLOW_PATH_FALLBACK`). `PI`가 object(=압축 대상이 pi-side transcript)라 의미도 보존.
-- **★ legacy compaction guard 트랩 (누락 A — 실측: env가 둘이다):** 현행 `PI_SHELL_ACP_ALLOW_PI_COMPACTION` 외에 **legacy `PI_SHELL_ACP_ALLOW_COMPACTION`** 이 spawn intent에서 fail-fast로 거부됨(`assertLegacyCompactionKnobUnset`). 이 가드의 존재 이유 = operator env에 남은 묵은 knob 적발. **rename 시 가드가 검사하는 이름을 `ENTWURF_ALLOW_COMPACTION`으로 바꾸면, 잡으려던 그 케이스(`PI_SHELL_ACP_ALLOW_COMPACTION=1`이 아직 set된 env)를 조용히 통과시킨다.** → legacy 가드는 **옛 이름 `PI_SHELL_ACP_ALLOW_COMPACTION`을 계속(또는 both) 검사**해야 한다. S3 전 명시 결정.
+- **★ 누락 A 정정 (compaction 가드는 *코드에 없다* — bf0e221 grep 실측):** `ALLOW_COMPACTION`/`ALLOW_PI_COMPACTION`/`before_compact`가 어떤 `.ts`/`.sh`(tests 포함)에서도 read되지 않음. `assertLegacyCompactionKnobUnset`는 CHANGELOG/README/VERIFY/BASELINE/CONTRIBUTING **문서에만** 있고 현 소스엔 없음(v2 재작성에서 빠진 듯). → **live silent-trap 아님.** (a) 없는 가드를 문서가 주장 = **doc-drift, PR-polish 대상**. (b) 이 추론이 아래 셋째 축을 드러낸 *씨앗*. env 이름 치환(`PI_SHELL_ACP_ALLOW_PI_COMPACTION`→`ENTWURF_ALLOW_PI_COMPACTION`)은 위 확정대로.
+
+# ★★ 셋째 축 — 의미방향(positive/negative) · negative-guard 전수 패스 (비봇 격상, bf0e221 실측)
+
+> RENAME/KEEP는 단어 *출처*(capability냐 adapter냐) 축이다. 직교하는 **셋째 축 = 의미 방향**: 그 토큰을 코드가 *positive*(있어야/같아야)로 검사하나 *negative*(없어야/forbidden)로 검사하나. **negative-guard만 치환 시 green인 채 inert(조용히 깸)** — 나머지는 어긋나면 게이트가 RED로 시끄럽게 운다. 그래서 이 클래스만 따로 전수.
+
+- **RENAME** (평범 식별자) → `entwurf`. (대량, loud)
+- **MOVE-lockstep** (positive 기대값 — 값 + *검사처*를 같은 commit에 이동, 어긋나면 RED): 실측 핵심 —
+  - `getRegistryRouting`/extension-spec: `entwurf-core.ts:1060` `if (target.provider !== "pi-shell-acp")` + `:1070` `resolveExplicitExtensionSpec("pi-shell-acp")` → 미치환 시 `pi --no-extensions --provider entwurf`가 `Unknown provider`로 **즉사**(#29 게이트가 잡음=loud).
+  - **no-auth sentinel 값 `"pi-shell-acp-no-auth"` = 3-site 하드코딩 lockstep:** `models.ts:29`(const) + `check-acp-provider-surface.ts:49`(`assert.equal(..., "pi-shell-acp-no-auth", "…drifted")`) + `run.sh:1314/1319`(source-scan). 셋을 같이 옮겨야 함.
+  - `run.sh:30 PROVIDER_ID="pi-shell-acp"`(shell측, models.ts와 lockstep) · `Symbol.for("pi-shell-acp.acp-provider.registered")` · 게이트 기대값(`check-entwurf-resume-args`·`-session-identity`·`-event-mapper`·`-package-source-routing`·`-model-lock`) · smoke tmpdir prefix/clientInfo/`PI_AGENT_ID="pi-shell-acp/claude-…"`.
+- **KEEP-old (negative 가드 — 옛 이름 남아야 정상, 치환하면 silent-inert):** **실증 결과 = 코드 instance 0건.** compaction 가드 = docs-only(위). anti-spoof sender marker = 값-상대(`meta-session.ts:1310/1431` `liveKey !== marker.ownerStartKey`, pi-shell-acp 리터럴 없음 → rename 무관).
+- **실증 결론 (de-risk):** rename 표면은 **압도적으로 loud-lockstep**(어긋나면 게이트 RED). 조용히 깨질 negative-guard 클래스는 **bf0e221 기준 비어있음** → 비봇이 지목한 "유일하게 silent로 깰 부류"가 실측상 공집합 = 위험 낮음. **단 S1/S3 직전 이 패스(부정비교 `!==`/`!includes`·sentinel·drift assert·docs-only 가드) 재실행** — 새 가드가 유입될 수 있으므로.
 
 # 스테이징 (각 = 변종 일괄치환 + 게이트 동시 + `pnpm check` green + commit · bisect 가능)
 
@@ -78,7 +91,7 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 
 # PR-polish (rename과 별개, S1~S3 중/후)
 
-README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted continuity·config passthrough) + ROADMAP 하단 "legacy verbs maintained" historical 표기. `AGENTS.md`는 GLG rename 지시에 따라 S0.5에서 정책 정렬했고, 이후 source rename과 맞물리는 잔여 문자열만 결합 규칙으로 갱신.
+README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted continuity·config passthrough · **compaction 가드 docs-only — 5개 문서가 `assertLegacyCompactionKnobUnset`/`ALLOW_COMPACTION` 거부를 주장하나 코드에 없음**) + ROADMAP 하단 "legacy verbs maintained" historical 표기. `AGENTS.md`는 GLG rename 지시에 따라 S0.5에서 정책 정렬했고, 이후 source rename과 맞물리는 잔여 문자열만 결합 규칙으로 갱신.
 
 # 넘으면 안 되는 선
 
