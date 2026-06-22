@@ -84,6 +84,10 @@ pi-shell-acp repo를 `entwurf`로 rename. **단순 패키지명 교체가 아니
 
 - **S0** docs map 고정 ✅ (이 파일)
 - **S0.5 — SSOT 정렬 (NOW):** AGENTS의 no-rename 잔재 제거, ROADMAP/NEXT alias 정책 hard-cut으로 정렬, env taxonomy/state migration 후보 명시. **아직 source 치환 아님**.
+- **S1 진입 readiness gate (비봇 감수 GO, 2026-06-22) — 일격 전 이게 다 닫혀야:**
+  - (a) S1 직전 fresh `rg` + negative-guard 패스 재실행. (c) 캐시 1경로 migration을 실제 `~/.pi`로 리허설. (d) GLG 비준. (e) consumer dirty baseline 고정. (f) **physical repo+dir rename 타이밍 = GLG 오퍼레이션, commit 밖** — consumer path 문자열은 이 beat에.
+  - **+비봇① test-discovery.py에 `pi-shell-acp` 픽스처 ≥1 보존**(historical-compat 회귀증거 — 안 그럼 보존 대상을 테스트째 삭제). **+비봇② JSONL 밖 영속저장소 1패스**(semantic-memory/andenken/agenda가 옛 provider/model로 필터하나).
+  - **+화해 원칙** (위 ★★★): consumer history-reader는 dual-accept(=historical-compat, alias 아님) — hard-cut으로 청소 금지.
 - **S1 — package/repo/provider identity (원자, 쪼개지 말 것):** 중간상태 "package=entwurf인데 provider=pi-shell-acp" 금지 → 통째로. 패키지명 + provider id(acp-provider.ts baseUrl/api) + model prefix + `piShellAcpProvider`→`entwurfProvider` + `PiShellAcp*`/`piShellAcp*`/`pi_shell_acp` + Symbol + repo URL. 게이트 동시: `check-package-source-routing`·`check-model-lock`·`check-entwurf-session-identity`·`check-auth-boundary`. **agent-config consumer lockstep** (`pi/settings.json` model prefix + `piShellAcpProvider` block). → `pnpm check` EXIT0.
 - **S2 — MCP bridge:** `mcp/pi-tools-bridge`→`mcp/entwurf-bridge` (dir+서버명) + **tool id `mcp__pi-tools-bridge__*`→`mcp__entwurf-bridge__*`** 전수 + install/remove/prune settings + `check-pi-tools-bridge-boot` + consumer mcpServers lockstep.
 - **S3 — env namespace:** taxonomy에 따라 `PI_SHELL_ACP_*`를 core/ACP/pi-adapter 의미별로 분해, `PI_TOOLS_BRIDGE_*`→`ENTWURF_BRIDGE_*`, `PI_ENTWURF_*`→`ENTWURF_*`, `PI_META_*`→`ENTWURF_META_*` + env명 assert 게이트(`check-entwurf-v2-surface` 등). **런타임 영구 alias 금지**, 필요시 installer one-shot migration만.
@@ -108,7 +112,7 @@ README/VERIFY/CHANGELOG stale (backend overclaim·packaged docs·persisted conti
 
 ## S3 env (consumer 자체 env)
 - `run.sh`: `PI_SHELL_ACP_DIR`·`PI_SHELL_ACP_INSTALL_SPEC`·`PI_SHELL_ACP_TRACKING_REF` → `ENTWURF_*`.
-- ⚠️ `PI_ENTWURF_BOT_TOKEN`(run.sh:639-655) = agent-config/telegram 자체 var. **pi-shell-acp가 읽나? 아니면 우리 repo rename 범위 밖(cross-repo 결정)** — 분류 필요(GPT review 포인트).
+- ✅ `PI_ENTWURF_BOT_TOKEN`(run.sh:639-655) = **repo 범위 밖 (비봇 감수 종결).** pi-shell-acp가 `BOT_TOKEN` 0건 안 읽음 → agent-config/telegram 자체 var, `PI_ENTWURF_` 접두는 consumer 자체 명명. correctness-coupled 아님(cosmetic) → `ENTWURF_BOT_TOKEN`으로 바꾸려면 agent-config 독립 결정, **repo S1과 묶지 말 것.**
 
 ## ★ (f) physical-path coupling — consumer S1을 GATE함 (GPT cut-choreography)
 GLG가 GitHub repo + 로컬 checkout dir를 rename하기 전엔 `entwurf`로 못 바꾸는 경로들:
@@ -117,11 +121,17 @@ GLG가 GitHub repo + 로컬 checkout dir를 rename하기 전엔 `entwurf`로 못
 - `run.sh`: checkout `~/repos/gh/pi-shell-acp` · pi-managed `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp` · `PI_SHELL_ACP_INSTALL_SPEC="git:github.com/junghan0611/pi-shell-acp"`(GitHub URL).
 - → 결론: **consumer S1 = repo S1 직후가 아니라 (f) physical rename과 같은 beat.** migration wrapper가 한 beat 동안 옛 경로 허용할지 stage 전 결정.
 
-## ★★ 역사데이터 coupling — consumer-side "keep-old" 클래스는 NON-empty (실측, repo 내부와 대조)
-repo 내부 negative-guard는 공집합이었으나 **consumer는 다르다 — 진짜 silent-break 부류 존재:**
-- `session-recap.py:172` `if "pi-shell-acp" in api or "pi-shell-acp" in provider or model.startswith("claude-")` — **기존 세션 JSONL의 provider 문자열 = "pi-shell-acp"**. 단순 치환하면 rename *이전* 모든 세션을 못 찾음(recall이 조용히 과거를 잃음).
-- `entwurf-peek.py:243`/`test-discovery.py` — 세션 헤더 provider 파싱 + `pi-shell-acp/claude-…` id 그래미. 동일.
-- → 이 consumer들은 **old(`pi-shell-acp`) OR new(`entwurf`) 둘 다 수용**해야 한다(역사 데이터는 불변 → 옛 문자열 못 지움). **일격 전 반드시 박을 것.**
+## ★★ 역사데이터 coupling — consumer-side "keep-old" 클래스는 NON-empty (실측 + 비봇 감수 확장)
+repo 내부 negative-guard는 공집합이었으나 **consumer는 다르다 — 진짜 silent-break 부류 존재.** 비봇 원리: **keep-old 클래스 = "불변 역사(immutable history)를 읽는 자".** 실측 표면:
+- `session-recap.py:172` `if "pi-shell-acp" in api/provider or model.startswith("claude-")` + cognate `:145`(분류 docstring) — 둘 다 keep-both. **단 `model.startswith("claude-")` 백스톱**이 있어 claude 세션은 provider가 바뀌어도 "acp"로 분류됨 → break가 reader마다 **불균등**.
+- `entwurf-peek.py:243`(getLiveSessions parity, 백스톱 **없음**) + **★`test-discovery.py:41` `write()` 헬퍼가 루트** — 모든 픽스처가 `"provider":"pi-shell-acp"` 상속(`:42/59/72` + header `==pi-shell-acp/claude-…` + spoof header-authority 케이스). **통째 치환 = 보존하려던 historical-parsing 회귀를 테스트째 삭제** → 최소 1개 `pi-shell-acp` 픽스처 보존(+entwurf 픽스처 추가).
+- **JSONL 밖 영속저장소 1패스 (비봇):** semantic-memory/andenken 임베딩 메타 · agenda 스탬프 · botlog가 옛 `provider`/`model`(`pi-shell-acp/claude-*`) 문자열로 **필터/인덱스**하는지. (대부분 content-embed라 무사 예상이나, recall이 과거를 잃는 건 조용한 손실 → 확인값 필요.)
+
+## ★★★ 화해 원칙 (내 핵심 의견 — 미래 silent-break 방지): hard-cut(repo) ⟂ dual-accept(consumer history-reader)
+두 정책이 *모순처럼* 보이나 직교·상보다 — **계획에 명시 안 하면 미래 구현자가 한쪽으로 다른쪽을 잡아먹는다:**
+- **repo = 살아있는 라우팅 정체성 → hard-cut, permanent alias 금지** (AGENTS Hard Rule 1).
+- **consumer history-reader = 불변 과거를 읽음 → old ∪ new 영구 dual-accept** (역사는 안 바뀌므로 *영원히* 둘 다).
+- ⚠️ **함정:** 누군가 Hard Rule 1("no permanent alias")을 읽고 session-recap의 `pi-shell-acp` 수용을 "residue"로 청소 → **모든 과거 세션 recall이 조용히 끊김.** dual-accept는 alias가 아니라 *historical-compat*다. S1 직전 + AGENTS에 이 구분 한 줄 박을 것.
 
 # 넘으면 안 되는 선
 
