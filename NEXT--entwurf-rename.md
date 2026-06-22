@@ -67,7 +67,7 @@
 | `pi-shell-acp` (kebab) | `entwurf` |
 | `piShellAcp…` (camel, =`piShellAcpProvider`) | `entwurfProvider` |
 | `PiShellAcp` (Pascal) | `Entwurf` |
-| `PI_SHELL_ACP_*` (SCREAMING env, 실측 27개) | §3 taxonomy 참조 |
+| `PI_SHELL_ACP_*` (SCREAMING env, **실측 20개**) | §3 taxonomy 참조 |
 | `pi_shell_acp` (snake) — **코드 0건**(VERIFY.md drift만, §7) | — |
 | `pi-tools-bridge` (MCP dir/서버명) | `entwurf-bridge` |
 | `mcp__pi-tools-bridge__*` (tool id/allow) | `mcp__entwurf-bridge__*` |
@@ -133,9 +133,10 @@
 - **S0.5** SSOT 정렬(AGENTS no-rename 제거 · ROADMAP/NEXT hard-cut · env taxonomy) ✅
 
 ### ▶ S1 진입 readiness gate — **일격 전 이게 다 닫혀야**
-- **(a) fresh `rg` 전수 (repo 내부만)** — 토큰 매트릭스(§2) + 27 env(§3) + negative-guard 패스(`!==`/`!includes`·sentinel·drift assert·docs-only) S1 직전 재실행. *consumer는 grep 안 함 — 담당자 영역.*
+- **(a) fresh `rg` 전수 (repo 내부만)** — 토큰 매트릭스(§2) + 33 RENAME env(§3: PI_SHELL_ACP_* 20 + PI_ENTWURF_* 5 + PI_META_* 5 + PI_TOOLS_BRIDGE_* 3) + negative-guard 패스(`!==`/`!includes`·sentinel·drift assert·docs-only) S1 직전 재실행. *consumer는 grep 안 함 — 담당자 영역.* **✅ 2026-06-23 완료(§2 실측 박스).**
   - **★ "RENAME군 0" 정의 계층화 (GPT 검수 Amber — 검증자 해석 분기 방지):** 검증 기준 = **runtime/code군 0** (`.ts`/`.sh` 코드·게이트·loader·package metadata — S1~S3 결합 대상) **+ live-instruction docs는 결합** (VERIFY/README의 *실행 가능한* `pi-shell-acp/--list-models`·install 명령·model string) **+ historical/docs allowlist 잔존 허용** (CHANGELOG 과거 기록·`docs/setup-clean-host.md` openclaw historical·deprecate 노트 = §7 PR-polish 또는 보존). S1 직전 rg 출력을 이 3계층으로 분류해 "0"의 대상을 못박는다.
-- **(c) cache migration 리허설 [GLG 확정 §6-④: (A) body rewrite, future-lane hygiene]** — `mv ~/.pi/agent/cache/pi-shell-acp/sessions → cache/entwurf/sessions` **+ 각 레코드 JSON `provider` 필드 rewrite**. **알고리즘 엣지 (GPT 2R):** ① lock 잡고 pi/ACP resident 끈 상태 실행(동시 write 방지) · ② old有new無 → `entwurf/sessions.tmp`로 복사 → 각 JSON atomic rewrite(tmpfile+rename) → 전부 validate 후 final `sessions`로 rename, 실패 시 tmp 남기고 fail-loud · ③ old有new有 → fail-loud(자동 merge 금지) · ④ old無new有 → "ok"로 끝내지 말고 scan: `provider:"entwurf"`면 ok, `pi-shell-acp` 잔존 시 partial이라 rewrite+validate · ⑤ 보존 필드 = `sessionKey`/`acpSessionId`/`cwd`/`modelId`/`bridgeConfigSignature`/`contextMessageSignatures`(provider만 교체). `bridgeConfigSignature`는 provider/package명 미포함이라 rewrite로 stale 안 됨(S2 mcpServersHash 변경은 정상 invalidation). 실제 `~/.pi`로 리허설. ※ persisted read OFF라 *지금* live 검증 불가 — hygiene 차원.
+- **(c) cache migration 리허설 [GLG 확정 §6-④: (A) body rewrite, future-lane hygiene]** — `mv ~/.pi/agent/cache/pi-shell-acp/sessions → cache/entwurf/sessions` **+ 각 레코드 JSON `provider` 필드 rewrite**. **알고리즘 엣지 (GPT 2R):** ① lock 잡고 pi/ACP resident 끈 상태 실행(동시 write 방지) · ② old有new無 → `entwurf/sessions.tmp`로 복사 → 각 JSON atomic rewrite(tmpfile+rename) → 전부 validate 후 final `sessions`로 rename, 실패 시 tmp 남기고 fail-loud · ③ old有new有 → fail-loud(자동 merge 금지) · ④ old無new有 → "ok"로 끝내지 말고 scan: `provider:"entwurf"`면 ok, `pi-shell-acp` 잔존 시 partial이라 rewrite+validate · ⑤ **fixture root에서만 리허설(아래 live 금지)** · ⑥ 보존 필드 = `sessionKey`/`acpSessionId`/`cwd`/`modelId`/`bridgeConfigSignature`/`contextMessageSignatures`(provider만 교체). `bridgeConfigSignature`는 provider/package명 미포함이라 rewrite로 stale 안 됨(S2 mcpServersHash 변경은 정상 invalidation).
+  - **⚠️ live `~/.pi` 절대 금지 (GLG+GPT 확정) — 에이전트들 작업 중.** dry-run/연습은 **fixture root(임시 dir 복제본)에서만** migration 로직 검증. 실제 `~/.pi/agent/cache`는 *건드리지 않는다* — 현재 live code가 old path(`cache/pi-shell-acp/sessions`)를 쓸 수 있어 미리 옮기면 old/new가 갈라짐. live 적용은 *live S1 직전/직후* resident 끄고 backup 잡은 뒤 one-shot, 그 전엔 scan-only도 금지. ※ persisted read OFF라 *지금* live 검증 불가 — hygiene 차원.
 - **(g) npm name 게이트 무해 확인 (문구 정밀화)** — package.json `name`→`@junghanacs/entwurf` + §2 `check-pack-install` 하드코딩 surface를 same-commit 치환하면, `check-pack`(`npm pack --dry-run`)·`check-pack-install`이 **새 `@junghanacs/entwurf` registry publish에 의존하지 않고 green**임을 dry-run worktree서 실증. ※ "registry 미접촉"은 정확히는 *우리 패키지 publish 불필요*라는 뜻 — peer deps(`@earendil-works/…`·typebox)는 캐시 없으면 npm resolve가 일어날 수 있음(정상).
 - **AGENTS dual-accept 문구** — §1-① 문구를 **우리 repo AGENTS에** (§6-② GLG 승인). agent-config AGENTS는 담당자.
 - **(d) GLG 비준 + (f) repo/dir rename 타이밍(§6-③) 확정 = 트리거.** *npm publish는 트리거 아님 — rename 완료 후 최후행(§6-①).*
@@ -147,13 +148,14 @@
 - **게이트 same-commit:** `check-package-source-routing`·`check-model-lock`·`check-entwurf-session-identity`·`check-auth-boundary` + **`check-pack-install`(GPT 2R — `pnpm check` 밖이라 명시 호출 필수; package name rename 실제 회귀 gate, §2 하드코딩 surface 검증).**
 - **bridge명은 건드리지 않음**(S2). → `pnpm check` EXIT0 + RENAME군 0/KEEP 잔존 양방향.
 - **먼저 버린 worktree에서 dry-run**(physical rename 없이 가능 — dir명은 fs path지 alias 아님), green 확인 후 live.
+  - **★ dry-run 가드 (GPT 확정):** ① **S1 범위만** 치환 — `pi-tools-bridge`(S2)·`PI_*` env namespace(S3)는 **건드리지 말 것**(섞으면 검증 의미 흐려짐). ② live `~/.pi` 금지(§5-c). ③ **산출물 필수 형태:** worktree path · replacement script/명령 · `git diff --stat` · residual rg 요약(runtime/code RENAME **0** / KEEP pi 잔존 / historical·docs allowlist 잔존) · `pnpm check` · `pnpm run check-pack-install` · 실패 시 첫 failure log.
 - *consumer(agent-config)는 이 commit에 없다 — 담당자가 별도 beat로 맞춘다.*
 
 ### ▶ S2 — MCP bridge
 `mcp/pi-tools-bridge`→`mcp/entwurf-bridge`(dir+서버명) + tool id `mcp__pi-tools-bridge__*`→`mcp__entwurf-bridge__*` 전수 + install/remove/prune settings + `check-pi-tools-bridge-boot`. (consumer mcpServers·노트 C 경로 = 담당자.)
 
 ### ▶ S3 — env namespace
-taxonomy(§3)대로 `PI_SHELL_ACP_*` 27개 의미별 분해 + `PI_TOOLS_BRIDGE_*`→`ENTWURF_BRIDGE_*` + `PI_ENTWURF_*`→`ENTWURF_*` + `PI_META_*`→`ENTWURF_META_*` + env명 assert 게이트. **영구 alias 금지**, installer one-shot migration만.
+taxonomy(§3)대로 `PI_SHELL_ACP_*` 20개 의미별 분해 + `PI_TOOLS_BRIDGE_*`(3)→`ENTWURF_BRIDGE_*` + `PI_ENTWURF_*`(5)→`ENTWURF_*` + `PI_META_*`(5)→`ENTWURF_META_*` + env명 assert 게이트. **영구 alias 금지**, installer one-shot migration만.
 
 ### ▶ S4 deferred (구조개편, 텍스트치환 아님)
 `pi/entwurf-targets.json` 경로 재검토 · `pi-extensions/`→`adapters/pi/extensions/` · `pi/meta-bridge/.assembled` 산출물 경로.
