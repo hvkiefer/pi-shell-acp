@@ -2,6 +2,8 @@
 
 > **상태:** 치환 **0건** · 형제 교차검수(**GPT GO + 비봇 GO** 수렴) · 영속저장소 패스 완료. **⚠️ 정정(2026-06-22): consumer = "openclaw 배포 family" 클래스** (agent-config 하나 아님) — `~/repos/{gh,work,3rd}` 전수 grep으로 **openglg-config + work/hejdev6-openclaw + hej-kip** 발견(§4-B). 공통 shape = provider config + npm install → **npm 패키지명 rename이 최대 blast**. agent-config discovery는 닫혔고, 배포군 functional 나열만 S1 prep으로 남음. 그 외 = §6 GLG 결정 3건 + 일격.
 > 분기점 `acp-on-v2` `a893318`(CP1 lock, 원격 봉인). operator 세트·영속 invariant SSOT = `ROADMAP.md`.
+>
+> **▶ 다음 세션 진입점 (실제 작업):** ① 비봇 final 감수 피드백 반영 → ② §6 GLG 결정 3건 확정(physical+npm 전략 ①/② · AGENTS dual-accept 적용 · repo rename 타이밍) → ③ §5 S1 readiness gate `fresh rg` 전수(repo+§4 배포군) → ④ **버린 worktree에서 S1 dry-run**(RENAME군 0 / KEEP 잔존 / `pnpm check` green) → ⑤ GLG 비준 시 live S1 일격. *치환은 ④까지 0건 유지.*
 
 ---
 
