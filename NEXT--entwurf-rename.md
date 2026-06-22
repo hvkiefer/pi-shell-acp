@@ -1,6 +1,6 @@
 # NEXT — `entwurf-rename` · 단일 액션 플랜 (rename `pi-shell-acp` → `entwurf`: pi 탈중심화)
 
-> **상태:** 치환 **0건** · 형제 교차검수(**GPT GO + 비봇 GO** 수렴, 서로 주장 직접 재현) · 영속저장소 패스 완료 = **discovery 닫힘**. 남은 건 §6 GLG 결정 3건 + 일격.
+> **상태:** 치환 **0건** · 형제 교차검수(**GPT GO + 비봇 GO** 수렴) · 영속저장소 패스 완료. **⚠️ 정정(2026-06-22): consumer는 agent-config 하나가 아니다** — `~/repos/gh` 전수 grep으로 **openglg-config(2차 functional)** + docker/docs constellation 발견(§4-B). agent-config discovery는 닫혔고, openglg functional 나열 + docs-constellation 결정만 남음. 그 외 남은 건 §6 GLG 결정 3건 + 일격.
 > 분기점 `acp-on-v2` `a893318`(CP1 lock, 원격 봉인). operator 세트·영속 invariant SSOT = `ROADMAP.md`.
 
 ---
@@ -86,8 +86,11 @@
 
 ---
 
-## 4 · Consumer (agent-config) lockstep 맵
+## 4 · Consumer constellation lockstep 맵
 
+> ⚠️ consumer는 하나가 아니다. `~/repos/gh` 전수 grep(2026-06-22): functional = **agent-config(A, primary)** + **openglg-config(B, 2차)**; 나머지(nixos/openclaw-config docker, notes/cos/edge/lego/junghan0611 등)는 주석·docs.
+
+### A · agent-config (primary, 완전 매핑)
 > `~/repos/gh/agent-config` 실측. **dirty baseline:** `pi/settings.server.json` M = `lastChangelogVersion` 0.79.6→0.79.8 (pi 런타임 자동 마커·benign) — **rename commit에 섞지 말 것**(§5 S1 readiness, `git add -p`).
 
 - **S1 identity (repo S1과 같은 beat):** `pi/settings.json`+`.server.json:14` `"piShellAcpProvider"` 키→`entwurfProvider` · `pi/claude-plugin.json:3` description.
@@ -102,6 +105,11 @@
   - `session-recap.py:172` `if "pi-shell-acp" in api/provider or model.startswith("claude-")` + cognate `:145`. (단 `model.startswith("claude-")` 백스톱 있어 break 불균등.)
   - `entwurf-peek.py:243`(백스톱 없음) + **`test-discovery.py:41` `write()` 헬퍼**(모든 픽스처가 `"provider":"pi-shell-acp"`+`==pi-shell-acp/claude-…` 헤더 상속; spoof header-authority 케이스 포함) → **통째 치환 = historical-parsing 회귀를 테스트째 삭제.**
 
+### B · 그 외 consumer (전수 grep, S1 prep에서 fresh-rg 재확인)
+- **openglg-config (2차 functional):** `openclaw/config/openclaw.json.example` provider 블록 `"pi-shell-acp": {`·`"allow": ["pi-shell-acp"]`·`"model": "pi-shell-acp/…"`(S1 identity, 단 `.example` 템플릿) + **`openclaw/Dockerfile:34` `pi install @junghanacs/pi-shell-acp`**(=npm 패키지명, (f) cut-choreography — npm republish와 같은 beat). docker-compose/apt-bootstrap hit은 주석.
+- **nixos-config / openclaw-config (docker 배포, 가벼움):** `docker-compose.yml`·`Dockerfile` hit이 대부분 **주석**(#21 workaround·overlay passthrough) + KEEP env `PI_EMACS_AGENT_SOCKET`. pi-shell-acp는 in-container 설치 아니라 **host `~/.pi/agent` bind-mount** → 설치 lockstep은 agent-config run.sh가 owner. 주석/commit-pin은 PR-polish.
+- **docs constellation (`.md`/`.org`):** `notes`(20) · `cos`(3) · `edgeagent-config`·`legoagent-config`(1) · `junghan0611`(README) · `doomemacs-config`·`logickocli`·`memex-kb`·`zotero-config`. = 콘텐츠 언급/historical. **rename 결합 아님** — 일부 PR-polish, 대부분 그대로 둠(역사 기록).
+
 ---
 
 ## 5 · 액션 플랜 (sequenced — 각 stage = 일괄치환 + 게이트 same-commit + `pnpm check` green + commit, bisectable)
@@ -110,7 +118,7 @@
 - **S0.5** SSOT 정렬(AGENTS no-rename 제거 · ROADMAP/NEXT hard-cut · env taxonomy) ✅
 
 ### ▶ S1 진입 readiness gate — **일격 전 이게 다 닫혀야** (GPT+비봇 GO 종합)
-- **(a) fresh `rg` 전수** — 토큰 매트릭스(§2) 27 env(§3) + negative-guard 패스(`!==`/`!includes`·sentinel·drift assert·docs-only) **S1 직전 재실행**.
+- **(a) fresh `rg` 전수** — 토큰 매트릭스(§2) 27 env(§3) + negative-guard 패스(`!==`/`!includes`·sentinel·drift assert·docs-only) + **consumer constellation §4 A(agent-config)+B(openglg-config)** **S1 직전 재실행**.
 - **(c) cache migration 리허설** — `mv ~/.pi/agent/cache/pi-shell-acp/sessions → cache/entwurf/sessions` 를 **실제 `~/.pi`로** 리허설. **idempotent:** old有new無→mv / new有→ok / 둘다有→fail-loud. (hard-cut 무충돌: 1회 이동이지 dual-routing 아님.)
 - **(e) consumer dirty baseline 고정** — S1 직전 `git -C agent-config diff -- pi/settings.server.json`가 `lastChangelogVersion` 한 줄뿐인지 재확인 → S1 후 `git add -p`로 rename hunk만 stage(marker hunk 제외, commit purity).
 - **keep-old 방어** — `test-discovery.py`에 `pi-shell-acp` 픽스처 **≥1 보존**(케이스명 `historical_pi_shell_acp`) + `entwurf` 픽스처 추가. session-recap/entwurf-peek는 dual-accept. (영속저장소 = 이미 clear ✅.)
@@ -122,7 +130,7 @@
 - 패키지명 + provider id(`acp-provider.ts` baseUrl/api) + model prefix + `piShellAcpProvider`→`entwurfProvider` + `PiShellAcp*`/`piShellAcp*`/`pi_shell_acp` + Symbol + repo URL.
 - **MOVE-lockstep(§2) 동시 이동** — getRegistryRouting `!==` + no-auth sentinel 3-site + PROVIDER_ID(shell).
 - **게이트 same-commit:** `check-package-source-routing`·`check-model-lock`·`check-entwurf-session-identity`·`check-auth-boundary`.
-- **consumer lockstep(§4 S1):** `pi/settings*.json` `entwurfProvider` 블록(model prefix 포함, 내부 bridge명은 S2 유지) + `claude-plugin.json`.
+- **consumer lockstep(§4):** [agent-config] `pi/settings*.json` `entwurfProvider` 블록(model prefix 포함, 내부 bridge명은 S2 유지) + `claude-plugin.json`; [openglg-config] `openclaw.json.example` provider 블록/allow/model + Dockerfile npm install(npm republish와 동기).
 - **bridge명은 건드리지 않음**(S2). → `pnpm check` EXIT0 + RENAME군 0/KEEP 잔존 양방향.
 - **먼저 버린 worktree에서 dry-run**(physical rename 없이 가능 — dir명은 fs path지 alias 아님), green 확인 후 live.
 
