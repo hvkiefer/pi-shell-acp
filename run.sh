@@ -844,6 +844,21 @@ smoke_acp_overlay_live() {
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-overlay-live.ts)
 }
 
+smoke_acp_memory_containment_live() {
+  # Gate D — ACP Claude memory containment, end-to-end. OUT of pnpm check, LIVE=1.
+  # THE regression guard that was missing: drives the SHIPPED config (overlay +
+  # PRESENT engraving carrier = the v1 preset-replacement lever) with a turn that
+  # EXPLICITLY asks the model to persist a nonce to its memory, then asserts NO
+  # file appears under <overlay>/projects/**/memory/**. Permission is GRANTED (not
+  # cancelled) and writeTextFile delegation is PERFORMED, so the only thing that
+  # can stop a memory write is the lever — not us. Fails loud if engraving.md is
+  # empty (carrier OFF = no containment). Launch must be the package bin (PATH
+  # fallback fails acceptance unless PI_SHELL_ACP_MEMORY_ALLOW_PATH_FALLBACK=1).
+  # Model override: PI_SHELL_ACP_MEMORY_MODEL (default claude-sonnet-4-6).
+  #   LIVE=1 ./run.sh smoke-acp-memory-containment-live
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-memory-containment-live.ts)
+}
+
 smoke_acp_provider_live() {
   # S2c acceptance smoke (ACP plugin on v2) — OUT of pnpm check, needs LIVE=1.
   # Drives the REAL pi PROVIDER path end to end: a real `pi` loads this
@@ -2213,6 +2228,7 @@ release_gate() {
   run_live_step "smoke-acp-provider-live (S2c/S2f: real pi provider path + progress/L3)"  gate env LIVE=1 bash "$self" smoke-acp-provider-live
   run_live_step "smoke-acp-session-reuse-live (S2d: process-scoped reuse + recall)"       gate env LIVE=1 bash "$self" smoke-acp-session-reuse-live
   run_live_step "smoke-acp-carrier-augment-live (S2e-1: augment delivery + 핀1 billing)"  gate env LIVE=1 bash "$self" smoke-acp-carrier-augment-live
+  run_live_step "smoke-acp-memory-containment-live (Gate D: no overlay memory leak)"      gate env LIVE=1 bash "$self" smoke-acp-memory-containment-live
   run_live_step "smoke-acp-rgg-live (S2e-2: ACP-target garden guard, deterministic half)" gate env LIVE=1 bash "$self" smoke-acp-rgg-live
   run_live_step "smoke-acp-mcp-live (S2g: operator mcpServers reach the live ACP session)"  gate env LIVE=1 bash "$self" smoke-acp-mcp-live
   run_live_step "smoke-acp-skill-live (S2g: operator skillPlugins reach the live ACP session)" gate env LIVE=1 bash "$self" smoke-acp-skill-live
@@ -2400,6 +2416,9 @@ case "$cmd" in
     ;;
   smoke-acp-overlay-live)
     smoke_acp_overlay_live
+    ;;
+  smoke-acp-memory-containment-live)
+    smoke_acp_memory_containment_live
     ;;
   smoke-acp-provider-live)
     smoke_acp_provider_live
