@@ -531,8 +531,16 @@ export function streamAcpTurn(
 		// per-(model,template) constant and does NOT rebuild every turn (NEXT
 		// §S2-scout 핀1 / oracle C, GPT c32a6c8 ②). null → "" is the explicit
 		// operator opt-out branch. mcpServerNames feed the carrier so
-		// `{{mcp_servers}}` lists the real set.
-		const engraving = loadEngraving({ backend: "claude", mcpServerNames: serverNames });
+		// `{{mcp_servers}}` lists the real set. If the shipped default carrier is
+		// missing/empty, loadEngraving throws (trust lever off); surface that as a
+		// stream error instead of an unhandled microtask failure.
+		let engraving: string | null;
+		try {
+			engraving = loadEngraving({ backend: "claude", mcpServerNames: serverNames });
+		} catch (err) {
+			finishError(err, false);
+			return;
+		}
 		// S2g: the signature folds the FULL resolved config (mcpServersHash + tool
 		// surface + skillPlugins + flags) so any operator config change invalidates
 		// a reused session; the per-session envelope is excluded (runtime, not config).
