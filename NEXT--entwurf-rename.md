@@ -50,7 +50,16 @@
 
 ---
 
-## 2 · 나열 — 토큰 매트릭스 (수치는 rough; **S1 직전 fresh `rg`로 전수 재확인** 후 치환)
+## 2 · 나열 — 토큰 매트릭스
+
+> **✅ fresh rg 전수 실측 (2026-06-23, repo 내부, 치환 0건):**
+> - **RENAME 코드 hits:** `pi-shell-acp` 72파일/396 · `piShellAcp` 11/38 · `PiShellAcp` 2/3 · `PI_SHELL_ACP_` 25/109 · `pi-tools-bridge` 37/136 · `mcp__pi-tools-bridge__` 5/9. 분포: `scripts/` 43(게이트 기대값 집중) · `pi-extensions/lib` 13(런타임) · root 4 · pi/·mcp/·demo/ 소수.
+> - **env 고유 이름 실측:** `PI_SHELL_ACP_*` **20** + `PI_ENTWURF_*` **5**(ACP_FOR_CODEX·CHILD_STDERR_LOG·DIR·PREFIX_ROOTS·TARGETS_PATH) + `PI_META_*` **5** + `PI_TOOLS_BRIDGE_*` **3** = **33 RENAME env**. (§3 "27" 정정.) `PI_SHELL_ACP_ALLOW_PI_COMPACTION` = **코드 부재 확정**(§3 doc-drift 일관).
+> - **정정 ①** snake `pi_shell_acp` = **코드 0건**. `VERIFY.md:969` reason `pi_shell_acp_session_locked_*`은 코드에 실재 안 함 → **VERIFY drift = §7 PR-polish**(RENAME 대상 아님).
+> - **정정 ②** `pi-acp`(svkozak) = 코드 0건 → KEEP 매트릭스에서 의미 없음(주석만).
+> - **MOVE-lockstep 전부 실재 확정:** `run.sh:30 PROVIDER_ID` · Symbol `acp-provider.ts:23` · no-auth sentinel 3-site(`models.ts:29`+`check-acp-provider-surface.ts:49`+`run.sh:1314/1319`) · **repo URL = `check-package-source-routing.ts:99/147/163/182` 게이트 기대값**(package.json:12/14/16과 lockstep) · model prefix `pi-shell-acp/claude-{sonnet-4-6,opus-4-8}`(+fixture suffix 다수).
+> - **3계층 분류 (docs 16):** live-instruction(결합) = README·VERIFY·AGENTS·CONTRIBUTING·demo/README·.pi/prompts/{make,prepare}-release·SKILL.md · historical(allowlist 잔존) = CHANGELOG·BASELINE·docs/setup-clean-host(openclaw)·ROADMAP · 작업문서 = NEXT*.
+> - **결론:** 매트릭스 구조 유효, 수치만 위로 갱신. S1 dry-run 진입 OK.
 
 ### RENAME → entwurf (정체성 / 하네스 무관 capability)
 | 토큰 (변종) | → |
@@ -59,7 +68,7 @@
 | `piShellAcp…` (camel, =`piShellAcpProvider`) | `entwurfProvider` |
 | `PiShellAcp` (Pascal) | `Entwurf` |
 | `PI_SHELL_ACP_*` (SCREAMING env, 실측 27개) | §3 taxonomy 참조 |
-| `pi_shell_acp` (snake) | `entwurf` |
+| `pi_shell_acp` (snake) — **코드 0건**(VERIFY.md drift만, §7) | — |
 | `pi-tools-bridge` (MCP dir/서버명) | `entwurf-bridge` |
 | `mcp__pi-tools-bridge__*` (tool id/allow) | `mcp__entwurf-bridge__*` |
 | `PI_TOOLS_BRIDGE_*` (3) · `PI_ENTWURF_*` · `PI_META_*` | §3 |
@@ -89,7 +98,7 @@
 
 ## 3 · Env taxonomy (`PI_` 접두 제거 ≠ pi 단어 전부 제거)
 
-> 버킷+규칙+대표예시일 뿐 전수 아님. `PI_SHELL_ACP_*` **27개**를 S3 직전 `rg`로 전수 배정·확인 후 치환. **비자명 선결:** `LIVE_{MODEL,PROVIDER,TARGET}`·`RGG_TARGET`·`S1_MODEL`·`CODEX_MODE`. 자명: `*_CONTEXT`/`*_MODEL`/`*_SENTINEL`/`TRUST_ROOTS`→ACP, `V2_ONLY`/`DEBUG`→core.
+> **✅ fresh rg 실측(2026-06-23): `PI_SHELL_ACP_*` 20개**(27 아님) + `PI_ENTWURF_*` 5 + `PI_META_*` 5 + `PI_TOOLS_BRIDGE_*` 3 = **33 RENAME env**. S3 직전 재확인 후 의미별 배정·치환. **비자명 선결:** `PI_SHELL_ACP_LIVE_{MODEL,PROVIDER,TARGET}`·`_RGG_TARGET`·`_S1_MODEL` + `PI_ENTWURF_ACP_FOR_CODEX`/`_PREFIX_ROOTS`/`_CHILD_STDERR_LOG`(신규 실측). 자명: `*_CONTEXT`/`*_MODEL`/`*_SENTINEL`/`*_ENGRAVING_PATH`/`*_MEMORY_*`/`*_OVERLAY_*`/`*_RAW_TURN_*`→ACP, `*_DEBUG`→core, `PI_META_*`→meta. ※`PI_SHELL_ACP_ALLOW_PI_COMPACTION`은 **코드 부재**(아래 정정 일관).
 
 - **Core/substrate:** `PI_ENTWURF_TARGETS_PATH`→`ENTWURF_TARGETS_PATH`, `PI_ENTWURF_DIR`→`ENTWURF_DIR`, `PI_SHELL_ACP_V2_RESUME_RESIDENT_SESSION_ID`→`ENTWURF_V2_RESUME_RESIDENT_SESSION_ID`.
 - **ACP plugin:** `PI_SHELL_ACP_PROVIDER_MODEL`→`ENTWURF_ACP_PROVIDER_MODEL`, `*_CLAUDE_CONTEXT`/`*_ENGRAVING_PATH`/`*_MEMORY_*`/`*_OVERLAY_*`/`*_RAW_TURN_*`→`ENTWURF_ACP_*`.
@@ -162,7 +171,7 @@ taxonomy(§3)대로 `PI_SHELL_ACP_*` 27개 의미별 분해 + `PI_TOOLS_BRIDGE_*
    - **"사용상 무문제" 검증 기준 (GPT 2R 제안):** ① `pnpm check` + `pnpm run check-pack-install`(후자는 pnpm check 밖, package rename 실제 gate) · ② no-token loader `pi -e "$PWD" --list-models entwurf` 통과 · ③ **path rehearsal** — 복제본을 실제 `…/entwurf` 경로명에 두고 `pnpm check`(+check-pack-install)로 source가 old path에 안 기댐 확인 · ④ live ACP `LIVE=1 ./run.sh smoke-acp-provider-live`(1턴)+`smoke-acp-session-reuse-live`(2턴 reuse), 최종 `LIVE=1 ./run.sh release-gate <scratch>` MUST PASS/SKIP=0. repo rename 직후엔 no-token loader+`pnpm check` 1회 재확인.
    - cwd 축(§6-④): repo/dir rename으로 record `cwd` prefix 변경 = 별도 cold-start 축, future lane에서 cwd one-shot rewrite 또는 cold-start 허용. **[GLG 확정]**
 4. **ACP reuse 캐시 = (A) body `provider` rewrite (살린다).** `decideReusePath:307`이 캐시로 resume(replay 회피)을 고름 → drop하면 new로 떨어져 맥락 끊김. rewrite는 JSON `provider` 1필드 교체(비용≈0)라 **빨라지고+살리는 비용 단순 → (A)**. **[GLG 확정]**
-   - **⚠️ framing 정밀화 (GPT 2R, 실증):** `readSessionRecord` production 호출 **0건** · `backend.ts:591` "persisted resume/load is OFF" — 현재 live reuse는 **in-memory candidate** 기반이라 persisted record는 *지금 안 읽힘*. 따라서 (A) rewrite는 *지금 live resume을 살리는 게 아니라* **future-lane(persisted ON) 위한 record hygiene**. 그래도 비용≈0이라 S1에 넣어 깨끗이 가져간다(미래에 ON 시 즉시 resume).
+   - **⚠️ framing 정밀화 (GPT 2R, 실증):** `readSessionRecord` production 호출 **0건** · `backend.ts:591` "persisted resume/load is OFF" — 현재 live reuse는 **in-memory candidate** 기반이라 persisted record는 *지금 안 읽힘*. 따라서 (A) rewrite는 *지금 live resume을 살리는 게 아니라* **future-lane(persisted ON) 위한 record hygiene**. 그래도 비용≈0이라 S1에 넣어 깨끗이 가져간다(미래에 ON 시 즉시 resume). **[GLG 확정 — 무조건 포함]:** persisted resume을 *켜는 방향으로 개선*할 의도이므로(side-effect 없음 확인 전제) cache (A)는 그 선결조건. drop 옵션 폐기.
    - **★ cwd 축 (GPT 2R 새 발견 — 별개):** compat은 `session-store.ts:254` `candidate.cwd === params.cwd`도 봄. **dir rename으로 record `cwd` prefix(`…/pi-shell-acp`→`…/entwurf`)가 바뀌면 또 다른 incompat=cold-start.** persisted OFF라 지금 무영향이나, future lane에선 repo/dir rename 이벤트(§6-③) 때 **cwd prefix one-shot rewrite 별도** 또는 그 순간 cold-start 허용을 명시해야. provider rewrite(S1)와 다른 축.
 
 **후행 결정 (rename 전부 끝난 뒤 — S1 트리거 아님):**
