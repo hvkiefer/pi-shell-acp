@@ -9,7 +9,16 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 
 jsonrpc() {
-  node --experimental-strip-types "$BRIDGE" <<'EOF'
+  local tmp_meta_senders
+  tmp_meta_senders="$(mktemp -d)"
+  trap 'rm -rf "$tmp_meta_senders"' RETURN
+  env \
+    -u PI_SESSION_ID \
+    -u PI_AGENT_ID \
+    -u PI_META_SENDER_MARKER \
+    -u PI_TOOLS_BRIDGE_REQUIRE_META_SENDER \
+    PI_META_SENDERS_DIR="$tmp_meta_senders" \
+    node --experimental-strip-types "$BRIDGE" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}

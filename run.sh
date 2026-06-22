@@ -87,6 +87,7 @@ Usage:
   ./run.sh smoke-meta-prune           # 1.0.0 meta-bridge Phase 4: listing-only store janitor regression gate — classify keep/orphan/stale/ambiguous, delete nothing. Offline/deterministic (deps: bash+node)
   ./run.sh smoke-meta-keyset-guard    # 0.10.0 meta-bridge: keyset-owner guard regression — check-keyset-overlap + managed-keys SSOT (disjoint passes, collisions fail). Offline/hermetic (deps: bash+python3)
   ./run.sh smoke-meta-sender-identity # 0.10.0 meta-bridge: native SENDER identity E2E — parent-pid sender marker promotes anonymous MCP send to replyable meta-session (garden-id), REQUIRE_META_SENDER refuses anonymous. Offline/hermetic (deps: bash+node+python3)
+  ./run.sh smoke-claude-native-resume-live # LIVE-only: Claude Code native fresh→--resume continuity + meta-record uniqueness; proves meta-bridge records identity without touching the backend resume path
 
   ./run.sh install-meta-bridge        # 1.0.0 meta-bridge Phase 2: stateful GLOBAL install (plugin + USER MCP + settings keyset, honest uninstall state)
   ./run.sh uninstall-meta-bridge      # 1.0.0 meta-bridge Phase 2: stateful GLOBAL uninstall (restore only keys/items captured in install-state)
@@ -2514,6 +2515,13 @@ case "$cmd" in
     # to guess without state, and the doctor store scan fails on corrupt/
     # duplicate/drift records. Offline + deterministic (deps bash+node+python3).
     (cd "$REPO_DIR" && bash scripts/smoke-meta-install-state.sh)
+    ;;
+  smoke-claude-native-resume-live)
+    # LIVE-only Detour A probe: two real Claude Code native turns (fresh +
+    # --resume) in a scratch cwd. Verifies native resume works while the
+    # meta-bridge only records backend=claude-code/nativeSessionId/transcriptPath
+    # once. Not in pnpm check; does not use the ACP provider.
+    (cd "$REPO_DIR" && bash scripts/smoke-claude-native-resume-live.sh)
     ;;
   install-meta-bridge)
     # 1.0.0 meta-bridge step 5: operator-grade GLOBAL install of the garden-native
