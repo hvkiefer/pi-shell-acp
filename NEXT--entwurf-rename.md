@@ -10,6 +10,21 @@
 >
 > **▶ 다음 세션 진입점 (실제 작업):** ⑤ **live S1 ✅ `07c2592`+`1e89c13`** → ⑥ **live S2 ✅ `e795a08`**(MCP bridge) → ⑦ **live S3 ✅ `148a8f8`**(env namespace, 46f 229/229, GPT GO) + **`64cb6b5` check-env-namespace 게이트**(cutover lock, pnpm check 등록, negative-test 검증). **★ 코드 cutover(S1·S2·S3) 전부 완료.** 남은: ⑧ **GLG 무인 후행**(state 이장 §6-④/⑤ · repo/dir rename §6-③ · npm §6-① — §5 quiesce 가드) + **usage-ok 운영절차**(GPT §6-A: S3 후 install-meta-bridge/state apply가 MCP entry env를 `ENTWURF_BRIDGE_*`로 재작성 + 사용자 shell export·`*_ENV_FILE` 새 이름 전환). + **rename 이후 본격 방향 ↓(§10)**.
 
+> **▶▶ 2026-06-23 저녁 마감 — doc-cutover tail + phantom cleanup (origin 반영, push 완료):**
+> - **`28d64d9`** docs(identity): live 문서 naming `pi-tools-bridge`→`entwurf-bridge` (AGENTS/VERIFY/BASELINE/CONTRIBUTING current 표면; history/evidence row는 옛 이름 보존; tool-count 7→4 교정).
+> - **`623a4ea`** docs(cutover): README/VERIFY **phantom 컴팩션 표면 제거** — `session_before_compact {cancel:true}`/`ALLOW_(PI_)COMPACTION` 노브/`smoke-compaction-policy` 게이트 전부 코드 0건이었음. 고아 `demo/compaction-policy-smoke/` 삭제 + `package.json#files`에서 제거(tarball 미출하). README:55 Codex를 "기본 pi-native + `ENTWURF_ACP_FOR_CODEX=1` ACP opt-in"으로 **한정**(GPT의 "Claude-only 정정"은 under-claim 오류 — opt-in은 tested 실재, `entwurf-core.ts:23-30`).
+> - 옛 ACP 캐시 `~/.pi/agent/cache/pi-shell-acp/`(130개, 4MB) 삭제 — 하위호환 불필요(GLG). 새 `entwurf/sessions`는 intact.
+> - 둘 다 pre-commit `pnpm check` 전체 게이트 통과(`check-pack` 180 files invariants pass) + push(origin/entwurf-rename, global hook 통과) + agenda stamp. GPT 형제 수렴·검토 사이클 완료.
+>
+> **▶ 내일 진입점 (GLG가 NEXT 재담금질 예정):**
+> 1. README **frame reframe** — entwurf-first 헤드라인 + shipped(pi·Claude Code·ACP Claude)/probe(Codex·Antigravity) **정직 매트릭스**. "pi=4번째 하네스" 방향성은 AGENTS/ROADMAP에 (GLG frame 결정 대기 — "4 harnesses 구호 대신 정직 매트릭스" 해석 ACK 필요).
+> 2. CONTRIBUTING #7 최종 문구 pick (a 현재안 / b 강화안 "shipped=release-blocking, probe=라벨필수" / c 원복).
+> 3. ROADMAP identity 재구성 (GPT 담당, frame 따라감).
+> 4. **데모 gif 재생성**.
+> 5. **Gemini/Antigravity(agy) 지원 검토** (~2h 예상).
+> 6. release cut (tag/npm publish/old-pkg `@junghanacs/pi-shell-acp`·`@junghan0611/openclaw-pi-shell-acp` deprecate).
+> - 태그 전 **README 수동 `rg` 1패스**(`PI_SHELL_ACP_`·기능주장) — 새 doc-게이트는 안 만듦(=오염). doc은 `check-env-namespace` 사각이라 수동 패스가 닫는다.
+
 ---
 
 ## 0 · 미션 & 교리
