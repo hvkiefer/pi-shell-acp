@@ -331,10 +331,15 @@ if [ -n "$gfile" ] && grep -q "\"name\":\"${g_after}==[^\"]*__control\"" "$gfile
 else
 	bad "/gnew: new session missing the 'control' resident name"
 fi
-if [ -n "$gfile" ] && grep -oE "\"name\":\"${g_after}==[^\"]*\"" "$gfile" | grep -q "entwurf"; then
-	bad "/gnew: new session name carries 'entwurf' — would be resumable as a child"
+# Tag-position check ONLY: the `entwurf` RESUME-MARKER lives in the tag segment
+# (after `__`), never the title slug. After the repo rename the cwd basename is
+# `entwurf`, so the title slug legitimately IS `entwurf` — parseSessionName treats
+# title:"entwurf"+tags:["control"] as NOT an Entwurf session. A bare substring
+# grep false-positives on that slug; match the `__...entwurf...` tag segment only.
+if [ -n "$gfile" ] && grep -qE "\"name\":\"${g_after}==[^\"]*__([a-z0-9-]+_)*entwurf(_[a-z0-9-]+)*\"" "$gfile"; then
+	bad "/gnew: new session name carries the 'entwurf' tag — would be resumable as a child"
 else
-	ok "/gnew: new session name does NOT carry 'entwurf'"
+	ok "/gnew: new session name does NOT carry the 'entwurf' tag"
 fi
 
 # Control socket rebound to the new garden id; old one dropped; no uuid leak.
@@ -413,7 +418,9 @@ if [ "${SMOKE_RGG_POSITIVE:-0}" = "1" ]; then
 	else
 		bad "resident name with 'control' tag not found"
 	fi
-	if [ -n "$pos_file" ] && grep -oE "\"name\":\"${pos_sid}==[^\"]*\"" "$pos_file" | grep -q "entwurf"; then
+	# Tag-position check only (see /gnew block above): match the `__...entwurf...`
+	# tag segment, not the title slug (which is legitimately `entwurf` post-rename).
+	if [ -n "$pos_file" ] && grep -qE "\"name\":\"${pos_sid}==[^\"]*__([a-z0-9-]+_)*entwurf(_[a-z0-9-]+)*\"" "$pos_file"; then
 		bad "resident name carries the 'entwurf' tag — would be resumable as a child"
 	else
 		ok "resident name does NOT carry the 'entwurf' tag"

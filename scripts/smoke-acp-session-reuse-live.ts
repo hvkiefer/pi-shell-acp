@@ -20,7 +20,7 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,6 +68,13 @@ async function main(): Promise<void> {
 		cwd: REPO_ROOT,
 		stdio: "pipe",
 	});
+	// tsc emits only .ts→.js; the engraving carrier is a .md asset that ships
+	// alongside engraving.js in the real package, and backend.js reads it at its
+	// default path. Copy it into the emit tree so the carrier resolves (the
+	// deterministic check-acp-session-reuse gate does the same copyFileSync).
+	const promptsOut = resolve(TMP_EMIT, "pi-extensions/lib/acp/prompts");
+	mkdirSync(promptsOut, { recursive: true });
+	copyFileSync(resolve(REPO_ROOT, "pi-extensions/lib/acp/prompts/engraving.md"), resolve(promptsOut, "engraving.md"));
 	const backendUrl = pathToFileURL(resolve(TMP_EMIT, "pi-extensions/lib/acp/backend.js")).href;
 	// biome-ignore lint/suspicious/noExplicitAny: compiled module imported by URL
 	const backend = (await import(backendUrl)) as any;
