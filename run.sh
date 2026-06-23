@@ -1242,6 +1242,29 @@ check_pi_import_surface() {
   ok "[check-pi-import-surface] pi references are root-only (no private subpath; all tracked ts/js scanned)"
 }
 
+check_env_namespace() {
+  # 0.11 S3 cutover lock: after the env-namespace rename, NO tracked source may
+  # carry the old pi-centric env/const prefixes (PI_SHELL_ACP*, PI_META*,
+  # PI_TOOLS_BRIDGE*, PI_ENTWURF*). This deterministic guard keeps the cutover
+  # from silently regressing — a single old prefix slipping back in fails loud.
+  # KEEP pi-adapter env (PI_SESSION_ID, PI_AGENT_ID, PI_CODING_AGENT_DIR,
+  # PI_SETTINGS_PATH, PI_EMACS_AGENT_SOCKET) is NOT in the forbidden set, so it
+  # passes untouched. The forbidden pattern uses a [_] char-class for the
+  # trailing underscore so THIS gate's own definition never self-matches; for
+  # the same reason every prose mention above uses a `*`, not a trailing `_`.
+  # Docs/CHANGELOG/NEXT keep historical mentions and are excluded.
+  local hits
+  hits=$(cd "$REPO_DIR" && git ls-files \
+    | grep -vE '\.(md|org)$|(^|/)NEXT|(^|/)CHANGELOG|^docs/' \
+    | xargs -r grep -HnE 'PI_SHELL_ACP[_]|PI_META[_]|PI_TOOLS_BRIDGE[_]|PI_ENTWURF[_]' 2>/dev/null || true)
+  if [ -n "$hits" ]; then
+    echo "[check-env-namespace] FAIL: old pi env/const prefix survived the S3 cutover — rename to ENTWURF_*/ENTWURF_ACP_*/ENTWURF_META_*/ENTWURF_BRIDGE_*:"
+    echo "$hits"
+    exit 1
+  fi
+  ok "[check-env-namespace] env namespace is entwurf-only (no old pi env/const prefix in tracked source)"
+}
+
 check_pi_runtime_version() {
   # 0.11 Stage 0 (동결결정 9, runtime half): tsc catches a missing 0.79 export
   # at dev time, but an installed environment can still resolve an older pi at
@@ -2607,6 +2630,9 @@ case "$cmd" in
     ;;
   check-pi-import-surface)
     check_pi_import_surface
+    ;;
+  check-env-namespace)
+    check_env_namespace
     ;;
   check-pi-runtime-version)
     check_pi_runtime_version
