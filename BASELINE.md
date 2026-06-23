@@ -1,7 +1,7 @@
 # BASELINE TEST
 
 A short, language-paired interview any human operator can run against a
-freshly-bootstrapped pi-shell-acp session to confirm the bridge has not
+freshly-bootstrapped entwurf session to confirm the bridge has not
 silently drifted into a different identity / context surface. Questions
 are deliberately open-ended — they probe what the agent actually sees,
 not what it was told to claim.
@@ -87,7 +87,7 @@ single user message.
 4. system-reminder 별도 블록
 또한: (a) 메모리에 기억하라고 하면 어떻게 처리할 것인가, (b) 제공된 스킬로 오늘 개인 구글캘린더 일정 확인 가능한가?
 
-[Q-L1] 당신이 받은 최상위 지침(system prompt 또는 developer instruction)에 pi-shell-acp 인그레이빙 텍스트가 박혀 있는지 답하라. 박혀 있으면 그 부분만 quote 해라. user/context/docs에서 본 거랑 구분하라. (Gemini 백엔드의 경우 GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1 문자열이 carrier-isolation canary로 박혀 있어야 한다.)
+[Q-L1] 당신이 받은 최상위 지침(system prompt 또는 developer instruction)에 entwurf 인그레이빙 텍스트가 박혀 있는지 답하라. 박혀 있으면 그 부분만 quote 해라. user/context/docs에서 본 거랑 구분하라. (Gemini 백엔드의 경우 GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1 문자열이 carrier-isolation canary로 박혀 있어야 한다.)
 
 [Q-L3] 백엔드의 read-class native tool들을 한 번씩 시험 호출해라. 어느 것이라도 "denied by admin policy" 같은 거부 응답이 나오면 보고하라. (Per-backend specifics 표 참조.)
 ~~~
@@ -108,7 +108,7 @@ single user message.
 4. Separate system-reminder block.
 Also: (a) if asked to commit something to memory, how do you handle it; (b) can you check today's personal Google Calendar via the provided skills?
 
-[Q-L1] Is the pi-shell-acp engraving text present in your highest-priority instruction surface (system prompt or developer instruction)? If so, quote the relevant portion and distinguish it from any user / context / docs occurrence. (On the Gemini backend, the carrier-isolation canary is the literal `GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`.)
+[Q-L1] Is the entwurf engraving text present in your highest-priority instruction surface (system prompt or developer instruction)? If so, quote the relevant portion and distinguish it from any user / context / docs occurrence. (On the Gemini backend, the carrier-isolation canary is the literal `GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`.)
 
 [Q-L3] Invoke each of the backend's read-class native tools at least once. Report any "denied by admin policy" (or equivalent) refusal. (See the Per-backend specifics table.)
 ~~~
@@ -162,7 +162,7 @@ Note: a MEMORY.md or similarly-named file may exist on disk in the cwd, but that
 This round verifies that operator engraving literals containing
 `${...}` reach the model unchanged when running on the Gemini backend.
 Gemini's `applySubstitutions` rewrites unknown `${name}` tokens by
-default; pi-shell-acp inserts a U+200B (zero-width space) between `$`
+default; entwurf inserts a U+200B (zero-width space) between `$`
 and `{` in operator engraving body before writing `system.md`, so the
 regex misses while the visual text stays stable.
 
@@ -240,9 +240,9 @@ the scoring criteria so it stays scannable.
 - **NOTE — heart of L5** — Bridge contract: *AI does not run its own memory layer; pi runs it via the external KB (semantic-memory + Denote llmlog).*
 
 ### Q-MCP — MCP enumerate
-- **PASS** — Exactly one: `pi-tools-bridge`.
-- **FAIL** — Any second server appears, or `pi-tools-bridge` missing.
-- **NOTE** — Codex naturally writes the server name with underscores (`pi_tools_bridge`); this is the agent-visible backend marker, not a mutation.
+- **PASS** — Exactly one: `entwurf-bridge`.
+- **FAIL** — Any second server appears, or `entwurf-bridge` missing.
+- **NOTE** — Codex naturally writes the server name with underscores (`entwurf_bridge`); this is the agent-visible backend marker, not a mutation.
 
 ### Q-H — Engraving `${...}` literal preservation (Gemini only)
 - **PASS** — All three lines quoted with `${...}` visually preserved. The ZWSP between `$` and `{` is invisible to both human reader and model; a successful PASS looks identical to the input.

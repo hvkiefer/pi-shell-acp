@@ -122,8 +122,8 @@ pnpm check                                  # full static floor: lint + typechec
 ./run.sh check-entwurf-v2-matrix            # the decider's state×intent table, read as an SSOT (REAL decideDispatch)
 ./run.sh check-entwurf-v2-decider           # + -contract / -lock / -release / -send / -send-fallback / -mailbox / -runner / -production / -surface / -spawn / -spawn-production
 ./run.sh check-meta-session                 # + -record-v2 / -dual-read / -migration / -mailbox-state-write / -receiver-marker / -capability-source / -dual-consumers / -listing
-./run.sh check-pi-tools-bridge-boot         # the MCP pi-tools-bridge stands up + exposes the v2 tool set
-./run.sh check-bridge /path/to/project      # pi-tools-bridge direct MCP smoke (tools/list + protocol/negative-path)
+./run.sh check-entwurf-bridge-boot          # the MCP entwurf-bridge stands up + exposes the v2 tool set
+./run.sh check-bridge /path/to/project      # entwurf-bridge direct MCP smoke (tools/list + protocol/negative-path)
 ./run.sh check-auth-boundary                # ACP plugin no-auth sentinel present + no legacy-ENV apiKey literal (trust invariant, code-level)
 ./run.sh check-acp-provider-surface         # provider registers curated Claude anchor + streamSimple wired to the real streamShellAcp backend
 # sentinel / session-messaging / xt-tool-surface survive as on-demand subcommands but were
@@ -148,7 +148,7 @@ If a gate fails or a claim drops below its needed evidence level, do not commit.
 
 Uses `entwurf` instead of `delegate` to avoid ecosystem collisions. spawn-bg resume creates a sibling, not a worker.
 
-- **Surface** — MCP `pi-tools-bridge`: `entwurf_v2`, `entwurf_self`, `entwurf_peers`, `entwurf_inbox_read`. pi-native (`pi-extensions/entwurf-control.ts`): `entwurf_v2`, `entwurf_peers` tools + `/entwurf-sessions`, `/gnew` (`/garden-new`) commands. The v1 `entwurf` / `entwurf_resume` / `entwurf_send` tools and the `/entwurf` / `/entwurf-send` / `/entwurf-status` commands are **removed** on this branch.
+- **Surface** — MCP `entwurf-bridge`: `entwurf_v2`, `entwurf_self`, `entwurf_peers`, `entwurf_inbox_read`. pi-native (`pi-extensions/entwurf-control.ts`): `entwurf_v2`, `entwurf_peers` tools + `/entwurf-sessions`, `/gnew` (`/garden-new`) commands. The v1 `entwurf` / `entwurf_resume` / `entwurf_send` tools and the `/entwurf` / `/entwurf-send` / `/entwurf-status` commands are **removed** on this branch.
 - **`entwurf_v2` is the one delivery verb.** Given a garden id, it classifies the target (live pi vs. dormant pi vs. meta-session — a bare garden id does not reveal this) and routes correctly. It does **not** mint a fresh sibling: the `dormant pi → spawn-bg resume` row resumes an *already-identified* citizen. Fresh creation was the v1 `entwurf` verb and is deferred to 0.12.x.
 - **`entwurf_peers`** is a read-only fact surface (liveness / capability / identity / cwd-history). Do not bake verb-routing (`resumable`/`sendable`) into the fact layer; routing is the decider's job.
 - **`entwurf_self`** returns the authoritative identity envelope (pi-session env, or a trusted meta-session sender marker) and is identity-required.
@@ -167,7 +167,7 @@ Garden identity covers the operator's OWN `--entwurf-control` session, not just 
 - **In-process new:** builtin `/new` stays blocked under `--entwurf-control` because it mints a uuid before extensions can inject an id. Use `/gnew` (alias `/garden-new`) for a same-terminal fresh garden session; it pre-creates a valid garden JSONL header and `switchSession()`es into it, so no uuid moment exists. A `/gnew` session quit before the first turn may appear in resume lists with message count 0; that is intentional, not an orphan. (`/gnew` births a fresh *operator* session in the same terminal — it is not the deferred programmatic fresh-sibling-minting capability.)
 - **Enforcement:** non-garden id under `--entwurf-control` → loud stderr + notify + `process.exit(1)` at `session_start`, **before any model turn**. A bare `throw` / `ctx.shutdown()` there is swallowed by pi's runner (verified: the turn ran, 26k tokens leaked), so the guard hard-exits. No uuid / back-compat path — "보이면 바로 터진다".
 - **Status label = 🪛 (the forged screwdriver, the North Star), NOT the word "entwurf".** `🪛 ready` before the first assistant turn (file not on disk → model changeable), `🪛 <gardenId>` after (file written → model locked). The id's presence is the model-lock lifecycle signal.
-- **Resident name is lazy + `control`-tagged, never `entwurf` — with one sessionId-bound exception.** Set on the first turn via `pi.setSessionName(buildGardenSessionName(...))`. `buildGardenSessionName` is registry-FREE and FORBIDS the `entwurf` tag — the `entwurf` tag is the v2 resume resident marker, so an **operator** resident must never carry it (else a general operator session becomes resumable as a child). The narrow exception: a **v2 spawn-bg authorized Entwurf child** — marked by env `PI_SHELL_ACP_V2_RESUME_RESIDENT_SESSION_ID` (sessionId-bound) — **keeps** its `entwurf`-tagged name and stays re-resumable when it dies. Only that marker-authorized child is exempt. Gates: `check-entwurf-session-identity` (deterministic) + the v2 child exception via `check-entwurf-v2-spawn-production` + `smoke-entwurf-v2-spawn-resume-live`.
+- **Resident name is lazy + `control`-tagged, never `entwurf` — with one sessionId-bound exception.** Set on the first turn via `pi.setSessionName(buildGardenSessionName(...))`. `buildGardenSessionName` is registry-FREE and FORBIDS the `entwurf` tag — the `entwurf` tag is the v2 resume resident marker, so an **operator** resident must never carry it (else a general operator session becomes resumable as a child). The narrow exception: a **v2 spawn-bg authorized Entwurf child** — marked by env `ENTWURF_V2_RESUME_RESIDENT_SESSION_ID` (sessionId-bound) — **keeps** its `entwurf`-tagged name and stays re-resumable when it dies. Only that marker-authorized child is exempt. Gates: `check-entwurf-session-identity` (deterministic) + the v2 child exception via `check-entwurf-v2-spawn-production` + `smoke-entwurf-v2-spawn-resume-live`.
 
 ### Send-is-throw
 
@@ -192,7 +192,7 @@ Messages are thrown, not awaited.
 | `protocol.js` | dependency-free shared wire constants (`<project-context` marker); single source for tsc emit + strip-types MCP paths |
 | `run.sh` | install (incl. `install-meta-bridge`), check-*/smoke-* gates, sentinel, release-gate |
 | `pi/entwurf-targets.json` | spawn-bg resume target allowlist |
-| `mcp/pi-tools-bridge/` | MCP server exposing `entwurf_v2`, `entwurf_self`, `entwurf_peers`, `entwurf_inbox_read` |
+| `mcp/entwurf-bridge/` | MCP server exposing `entwurf_v2`, `entwurf_self`, `entwurf_peers`, `entwurf_inbox_read` |
 
 ## Typecheck Boundary
 
@@ -201,7 +201,7 @@ Single fence — every `.ts` source file is reached by some `tsc --noEmit` pass.
 | Config | Covers | Runtime model |
 |---|---|---|
 | `tsconfig.json` (root) | `pi-extensions/**` | emit-capable. The root config must not set `noEmit`. |
-| `mcp/tsconfig.json` (extends root) | `mcp/pi-tools-bridge/**`, plus the `pi-extensions/lib/*` it imports | `node --experimental-strip-types`. Adds `allowImportingTsExtensions` + `noEmit` because the bridge imports the shared lib with explicit `.ts` suffixes — Node's strip-types resolver requires the suffix on the wire. |
+| `mcp/tsconfig.json` (extends root) | `mcp/entwurf-bridge/**`, plus the `pi-extensions/lib/*` it imports | `node --experimental-strip-types`. Adds `allowImportingTsExtensions` + `noEmit` because the bridge imports the shared lib with explicit `.ts` suffixes — Node's strip-types resolver requires the suffix on the wire. |
 | `scripts/tsconfig.json` (extends root) | `scripts/**` (verification scripts), plus the `pi-extensions/lib/*` it imports | `node --experimental-strip-types`. Same trade-off: explicit `.ts` imports + `allowImportingTsExtensions` + `noEmit`. Scripts are runtime gates, not build inputs. |
 
 `pnpm typecheck` runs all three passes; `pnpm check` and the husky pre-commit hook run them as part of the gate. Adding a new `.ts` file outside all three configs is a fence breach — include it or split a fourth config with a documented runtime model, but never extend the root `exclude` to hide drift.
