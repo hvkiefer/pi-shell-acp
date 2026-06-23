@@ -32,7 +32,7 @@ PROVIDER_ID="entwurf"
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh setup [project-dir]        # pnpm install + sync auth + install + v2 install smoke (entwurf-bridge only; LIVE substrate = release-gate)
+  ./run.sh setup [project-dir]        # ONE confident install: pnpm install + install + meta-bridge (if native harness) + v2 install smoke (LIVE substrate = release-gate)
   ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + the v2-native live gates (v2 matrix/spawn-resume-live, check-bridge, retargeted smoke-session-id-name, RGG) + the ACP plugin acceptance floor (10 LIVE smokes: socket-citizen/raw-turn/overlay/provider/session-reuse/carrier-augment/rgg/mcp/skill/bundled-mcp). TWO-TIER summary: MUST (release-blocking, owns the exit code — "green" applies here) + BEHAVIOR (advisory, non-blocking: RGG positives model-in-loop turn). LIVE-gated MUST steps HONEST-SKIP when LIVE!=1 (a CUT needs LIVE=1, SKIP=0). v1 verbs (xt-tool-surface, session-messaging, sentinel) are gone (v2 core); --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
   ./run.sh xt-tool-surface             # [LEGACY — broken on v2-only, dropped from release floor, v2 rewrite pending] ACP backend exclude-tools policy: -xt <builtin> fail-fast per backend
   ./run.sh check-bridge               # entwurf-bridge direct MCP smoke + protocol/negative-path test.sh (live substrate = v2 live smokes)
@@ -170,9 +170,55 @@ if backup.exists():
 PY
 }
 
+# Repo dependency integrity is a HARD requirement for install — NOT gated on
+# backend (Claude/ACP) auth. A cloned-but-not-installed or a moved/renamed repo
+# has missing or path-stale node_modules; `install` would otherwise happily wire
+# settings.json and the failure only surfaces minutes later as a dead MCP bridge
+# / pi-extension resolve error (the 2026-06-23 relocation failure: entwurf-bridge
+# ✘ Failed to connect + check-entwurf-v2-surface ERR_MODULE_NOT_FOUND). Catch it
+# HERE, before any settings file is written (no silent-red), with a package
+# manifest access that follows the pnpm symlink to each dep — NOT a real module
+# import (per-package "exports" maps forbid that uniformly) and NOT a bare
+# `test -d node_modules`, which a dir-move breaks at the symlink-store level
+# while the top-level dir still looks present.
+preflight_dep_integrity() {
+  command -v node >/dev/null 2>&1 || { fail "node not on PATH — cannot verify repo dependency integrity"; exit 1; }
+  # node_modules entries are pnpm symlinks; accessSync follows the link and
+  # asserts each package.json exists. This catches BOTH a missing install
+  # (clone with no `pnpm install`) and a dir move/rename that left the symlink
+  # store dangling — while staying immune to per-package "exports" maps that
+  # forbid a bare-root import (@modelcontextprotocol/sdk) or a ./package.json
+  # subpath import (@earendil-works/pi-ai). A bare `test -d node_modules` would
+  # miss the dir-move case (top dir present, store broken underneath).
+  # Probe set = every runtime hard dep the wired pi-extensions / MCP bridge /
+  # ACP backend root-import or spawn-resolve: package.json dependencies + the
+  # peerDep pi-* trio. Build-only devDeps (biome/typescript/husky/@types) are
+  # excluded — a broken one does not break a wired install at runtime.
+  local probe=(
+    "@earendil-works/pi-ai" "@earendil-works/pi-coding-agent" "@earendil-works/pi-tui"
+    "@modelcontextprotocol/sdk" "@agentclientprotocol/sdk" "@agentclientprotocol/claude-agent-acp"
+    "@anthropic-ai/sdk" "zod"
+  )
+  local missing=() dep
+  for dep in "${probe[@]}"; do
+    if ! (cd "$REPO_DIR" && node -e "require('fs').accessSync('node_modules/$dep/package.json')") >/dev/null 2>&1; then
+      missing+=("$dep")
+    fi
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    fail "repo dependency integrity check failed — cannot resolve: ${missing[*]}"
+    echo "       node_modules is missing or path-stale (common right after a clone," >&2
+    echo "       or a repo move/rename — pnpm's symlink store points at the old path)." >&2
+    echo "       Fix: (cd \"$REPO_DIR\" && pnpm install)" >&2
+    echo "       Then re-run ./run.sh install . — settings.json was NOT written." >&2
+    exit 1
+  fi
+}
+
 install_local_package() {
   local project_dir
   project_dir=$(normalize_project_dir "$1")
+  preflight_dep_integrity
   mkdir -p "$project_dir/.pi"
   python3 - "$project_dir/.pi/settings.json" "$REPO_DIR" <<'PY'
 import json, sys
@@ -1298,6 +1344,72 @@ EOF
   )
 }
 
+check_install_preflight() {
+  # 0.12 relocation guard (2026-06-23): `install` MUST fail loud on a repo whose
+  # node_modules is missing (fresh clone, no pnpm install) or path-stale (a dir
+  # move/rename broke the pnpm symlink store) — and it must fail BEFORE writing
+  # settings.json, so the breakage is not a silent-red that only surfaces minutes
+  # later as a dead MCP bridge (entwurf-bridge ✘ Failed to connect) + a
+  # check-entwurf-v2-surface ERR_MODULE_NOT_FOUND. The preflight follows each
+  # dep's symlink to its real package.json (immune to per-package "exports" maps
+  # that forbid a bare-root or ./package.json import), which a bare
+  # `test -d node_modules` cannot do for a dir-move. REPO_DIR is the dir holding
+  # run.sh (line 16), so the negative cases copy run.sh into a temp dir to point
+  # REPO_DIR at a deliberately-broken tree.
+  local rc out proj fake dep
+
+  # positive — the live repo passes the REAL preflight. Calling it directly keeps
+  # preflight_dep_integrity the single source of truth for the probe set (no
+  # second hardcoded list to drift). Subshell so its exit-on-fail can't kill us.
+  if ! ( preflight_dep_integrity ) >/dev/null 2>&1; then
+    fail "[check-install-preflight] live repo fails preflight_dep_integrity — run 'pnpm install' (gate cannot validate against a broken repo)"
+    exit 1
+  fi
+  ok "[check-install-preflight] live repo passes preflight (all runtime hard deps resolve)"
+
+  # negative 1 — missing node_modules (fresh clone)
+  fake=$(mktemp -d); proj=$(mktemp -d)
+  cp "$REPO_DIR/run.sh" "$fake/run.sh"
+  rc=0; out=$("$fake/run.sh" install "$proj" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] missing node_modules did NOT fail install"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ -f "$proj/.pi/settings.json" ]; then
+    fail "[check-install-preflight] install wrote settings.json with missing deps (SILENT-RED)"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "repo dependency integrity check failed"; then
+    fail "[check-install-preflight] missing node_modules failed for the WRONG reason:"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  rm -rf "$fake" "$proj"
+  ok "[check-install-preflight] missing node_modules → fails before writing settings"
+
+  # negative 2 — representative dangling symlink (dir move): node_modules/ EXISTS
+  # (a bare `test -d` would pass) with sdk/zod symlinked live, but a representative
+  # dep (@earendil-works/pi-ai) dangles. Asserts the dir-move blind spot is closed
+  # AND that the failure names the broken dep.
+  fake=$(mktemp -d); proj=$(mktemp -d)
+  cp "$REPO_DIR/run.sh" "$fake/run.sh"
+  mkdir -p "$fake/node_modules/@earendil-works" "$fake/node_modules/@modelcontextprotocol"
+  ln -s "$REPO_DIR/node_modules/@modelcontextprotocol/sdk" "$fake/node_modules/@modelcontextprotocol/sdk"
+  ln -s "$REPO_DIR/node_modules/zod" "$fake/node_modules/zod"
+  ln -s /nonexistent/pnpm-store/pi-ai "$fake/node_modules/@earendil-works/pi-ai"
+  rc=0; out=$("$fake/run.sh" install "$proj" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] dangling dep symlink did NOT fail install (test -d blind spot)"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ -f "$proj/.pi/settings.json" ]; then
+    fail "[check-install-preflight] install wrote settings.json with a dangling dep (SILENT-RED)"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "repo dependency integrity check failed"; then
+    fail "[check-install-preflight] dangling symlink failed for the WRONG reason:"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "@earendil-works/pi-ai"; then
+    fail "[check-install-preflight] dangling case did not name the broken dep (@earendil-works/pi-ai):"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  rm -rf "$fake" "$proj"
+  ok "[check-install-preflight] representative dangling symlink (test -d blind spot) → fails before writing settings, names the dep"
+}
+
 check_pi_preflight() {
   # 0.11 Stage 0 (2): the controlled-launch trust decision. Proves frozen
   # decision 8 precedence (saved false > saved true > prefix > no-inputs >
@@ -1955,6 +2067,19 @@ setup_all() {
   sync_auth
   install_local_package "$project_dir"
 
+  # Single confident install command (GLG 2026-06-23): setup ALSO wires the
+  # native-harness meta-bridge, so a relocate/clone needs ONE command — not the
+  # install + install-meta-bridge two-pronged split that froze the Claude
+  # statusLine on the old path (the 2026-06-23 relocation gap). Detection-gated:
+  # a pi-only host with no native harness skips it cleanly (§10 "있으면 설정,
+  # 없으면 담아준다"); meta-bridge-install.sh is itself idempotent.
+  if command -v claude >/dev/null 2>&1; then
+    section "meta-bridge install (native harness detected: Claude Code)"
+    (cd "$REPO_DIR" && bash scripts/meta-bridge-install.sh)
+  else
+    echo "[setup] no native harness (claude) on PATH — skipping meta-bridge wiring (pi-only host)"
+  fi
+
   # Deterministic preflight lives in `pnpm check`; live substrate acceptance lives
   # in `LIVE=1 ./run.sh release-gate <scratch>`. Setup is the install path, so it
   # verifies the installed MCP bridge boundary only and does NOT run the legacy
@@ -1963,7 +2088,11 @@ setup_all() {
   validate_entwurf_bridge
 
   echo ""
-  echo "DONE: entwurf setup + v2 install smoke green. Run release-gate for live substrate acceptance."
+  echo "DONE: entwurf setup (pi package + meta-bridge + v2 install smoke) green."
+  if command -v claude >/dev/null 2>&1; then
+    echo "Verify native-harness wiring with: ./run.sh doctor-meta-bridge"
+  fi
+  echo "Run 'LIVE=1 ./run.sh release-gate <scratch>' for live substrate acceptance."
 }
 
 # ---------------------------------------------------------------------------
@@ -2627,6 +2756,9 @@ case "$cmd" in
     ;;
   check-dep-versions)
     check_dep_versions
+    ;;
+  check-install-preflight)
+    check_install_preflight
     ;;
   check-pi-import-surface)
     check_pi_import_surface

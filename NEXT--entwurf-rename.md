@@ -240,3 +240,40 @@ README/VERIFY/CHANGELOG stale(backend overclaim·packaged docs·persisted contin
 - **설치 = `entwurf` 설치.** 나머지(Claude Code/Codex/agy)는 **설치돼 있으면 설정해준다.**
 - **doctor = 하네스 감지 → 있으면 entwurf 설정**(YOLO·도구세트 축소), **없으면 담아준다(plug-in).**
 - 이 방향은 **rename 완료 후 본격 착수.** S4(구조개편 §5)·릴리즈 정리와 같은 lane.
+
+---
+
+## 11 · 재배치 재설치 재현성 갭 — installer fail-loud 강화 (2026-06-23, GLG "확실하게 글로벌 + 재현 불가능하면 수정 사항")
+
+> GitHub remote rename(`junghan0611/entwurf`) 후 새 위치(`~/repos/gh/entwurf/`)에서 재설치한 첫 실사례.
+> **NEXT.md(main) 2갈래 runbook(`install .` + `install-meta-bridge`)만으론 한 방에 GREEN이 안 됐다.** §10
+> "설치는 쉬워야 한다 / doctor 하네스 감지"의 첫 실증 — 재설치가 *결정적으로 재현*되지 않으면 그게 수정 대상.
+
+**증상 체인 (한 방에 안 된 이유):**
+- **`pnpm install` 누락이 핵심.** 디렉토리를 move/clone 하면 pnpm symlink-store(`node_modules/@earendil-works/pi-ai` 등)가
+  옛 경로를 가리켜 깨진다(또는 clone 직후엔 아예 없음). → `check-entwurf-v2-surface`가
+  `ERR_MODULE_NOT_FOUND: @earendil-works/pi-ai`로 터지고, **글로벌 `entwurf-bridge` MCP가 `✘ Failed to connect`**
+  (USER-scope 수신 도구가 죽음 = "확실하게 글로벌" 실패) → `doctor-meta-bridge` 두 줄 FAIL.
+- **어떤 installer 단계도 `pnpm install`을 안 한다.** `./run.sh install .` 은 settings 배선만, `install-meta-bridge` 는 Claude
+  Code 배선만. `./run.sh setup .` 이 `pnpm install`+`install .` 을 함께 하지만 NEXT runbook은 `install`만 적었고,
+  `install-meta-bridge` 는 setup에도 없는 별개 beat다.
+
+**이번에 수동 복구한 순서 (= 재현 절차의 실제 모습):**
+1. `./run.sh setup:links --force` — stale `entwurf-targets` 심링크(옛 `…/pi-shell-acp/pi/entwurf-targets.json`)를
+   canonical로 relink. ※ 이건 `install .` 이 **fail-loud로 멈추며 정확히 안내**했다 = 가드 작동(재현 OK, 갭 아님).
+2. `pnpm install` — node_modules 복구(캐시 hit 1.8s). **← 진짜 갭. 절차에도 코드에도 없었다.**
+3. `./run.sh install .` + `./run.sh install-meta-bridge` — 2갈래 배선.
+4. dangling `pi-tools-bridge` 제거: `~/.mcp.json`(홈→전 프로젝트 상속, 삭제된 `pi-shell-acp` 경로) 비움.
+   `~/.claude/settings.local.json` 의 `disabledMcpjsonServers["pi-tools-bridge"]` 는 **agent-config repo 심링크(별도 lane)**
+   라 손대지 않음 — `.mcp.json` 비운 뒤엔 막을 대상 없는 무해한 참조.
+
+**복구 후 GREEN (= "확실하게 글로벌" 달성):** `doctor-meta-bridge` PASS · `check-entwurf-v2-surface` 42/42 ·
+`entwurf-bridge: ✔ Connected` (USER scope) · upstream `entwurf-rename → origin/entwurf-rename` 재연결(rename 시 끊겨 있었음).
+
+**→ 수정 사항 (GLG 비준 후 착수, §8 결합 규칙 준수):**
+- **`run.sh install` 이 node_modules 부재/깨짐을 fail-loud로 잡는다** (Code Principle "Crash, Don't Warn" 정합 —
+  지금은 의존성 깨진 채 settings만 silent 배선하고 끝나서, 죽는 건 한참 뒤 doctor/MCP-connect에서다).
+  `@earendil-works/pi-ai` resolve 실패를 install 진입에서 감지 → "pnpm install 먼저" throw. **검증 게이트 same-commit 결합**
+  (예: `check-install-preflight`)으로 silent red 방지.
+- 분류: rename tail이 아니라 **§10 post-rename 방향(설치 UX/doctor) lane** — S4·릴리즈 정리와 같은 lane. "설치 = `entwurf`
+  한 방, 나머지는 doctor가 감지해서 담아준다"의 첫 가드. **코드 수정이라 §8 선(push/게이트/`--no-verify`) 준수, GLG 비준 후.**
