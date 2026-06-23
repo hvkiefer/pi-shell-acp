@@ -1,4 +1,4 @@
-# NEXT — pi-shell-acp 0.11.0 나침반
+# NEXT — entwurf 0.12.0 나침반
 
 > 나침반이지 DB가 아니다: **현재 위치 · 다음 한 걸음 · 넘으면 안 되는 선**만 여기 둔다.
 > 현재+미래 방향과 설계 SSOT(동결 결정·검증 원장·아키텍처·backlog) = **`ROADMAP.md`**.
@@ -8,12 +8,15 @@
 > Stage 0 step 설계 · 동결 결정 · 검증 원장 · backlog)를 `ROADMAP.md`로 이주하고 NEXT를 compass로 축소했다.
 > 그 전 2133줄 ledger 전문은 git history(이 커밋 직전 NEXT.md)에 보존됨.
 
-## NOW — 활성 lane은 `acp-on-v2` 브랜치 (2026-06-22 갱신)
+## NOW — entwurf 인플레이스 rename **landed**, 새 위치 GREEN (2026-06-23 갱신)
 
-> **0.11.0은 이미 cut된 과거 태그.** 아래 "0.11.0 컷 준비" 블록은 *역사 기록*이다(superseded).
-> 현재 활성 개발 = 브랜치 **`acp-on-v2`** (pi-native v2 core + ACP plugin), 다음 방향 = **`pi-shell-acp`→`entwurf`
-> 인플레이스 rename(패키지+repo) + 추가 구현**. 체크포인트 분리·세트 north-star·rename 준비 체크리스트는
-> **`ROADMAP.md` 「현재」** + **`NEXT--acp-on-v2.md`** 가 SSOT. 메인 lane은 그 컷이 끝나야 다시 열린다.
+> **rename cutover 완료.** 패키지 `@junghanacs/entwurf@0.12.0` (커밋 `fcdac5a`), 물리 위치
+> `~/repos/gh/entwurf/`. 브랜치 `entwurf-rename`, working tree clean.
+>
+> **2026-06-23 새 위치 airtight 검증 = GREEN:** `cd ~/repos/gh/entwurf && pnpm check` EXIT=0 —
+> lint + typecheck + 60여 게이트 + `check-pack`(181 files tarball) 전 체인 통과. install 전파도 3면 증명
+> (.pi/settings.json bridge → 새 경로, old 누수 0 · global registry 심볼릭링크 relink · `pi --list-models
+> entwurf` 라이브). 디렉토리명 독립 + install 자가전파(REPO_DIR를 settings에 박음) 확인.
 
 ---
 
@@ -34,14 +37,24 @@
 
 > v1/v2 분리 결론·되는것/안되는것·triage 최종 진단은 **`ROADMAP.md` 「현재 — 0.11.0」**에 정리됨.
 
-## 다음 한 걸음
+## 다음 한 걸음 — rename 후행 tail (전부 GLG 결정)
 
-1. **doc-cleanup 커밋** (working tree 미커밋): README Gemini 추천경로 제거(2026-06-18 deprecated→Antigravity) +
-   `ROADMAP.md` 신설 + `NEXT.md` compass 축소. → commit skill 경유.
-2. **push = GLG.** push 후 agenda stamp(로컬-온리 커밋은 stamp 안 함).
-3. **컷 = GLG.** "컷 가자" 시 `## Unreleased` → `## 0.11.0` promote + tag (tag-release Make 또는
-   `/prepare-release 0.11.0` → `/make-release`).
-4. **컷 후 = 새 `entwurf` repo로 v2 인터페이스 분리** (ROADMAP 「큰 방향」). entwurf-core 추출이 첫 몸.
+> 코드/install/런타임 축은 닫혔다. 남은 건 **전역 설정·GitHub repo·old 폴더 처분** — 전부 GLG 손/결정.
+
+1. **GitHub repo rename = GLG.** `origin` 아직 `git@github.com:junghan0611/pi-shell-acp.git`. GitHub에서
+   repo rename(pi-shell-acp→entwurf) 후 `git remote set-url origin …/entwurf.git`. (GitHub는 old명 redirect 유지.)
+2. **consumer repoint = GLG.** 새 경로를 박을 전역 설정들 (지금 old `pi-shell-acp/` 가리킴):
+   - ✅ `~/.claude.json` top-level mcpServers `pi-tools-bridge` (dangling: `pi-shell-acp/mcp/pi-tools-bridge/start.sh`,
+     bridge가 `entwurf-bridge`로 rename되며 죽은 줄 + env가 구namespace `PI_TOOLS_BRIDGE_*`) **= 2026-06-23 제거됨**
+     (`claude mcp remove pi-tools-bridge -s user`). top-level mcpServers 이제 `{}`.
+   - ⏳ agent-config repo lane (= `~/.pi/agent/settings.json` 심볼릭링크 대상): `piShellAcpProvider`(→`entwurfProvider`로
+     rename) · `piShellAcpProvider.mcpServers.pi-tools-bridge`(같은 dangling) · `packages` 의 `pi-shell-acp`(→`entwurf`).
+     **entwurf만 piecemeal 금지** — provider명+packages+mcpServers를 한 번에 옮겨야 half-migrated 안 됨. agent-config lane에서 처리.
+   - ⏳ `~/.claude/settings.json` → `pi-shell-acp/pi/meta-bridge/.assembled` + `scripts/meta-bridge-statusline.sh`.
+     주의: **entwurf엔 `.assembled` 가 아직 없다**(build artifact, gitignore). 새 경로로 돌리기 전 assemble 선행 필요.
+3. **old 폴더 처분 = GLG.** `pi-shell-acp/`(rename 원본, 동일 커밋), `pi-shell-acp-v1/`, `pi-entwurf/` 잔존.
+   archive/삭제 결정. **단 consumer repoint(2번)가 끝나기 전엔 old 삭제 금지** — 위 설정들이 아직 의존.
+4. **push/컷 = GLG.** 0.12.0 bump 커밋은 로컬-온리. push 후 agenda stamp.
 
 ## 넘으면 안 되는 선
 
@@ -54,4 +67,4 @@
 - **현재+미래 방향 · 설계 SSOT:** `ROADMAP.md`
 - **닫힌 변경 핵심(게시):** `CHANGELOG.md`
 - **검증 calibration:** `VERIFY.md` · **전달 capability levels:** `DELIVERY.md` · **repo baseline:** `AGENTS.md`
-- 본체 `~/repos/gh/pi-shell-acp/` · consumer `~/repos/gh/agent-config/`
+- 본체 `~/repos/gh/entwurf/` (old `pi-shell-acp/` = rename 원본, tail 닫히면 처분) · consumer `~/repos/gh/agent-config/`
