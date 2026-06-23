@@ -63,20 +63,25 @@
 
 > 코드/install/런타임 축은 닫혔다. 남은 건 **전역 설정·GitHub repo·old 폴더 처분** — 전부 GLG 손/결정.
 
-1. **GitHub repo rename = GLG.** `origin` 아직 `git@github.com:junghan0611/pi-shell-acp.git`. GitHub에서
-   repo rename(pi-shell-acp→entwurf) 후 `git remote set-url origin …/entwurf.git`. (GitHub는 old명 redirect 유지.)
-2. **consumer repoint = GLG.** 새 경로를 박을 전역 설정들 (지금 old `pi-shell-acp/` 가리킴):
-   - ✅ `~/.claude.json` top-level mcpServers `pi-tools-bridge` (dangling: `pi-shell-acp/mcp/pi-tools-bridge/start.sh`,
-     bridge가 `entwurf-bridge`로 rename되며 죽은 줄 + env가 구namespace `PI_TOOLS_BRIDGE_*`) **= 2026-06-23 제거됨**
-     (`claude mcp remove pi-tools-bridge -s user`). top-level mcpServers 이제 `{}`.
-   - ⏳ agent-config repo lane (= `~/.pi/agent/settings.json` 심볼릭링크 대상): `piShellAcpProvider`(→`entwurfProvider`로
-     rename) · `piShellAcpProvider.mcpServers.pi-tools-bridge`(같은 dangling) · `packages` 의 `pi-shell-acp`(→`entwurf`).
-     **entwurf만 piecemeal 금지** — provider명+packages+mcpServers를 한 번에 옮겨야 half-migrated 안 됨. agent-config lane에서 처리.
-   - ⏳ `~/.claude/settings.json` → `pi-shell-acp/pi/meta-bridge/.assembled` + `scripts/meta-bridge-statusline.sh`.
-     주의: **entwurf엔 `.assembled` 가 아직 없다**(build artifact, gitignore). 새 경로로 돌리기 전 assemble 선행 필요.
-3. **old 폴더 처분 = GLG.** `pi-shell-acp/`(rename 원본, 동일 커밋), `pi-shell-acp-v1/`, `pi-entwurf/` 잔존.
-   archive/삭제 결정. **단 consumer repoint(2번)가 끝나기 전엔 old 삭제 금지** — 위 설정들이 아직 의존.
-4. **push/컷 = GLG.** 0.12.0 bump 커밋은 로컬-온리. push 후 agenda stamp.
+1. ✅ **GitHub repo rename = 2026-06-23 DONE.** `gh repo rename entwurf` (`junghan0611/pi-shell-acp`→`junghan0611/entwurf`)
+   + `git remote set-url origin git@github.com:junghan0611/entwurf.git` + dangling 글로벌 심링크
+   `~/.pi/agent/git/.../pi-shell-acp`(→삭제된 dir) 제거. GitHub는 old명 redirect 유지.
+2. **consumer repoint:**
+   - ✅ `~/.claude.json` top-level mcpServers dangling `pi-tools-bridge` **= 제거됨** (`claude mcp remove … -s user`).
+   - ✅ `~/.claude/settings.json` statusLine/`.assembled`/`entwurf-bridge` MCP **= entwurf로 repoint됨**
+     (`./run.sh install-meta-bridge` 재실행, `doctor-meta-bridge` PASS). ※ marketplace 소스도 entwurf — 옛 세션은 재시작해야 잔상 해소.
+   - ✅ agent-config **workstation 3면** (`pi/settings.json` packages+`entwurfProvider`+`entwurf-bridge` · `antigravity/mcp_config.json`
+     · `codex/config.toml`) **= agent-config 세션이 처리** (pit/pia 복구). 
+   - ⏳ agent-config **server 면** (`*.server.json` · `run.sh` install spec/URL): remote rename 됐으니 이제 unblock — agent-config 세션 lane.
+3. **docs prose cutover = GPT 협업 pass 예정 (GLG가 따로 진행).** entwurf repo 8파일. **live/historical 분류 맵(이미 분석함):**
+   - **변경(LIVE):** `ROADMAP.md:1` 제목 `pi-shell-acp ROADMAP`→`entwurf` · `ROADMAP.md:274` 본체경로 · `setup-clean-host.md` Stage 1–4
+     설치명령(clone URL·`--list-models`·provider id·`@junghanacs/pi-shell-acp`·`[pi-shell-acp:bootstrap]` 로그prefix·model prefix).
+   - **🔒 보존(역사/리터럴):** `CHANGELOG.md`(90건) · `BASELINE.md`(날짜 검증 원장)·`VERIFY.md`(History rows) ·
+     canary 리터럴 `GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1`(코드 매칭) · deprecated npm `@junghan0611/openclaw-pi-shell-acp` ·
+     `setup-clean-host.md` openclaw Docker 부록. (= GLG 2026-06-22 승인 allowlist와 정합.)
+   - `NEXT--*.md` 브랜치 ledger = 머지 전 삭제 대상(string-replace 불필요).
+4. **old 폴더:** `pi-shell-acp/` **이미 삭제됨**(확인). `pi-shell-acp-v1/`·`pi-entwurf/` 잔존 → 처분 GLG 결정.
+5. **push/컷 = GLG.** 0.12.0 bump 커밋은 로컬-온리. push 후 agenda stamp.
 
 ## 넘으면 안 되는 선
 
@@ -89,4 +94,4 @@
 - **현재+미래 방향 · 설계 SSOT:** `ROADMAP.md`
 - **닫힌 변경 핵심(게시):** `CHANGELOG.md`
 - **검증 calibration:** `VERIFY.md` · **전달 capability levels:** `DELIVERY.md` · **repo baseline:** `AGENTS.md`
-- 본체 `~/repos/gh/entwurf/` (old `pi-shell-acp/` = rename 원본, tail 닫히면 처분) · consumer `~/repos/gh/agent-config/`
+- 본체 `~/repos/gh/entwurf/` · GitHub `junghan0611/entwurf` (rename 완료) · consumer `~/repos/gh/agent-config/`
