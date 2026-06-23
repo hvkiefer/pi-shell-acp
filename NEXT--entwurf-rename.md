@@ -124,7 +124,7 @@
 - **MCP bridge:** allow `"mcp__pi-tools-bridge__*"` · 서버명 `pi-tools-bridge` → `entwurf-bridge` (S2 beat).
 - **env:** `run.sh`의 `PI_SHELL_ACP_*` → `ENTWURF_*` (§3 taxonomy).
 - **physical-path:** `../../repos/gh/pi-shell-acp` 경로·`PI_SHELL_ACP_INSTALL_SPEC`(GitHub URL)·`meta-bridge-local` source.path(`…/pi-shell-acp/pi/meta-bridge/.assembled`).
-- **★ historical dual-accept (담당자 필수 — silent 위험):** agent-config의 history-reader는 옛 provider string을 **영구 수용**해야 한다(§1-①). 통째 치환하면 과거 recall이 조용히 끊김. 담당자에게 "치환이 아니라 old∪new dual-accept"임을 명시 전달. (oracle가 짚은 `session-recap.py`/`entwurf-peek.py`/`test-discovery.py` 픽스처 = 담당자 영역.)
+- **historical-reader 정책 = 담당자 결정 (우리는 강제·보장 안 함, cutover 정렬):** agent-config의 history-reader가 옛 provider string을 끊을지(결별), historical reader만 dual-accept할지는 **consumer 담당자 정책**(§1-①). 이 repo는 보장도 강제도 안 한다 — GLG 철학상 호환성 0이 기본이고, recall 끊김은 결별의 비용으로 감수 가능. 담당자에게 "이건 cutover다, 과거 호환은 너희 선택"으로 전달. (oracle가 짚은 `session-recap.py`/`entwurf-peek.py`/`test-discovery.py` = 담당자 영역.)
 
 **영속저장소 = clear ✅ (우리 패스 완료):** andenken/semantic-memory는 filename grammar(`SESSION_ID_RE`)+source-path로 인덱스, provider-string 필터 0 → provider는 content로만 임베드(rename-safe). agenda/botlog도 content-only. **silent-break 위험 없음.** ← 담당자 위임 불필요, 사실로 확정.
 
@@ -141,7 +141,7 @@
 - **(c) cache migration 리허설 [GLG 확정 §6-④: (A) body rewrite, future-lane hygiene]** — `mv ~/.pi/agent/cache/pi-shell-acp/sessions → cache/entwurf/sessions` **+ 각 레코드 JSON `provider` 필드 rewrite**. **알고리즘 엣지 (GPT 2R):** ① lock 잡고 pi/ACP resident 끈 상태 실행(동시 write 방지) · ② old有new無 → `entwurf/sessions.tmp`로 복사 → 각 JSON atomic rewrite(tmpfile+rename) → 전부 validate 후 final `sessions`로 rename, 실패 시 tmp 남기고 fail-loud · ③ old有new有 → fail-loud(자동 merge 금지) · ④ old無new有 → "ok"로 끝내지 말고 scan: `provider:"entwurf"`면 ok, `pi-shell-acp` 잔존 시 partial이라 rewrite+validate · ⑤ **fixture root에서만 리허설(아래 live 금지)** · ⑥ 보존 필드 = `sessionKey`/`acpSessionId`/`cwd`/`modelId`/`bridgeConfigSignature`/`contextMessageSignatures`(provider만 교체). `bridgeConfigSignature`는 provider/package명 미포함이라 rewrite로 stale 안 됨(S2 mcpServersHash 변경은 정상 invalidation).
   - **⚠️ live `~/.pi` 절대 금지 (GLG+GPT 확정) — 에이전트들 작업 중.** dry-run/연습은 **fixture root(임시 dir 복제본)에서만** migration 로직 검증. 실제 `~/.pi/agent/cache`는 *건드리지 않는다* — 현재 live code가 old path(`cache/pi-shell-acp/sessions`)를 쓸 수 있어 미리 옮기면 old/new가 갈라짐. live 적용은 *live S1 직전/직후* resident 끄고 backup 잡은 뒤 one-shot, 그 전엔 scan-only도 금지. ※ persisted read OFF라 *지금* live 검증 불가 — hygiene 차원.
 - **(g) npm name 게이트 무해 확인 (문구 정밀화)** — package.json `name`→`@junghanacs/entwurf` + §2 `check-pack-install` 하드코딩 surface를 same-commit 치환하면, `check-pack`(`npm pack --dry-run`)·`check-pack-install`이 **새 `@junghanacs/entwurf` registry publish에 의존하지 않고 green**임을 dry-run worktree서 실증. ※ "registry 미접촉"은 정확히는 *우리 패키지 publish 불필요*라는 뜻 — peer deps(`@earendil-works/…`·typebox)는 캐시 없으면 npm resolve가 일어날 수 있음(정상).
-- **AGENTS dual-accept 문구** — §1-① 문구를 **우리 repo AGENTS에** (§6-② GLG 승인). agent-config AGENTS는 담당자.
+- **AGENTS cutover 문구** — §1-① **cutover 문구**(호환성 아니라 절단)를 **우리 repo AGENTS에** (§6-② GLG 승인). agent-config AGENTS는 담당자.
 - **(d) GLG 비준 + (f) repo/dir rename 타이밍(§6-③) 확정 = 트리거.** *npm publish는 트리거 아님 — rename 완료 후 최후행(§6-①).*
 
 ### ▶ S1 — package/repo/provider identity (**원자, 쪼개지 말 것**)
