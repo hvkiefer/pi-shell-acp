@@ -1,6 +1,6 @@
 // ACP plugin entry — provider registration (S0 fence, real backend since S2c).
 //
-// This is the pi-extension entry point that registers `pi-shell-acp` as a pi
+// This is the pi-extension entry point that registers `entwurf` as a pi
 // session provider/model. It is intentionally THIN: it stands up the provider
 // surface (curated Claude anchor + no-auth sentinel) and wires streamSimple to
 // the real ACP backend (lib/acp/backend.ts — spawn-per-turn claude-agent-acp).
@@ -20,7 +20,7 @@ import { curatedClaudeModels, PI_SHELL_ACP_NO_AUTH_SENTINEL, PROVIDER_ID } from 
 // Idempotent registration guard. pi may evaluate an extension entry more than
 // once across a runtime; registering the provider twice would replace its model
 // set redundantly. Symbol.for keeps the marker stable across module instances.
-const REGISTERED_SYMBOL = Symbol.for("pi-shell-acp.acp-provider.registered");
+const REGISTERED_SYMBOL = Symbol.for("entwurf.acp-provider.registered");
 
 function isRegisteredOnRuntime(pi: ExtensionAPI): boolean {
 	return Boolean((pi as unknown as Record<PropertyKey, unknown>)[REGISTERED_SYMBOL]);
@@ -41,12 +41,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerProvider(PROVIDER_ID, {
-		baseUrl: "pi-shell-acp",
+		baseUrl: "entwurf",
 		// No-auth sentinel, not a credential. See lib/acp/models.ts + the
 		// check-auth-boundary gate. The ACP plugin never provides, resells, or
 		// bypasses backend credentials.
 		apiKey: PI_SHELL_ACP_NO_AUTH_SENTINEL,
-		api: "pi-shell-acp",
+		api: "entwurf",
 		models: curatedClaudeModels(),
 		// S2c: real ACP backend. Spawn-per-turn claude-agent-acp drive + event
 		// mapping (lib/acp/backend.ts). The S0 fail-loud stub is gone — the

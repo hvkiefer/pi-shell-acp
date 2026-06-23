@@ -38,10 +38,10 @@ import {
 const root = mkdtempSync(resolve(tmpdir(), "acp-config-gate-"));
 const NONE = join(root, "__absent__.json");
 
-/** Write a settings file with the given piShellAcpProvider block; return path. */
+/** Write a settings file with the given entwurfProvider block; return path. */
 function settings(name: string, block: unknown): string {
 	const p = join(root, name);
-	writeFileSync(p, JSON.stringify({ piShellAcpProvider: block }));
+	writeFileSync(p, JSON.stringify({ entwurfProvider: block }));
 	return p;
 }
 
@@ -236,7 +236,7 @@ try {
 		const bridge = enriched.find((s) => s.name === "pi-tools-bridge") as Extract<AcpMcpServer, { command: string }>;
 		const env = Object.fromEntries(bridge.env.map((e) => [e.name, e.value]));
 		assert.equal(env.PI_SESSION_ID, "LIVE-1", "live PI_SESSION_ID wins over the stale operator value");
-		assert.equal(env.PI_AGENT_ID, "pi-shell-acp/claude-sonnet-4-6", "PI_AGENT_ID injected from the model id");
+		assert.equal(env.PI_AGENT_ID, "entwurf/claude-sonnet-4-6", "PI_AGENT_ID injected from the model id");
 		assert.equal(env.FOO, "bar", "operator env preserved");
 		const weather = enriched.find((s) => s.name === "weather");
 		assert.ok(!("env" in (weather ?? {})), "http server not enriched (no env carrier)");

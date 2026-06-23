@@ -102,7 +102,7 @@ export function assertExcludeToolsHonored(activeToolNames: readonly string[], re
 	if (unhonored.length > 0) {
 		const many = unhonored.length > 1;
 		throw new Error(
-			`pi-shell-acp cannot honor --exclude-tools (${unhonored.join(", ")}) on the ${resolved.backend} backend: ` +
+			`entwurf cannot honor --exclude-tools (${unhonored.join(", ")}) on the ${resolved.backend} backend: ` +
 				`the backend CLI still exposes ${many ? "these capabilities" : "this capability"} natively, so excluding ` +
 				`${many ? "them" : "it"} from pi's surface would make the declared tool set diverge from what the backend can ` +
 				`actually do. Restrict ${many ? "them" : "it"} via the backend's own tool config instead` +

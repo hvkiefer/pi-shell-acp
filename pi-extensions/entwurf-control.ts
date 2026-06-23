@@ -1,18 +1,18 @@
 /**
- * Session Control Extension — pi-shell-acp owned.
+ * Session Control Extension — entwurf owned.
  *
  * Ingested from Armin Ronacher's `agent-stuff` (Apache 2.0) —
  *   https://github.com/mitsuhiko/agent-stuff (extensions/control.ts)
  * The AI-summarization `get_summary` command was dropped during ingest so
  * this file no longer depends on `@earendil-works/pi-ai.complete`. Model-routed
  * summarization belongs to consumer skills, not to the entwurf-control
- * protocol surface that pi-shell-acp publishes.
+ * protocol surface that entwurf publishes.
  *
- * Why this lives here (not in consumer dotfiles): pi-shell-acp's public
+ * Why this lives here (not in consumer dotfiles): entwurf's public
  * bridge surface (`mcp/pi-tools-bridge.entwurf_v2`, `entwurf_peers`)
  * depends at runtime on pi sessions exposing the v2 control surface and
  * control socket. Bundling it here removes a hidden dependency on a private
- * consumer repo and makes pi-shell-acp installable as a public package without
+ * consumer repo and makes entwurf installable as a public package without
  * extra setup.
  *
  * Enables inter-session communication via Unix domain sockets. When enabled
@@ -356,7 +356,7 @@ function stripSenderInfo(text: string): string {
 // operator immediately see WHO sent (agentId, sessionId), FROM WHERE (cwd),
 // and WHEN (timestamp). cwd anchors "which 담당자 is this" to the physical
 // workspace rather than a free-form alias. agentId is the single identity
-// field ("pi-shell-acp/<model>"); different school × model = different agent,
+// field ("entwurf/<model>"); different school × model = different agent,
 // never split into two fields.
 //
 // wants_reply is an etiquette marker (default false). It is NOT a transport
@@ -589,7 +589,7 @@ const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => 
 // from the native call site until the schema grows the field.
 interface SentBoxData {
 	to: string; // target sessionId
-	from?: string; // sender agentId, e.g. "pi-shell-acp/claude-opus-4-8"
+	from?: string; // sender agentId, e.g. "entwurf/claude-opus-4-8"
 	cwd?: string; // sender cwd (raw, abbreviateHome applied at render)
 	timestamp?: string; // ISO 8601 UTC; rendered in KST
 	mode?: string; // "steer" | "follow_up" | string passed through

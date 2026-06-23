@@ -58,7 +58,7 @@ async function consume(stream: Stream): Promise<{ text: string; error?: string; 
 
 const nonce = `${process.pid.toString(36)}${Date.now().toString(36)}`.toUpperCase();
 const codeword = `KIWI${nonce}`;
-const scratch = mkdtempSync(resolve(tmpdir(), "pi-shell-acp-reuse-"));
+const scratch = mkdtempSync(resolve(tmpdir(), "entwurf-reuse-"));
 const TMP_EMIT = resolve(REPO_ROOT, ".tmp-verify/acp-reuse-live");
 rmSync(TMP_EMIT, { recursive: true, force: true });
 
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
 
 	console.error(`[smoke-acp-session-reuse-live] repo:     ${REPO_ROOT}`);
 	console.error(`[smoke-acp-session-reuse-live] cwd:      ${scratch}`);
-	console.error(`[smoke-acp-session-reuse-live] model:    pi-shell-acp/${MODEL}`);
+	console.error(`[smoke-acp-session-reuse-live] model:    entwurf/${MODEL}`);
 	console.error(`[smoke-acp-session-reuse-live] codeword: ${codeword}`);
 
 	// --- turn 1 (new): introduce the codeword, full transcript ---
@@ -109,8 +109,8 @@ async function main(): Promise<void> {
 			{
 				role: "assistant",
 				content: [{ type: "text", text: r1.text || "OK" }],
-				api: "pi-shell-acp",
-				provider: "pi-shell-acp",
+				api: "entwurf",
+				provider: "entwurf",
 				model: MODEL,
 				usage: {
 					input: 0,
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
 	console.log(
 		"[smoke-acp-session-reuse-live] PASS — 2-turn reuse over one ACP child; turn-2 delta recalled the turn-1 codeword",
 	);
-	console.log(`  model:    pi-shell-acp/${MODEL}`);
+	console.log(`  model:    entwurf/${MODEL}`);
 	console.log(`  codeword: ${codeword} recalled in turn 2 (delta-only)`);
 }
 

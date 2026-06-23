@@ -27,7 +27,7 @@
 // function of (template content on disk, backend, mcpServerNames). No clock /
 // random / env-time. `bridgeConfigSignature` folds this string into its
 // `appendSystemPrompt` slot — if the rendered carrier drifted turn-to-turn, the
-// signature would drift and pi-shell-acp would rebuild the ACP session every
+// signature would drift and entwurf would rebuild the ACP session every
 // turn. The default-path source is cached once for exactly this reason, so a
 // resident's carrier never drifts mid-session. The env-override path instead
 // re-reads on EVERY call: editing that file mid-session INTENTIONALLY drifts the
@@ -102,7 +102,7 @@ export function loadEngraving(params: EngravingParams): string | null {
 	} catch (err) {
 		if (isShippedDefault) {
 			throw new Error(
-				`pi-shell-acp: shipped engraving carrier unreadable at ${filePath} — it is the auto-memory ` +
+				`entwurf: shipped engraving carrier unreadable at ${filePath} — it is the auto-memory ` +
 					`containment lever; refusing to proceed with containment silently degraded. (${(err as Error).message})`,
 			);
 		}
@@ -112,7 +112,7 @@ export function loadEngraving(params: EngravingParams): string | null {
 	if (rendered.length === 0) {
 		if (isShippedDefault) {
 			throw new Error(
-				`pi-shell-acp: shipped engraving carrier at ${filePath} is empty — it is the auto-memory ` +
+				`entwurf: shipped engraving carrier at ${filePath} is empty — it is the auto-memory ` +
 					`containment lever; refusing to proceed with the carrier strip silently off. ` +
 					`(opt out via an empty PI_SHELL_ACP_ENGRAVING_PATH file instead)`,
 			);

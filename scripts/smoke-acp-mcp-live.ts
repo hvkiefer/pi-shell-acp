@@ -3,8 +3,8 @@
 //   LIVE=1 ./run.sh smoke-acp-mcp-live
 //
 // THE baseline proof. GLG's baseline finding was: an ACP model booted with
-// `pi-shell-acp/<model>` saw 4 tools and NO MCP servers — the operator's
-// `piShellAcpProvider.mcpServers` never reached the session. S2g wired that
+// `entwurf/<model>` saw 4 tools and NO MCP servers — the operator's
+// `entwurfProvider.mcpServers` never reached the session. S2g wired that
 // passthrough; the deterministic gate (check-acp-config / check-acp-session-reuse
 // Section G) proved the config reaches `newSession` on a FAKE seam. This live
 // smoke proves the LAST mile a fake cannot: a real ACP child spawns the operator
@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROBE_SERVER = join(REPO_ROOT, "scripts", "fixtures", "probe-mcp-server.ts");
 const MODEL = process.env.PI_SHELL_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
-const PROVIDER = "pi-shell-acp";
+const PROVIDER = "entwurf";
 const TURN_TIMEOUT_MS = Number(process.env.PI_SHELL_ACP_PROVIDER_TIMEOUT_MS) || 240_000;
 
 function fail(msg: string): never {
@@ -45,17 +45,17 @@ if (process.env.LIVE !== "1") {
 
 const STUB_PATTERN = /AcpBackendNotImplementedError|not implemented in S0/i;
 
-const scratch = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2g-mcp-"));
+const scratch = mkdtempSync(join(tmpdir(), "entwurf-s2g-mcp-"));
 try {
 	const nonce = `MCP_${process.pid.toString(36)}${Date.now().toString(36)}`;
 	// Register the probe MCP server in the scratch project settings — the exact
-	// `piShellAcpProvider.mcpServers` surface `./run.sh install` writes for real.
+	// `entwurfProvider.mcpServers` surface `./run.sh install` writes for real.
 	mkdirSync(join(scratch, ".pi"), { recursive: true });
 	writeFileSync(
 		join(scratch, ".pi", "settings.json"),
 		`${JSON.stringify(
 			{
-				piShellAcpProvider: {
+				entwurfProvider: {
 					mcpServers: {
 						probe: {
 							command: process.execPath,

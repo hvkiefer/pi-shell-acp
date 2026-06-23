@@ -2,7 +2,7 @@
 //
 // THE BASELINE FIX. Before S2g, backend.ts hardcoded `mcpServers:[]`,
 // `settingSources:[]`, `tools:DEFAULT_CLAUDE_TOOLS`, `skillPlugins:[]` — so an
-// operator who wrote `piShellAcpProvider.mcpServers` / `skillPlugins` into their
+// operator who wrote `entwurfProvider.mcpServers` / `skillPlugins` into their
 // `.pi/settings.json` (the very surface `./run.sh install` wires up) saw the ACP
 // model boot with 4 tools and no MCP/skills. This module reads that operator
 // config and hands it to the backend so the documented passthrough actually
@@ -52,7 +52,7 @@ export type AcpMcpServer =
 
 export type ClaudeSettingSource = "user" | "project" | "local";
 
-/** The raw, parsed `piShellAcpProvider` block (every field optional). */
+/** The raw, parsed `entwurfProvider` block (every field optional). */
 export interface ProviderSettings {
 	appendSystemPrompt?: boolean;
 	settingSources?: ClaudeSettingSource[];
@@ -125,7 +125,7 @@ export interface McpServerConfigIssue {
 export class McpServerConfigError extends Error {
 	readonly issues: McpServerConfigIssue[];
 	constructor(issues: McpServerConfigIssue[]) {
-		super(`Invalid piShellAcpProvider.mcpServers:\n${issues.map((i) => `  - ${i.server}: ${i.reason}`).join("\n")}`);
+		super(`Invalid entwurfProvider.mcpServers:\n${issues.map((i) => `  - ${i.server}: ${i.reason}`).join("\n")}`);
 		this.name = "McpServerConfigError";
 		this.issues = issues;
 	}
@@ -133,7 +133,7 @@ export class McpServerConfigError extends Error {
 
 /** A settings-file validation error (non-mcpServers fields). */
 export function settingsConfigError(filePath: string, message: string): Error {
-	return new Error(`${filePath}: invalid piShellAcpProvider settings: ${message}`);
+	return new Error(`${filePath}: invalid entwurfProvider settings: ${message}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ export function enrichMcpServersWithEnvelope(
 	servers: readonly AcpMcpServer[],
 	envelope: { modelId?: string; piSessionId?: string },
 ): AcpMcpServer[] {
-	const piAgentId = envelope.modelId ? `pi-shell-acp/${envelope.modelId}` : undefined;
+	const piAgentId = envelope.modelId ? `entwurf/${envelope.modelId}` : undefined;
 	const piSessionId = envelope.piSessionId;
 	if (!piSessionId && !piAgentId) return [...servers];
 	return servers.map((s) => {
@@ -346,7 +346,7 @@ export function validateSkillPluginPaths(paths: readonly string[], filePath: str
 }
 
 /**
- * Read + validate the `piShellAcpProvider` block of one settings file. Missing
+ * Read + validate the `entwurfProvider` block of one settings file. Missing
  * file or absent block → {} (all defaults). Malformed JSON / wrong shapes throw
  * a settingsConfigError naming the file and field.
  */
@@ -361,10 +361,10 @@ export function readProviderSettingsFile(filePath: string): ProviderSettings {
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw settingsConfigError(filePath, "settings file root must be an object");
 	}
-	const block = (parsed as Record<string, unknown>).piShellAcpProvider;
+	const block = (parsed as Record<string, unknown>).entwurfProvider;
 	if (block === undefined) return {};
 	if (!block || typeof block !== "object" || Array.isArray(block)) {
-		throw settingsConfigError(filePath, "piShellAcpProvider must be an object");
+		throw settingsConfigError(filePath, "entwurfProvider must be an object");
 	}
 	const settings = block as Record<string, unknown>;
 

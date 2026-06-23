@@ -39,7 +39,7 @@ import {
 	OVERLAY_PASSTHROUGH,
 } from "../pi-extensions/lib/acp/overlay.ts";
 
-const root = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2b-overlay-"));
+const root = mkdtempSync(join(tmpdir(), "entwurf-s2b-overlay-"));
 const realDir = join(root, "real-claude");
 const overlayDir = join(root, "overlay");
 

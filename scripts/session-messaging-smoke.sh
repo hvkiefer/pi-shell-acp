@@ -16,7 +16,7 @@
 #   MCP    — pi-tools-bridge stdio JSON-RPC (tools/call entwurf_send)
 #
 # Targets are pi sessions with --entwurf-control. "ACP" here means the target
-# pi uses pi-shell-acp as its LLM provider — the control socket namespace
+# pi uses entwurf as its LLM provider — the control socket namespace
 # (~/.pi/entwurf-control/) is unified across providers. Targets are spawned
 # in disposable tmux sessions and killed on exit.
 #
@@ -36,7 +36,7 @@ BOOT_TIMEOUT="${SMS_BOOT_TIMEOUT:-30}"
 
 NATIVE_PROVIDER="openai-codex"
 NATIVE_MODEL="gpt-5.4-mini"
-ACP_PROVIDER="pi-shell-acp"
+ACP_PROVIDER="entwurf"
 ACP_MODEL="claude-sonnet-4-6"
 
 TMUX_N="sms-tgt-n-$$"
@@ -130,7 +130,7 @@ case_mcp() {
     printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"entwurf_send\",\"arguments\":{\"sessionId\":\"$target\",\"message\":\"sms:$case_name\"}}}"
     sleep 2
   } | PI_SESSION_ID="00000000-0000-4000-8000-000000000000" \
-      PI_AGENT_ID="pi-shell-acp/session-messaging-smoke" \
+      PI_AGENT_ID="entwurf/session-messaging-smoke" \
       timeout 15 "$BRIDGE" 2>/dev/null | grep '"id":2')
   # Determine delivery success from the FULL response text, not the truncated
   # evidence: the send-side preview block ("[entwurf sent →]" + to/from/mode/

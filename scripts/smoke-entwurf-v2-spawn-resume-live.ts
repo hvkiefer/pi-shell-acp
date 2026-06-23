@@ -185,11 +185,11 @@ async function main(): Promise<void> {
 	}
 
 	const { provider, model } = resolveTarget();
-	// ACP override is OUT of scope for 0.11.0 (A): `--no-extensions --provider pi-shell-acp` is a
+	// ACP override is OUT of scope for 0.11.0 (A): `--no-extensions --provider entwurf` is a
 	// broken combination, and this smoke proves spawn-bg resident lifecycle, not backend equality.
-	if (provider === "pi-shell-acp") {
+	if (provider === "entwurf") {
 		throw new Error(
-			"spawn-resume-live: provider=pi-shell-acp is out of scope for 0.11.0 (A) — use a native target (e.g. openai-codex/gpt-5.4).",
+			"spawn-resume-live: provider=entwurf is out of scope for 0.11.0 (A) — use a native target (e.g. openai-codex/gpt-5.4).",
 		);
 	}
 	console.log(`[smoke-entwurf-v2-spawn-resume-live] target = ${provider}/${model}`);

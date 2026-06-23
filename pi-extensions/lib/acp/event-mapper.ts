@@ -258,7 +258,7 @@ export function pushPermissionNotice(state: AcpPiStreamState, title: string, dec
  * it must never replay into an ACP prompt nor perturb a reuse signature, whether
  * present or absent. Without the marker the "output-side only" claim is L0 hope.
  */
-export const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+export const LIFECYCLE_NOTICE_SIGNATURE = "entwurf:lifecycle-notice-v1";
 
 /**
  * Push a one-line ACP turn-lifecycle progress notice (`[acp: …]`) as its own

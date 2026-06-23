@@ -63,7 +63,7 @@ export function buildPiContextAugment(params: PiContextAugmentParams): string {
 	// on the other end is a sibling, not a worker.
 	sections.push(
 		[
-			"You are operating through pi-shell-acp, an ACP bridge between pi (the harness) and the underlying model.",
+			"You are operating through entwurf, an ACP bridge between pi (the harness) and the underlying model.",
 			`Backend: ${params.backend}.`,
 			`Connected MCP servers: ${mcpList}.`,
 			"When entwurf is invoked, you do not spawn workers — you summon sibling agents through this bridge.",
@@ -144,7 +144,7 @@ function readAgents(filePath: string): string {
 
 function truncateAugment(text: string): string {
 	if (Buffer.byteLength(text, "utf8") <= MAX_AUGMENT_BYTES) return text;
-	const marker = `\n\n[pi-shell-acp: context augment truncated to ${MAX_AUGMENT_BYTES} bytes; read AGENTS.md files directly if more detail is needed.]`;
+	const marker = `\n\n[entwurf: context augment truncated to ${MAX_AUGMENT_BYTES} bytes; read AGENTS.md files directly if more detail is needed.]`;
 	const markerBytes = Buffer.byteLength(marker, "utf8");
 	let end = text.length;
 	while (end > 0 && Buffer.byteLength(text.slice(0, end), "utf8") + markerBytes > MAX_AUGMENT_BYTES) {

@@ -1,6 +1,6 @@
 // ACP plugin — curated Claude model surface (S0 loader/fence slice).
 //
-// pi-shell-acp is an ACP *plugin* on the v2 core, NOT a general-purpose
+// entwurf is an ACP *plugin* on the v2 core, NOT a general-purpose
 // Anthropic provider. It deliberately does not expose the full pi-ai model
 // registry — the surface is curated to the Claude anchor the plugin commits to
 // driving through a real ACP backend (the backend lands in S2; S0 only stands
@@ -14,7 +14,7 @@
 import { getModels } from "@earendil-works/pi-ai";
 
 /** Provider id — current pre-rename surface; S1 renames this load-bearing id to `entwurf`. */
-export const PROVIDER_ID = "pi-shell-acp";
+export const PROVIDER_ID = "entwurf";
 
 // #26 auth-boundary sentinel. `pi.registerProvider` requires an apiKey when a
 // provider defines custom models, but the ACP plugin consumes NO key: backend
@@ -26,7 +26,7 @@ export const PROVIDER_ID = "pi-shell-acp";
 // failing preflight when the var is unset. Do NOT change to "$ANTHROPIC_API_KEY"
 // — that silences the warning but keeps the wrong auth-boundary shape. The
 // check-auth-boundary gate pins this.
-export const PI_SHELL_ACP_NO_AUTH_SENTINEL = "pi-shell-acp-no-auth";
+export const PI_SHELL_ACP_NO_AUTH_SENTINEL = "entwurf-no-auth";
 
 // The curated Claude ids. Adding one here is a commitment to verify it across
 // both axes (protocol smoke + agent interview) — do not extend casually.
@@ -36,7 +36,7 @@ const SUPPORTED_ANTHROPIC_MODEL_IDS = ["claude-sonnet-4-6", "claude-opus-4-8"] a
 export const CURATED_ANCHOR_MODEL_ID = "claude-opus-4-8";
 
 // Anthropic's registry reports 1M for Claude 4.6+ models, but the public
-// pi-shell-acp surface deliberately distinguishes Sonnet vs Opus: Sonnet stays
+// entwurf surface deliberately distinguishes Sonnet vs Opus: Sonnet stays
 // at 200K, Opus surfaces at 1M. (The 0.11.0 PI_SHELL_ACP_CLAUDE_CONTEXT env
 // override is a behavior-oracle nicety deferred past S0 — the loader/fence
 // slice only needs the anchor present and registered.)
@@ -51,7 +51,7 @@ function requireRegistryModel(models: readonly RegistryModel[], id: string): Reg
 	// Crash, don't warn (AGENTS): a missing anchor is a genuine pi-ai metadata
 	// regression and must fail the curated surface up front rather than be
 	// papered over with a fabricated row.
-	if (!model) throw new Error(`pi-shell-acp: required Claude model missing from pi-ai registry: ${id}`);
+	if (!model) throw new Error(`entwurf: required Claude model missing from pi-ai registry: ${id}`);
 	return model;
 }
 

@@ -2,7 +2,7 @@
 #
 # smoke-resident-garden-guard — LIVE gate for the 0.9.0 resident garden-native
 # session enforcement on `--entwurf-control` (NEXT.md "operator session garden
-# identity"). Mirrors GLG's requirement: "native이든 pi-shell-acp이든 --entwurf-
+# identity"). Mirrors GLG's requirement: "native이든 entwurf이든 --entwurf-
 # control 켜면 내 스타일로 고정 … 비-garden id가 보이면 바로 터져야 돼."
 #
 #   NEGATIVE (0 tokens, the must-have): raw `pi --entwurf-control` with NO
@@ -55,7 +55,7 @@ ENTWURF_DIR="$HOME/.pi/entwurf-control"
 SESSIONS_BASE="$HOME/.pi/agent/sessions"
 # Default target stays pi-native (openai-codex/gpt-5.4), but honor the SAME target
 # knob as the other live smokes: PI_SHELL_ACP_LIVE_TARGET="<provider>/<model>". On
-# acp-on-v2 the ACP `pi-shell-acp` provider is back, and `./run.sh smoke-acp-rgg-live`
+# acp-on-v2 the ACP `entwurf` provider is back, and `./run.sh smoke-acp-rgg-live`
 # drives THIS runner against it (deterministic half) — the guard logic (garden-id
 # enforcement) is provider-agnostic, no assertion checks the provider name, only the
 # garden sessionId. RGG-specific SMOKE_RGG_PROVIDER/MODEL still override.

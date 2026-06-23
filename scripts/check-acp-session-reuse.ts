@@ -609,7 +609,7 @@ try {
 		writeFileSync(
 			projectSettings,
 			JSON.stringify({
-				piShellAcpProvider: {
+				entwurfProvider: {
 					mcpServers: {
 						"pi-tools-bridge": {
 							command: "node",
@@ -663,7 +663,7 @@ try {
 			);
 			const env = Object.fromEntries((bridge?.env ?? []).map((e) => [e.name, e.value]));
 			assert.equal(env.PI_SESSION_ID, "LIVE-SID-123", "live PI_SESSION_ID injected (stale value overwritten)");
-			assert.equal(env.PI_AGENT_ID, `pi-shell-acp/${sonnet.id}`, "PI_AGENT_ID injected from the model id");
+			assert.equal(env.PI_AGENT_ID, `entwurf/${sonnet.id}`, "PI_AGENT_ID injected from the model id");
 			assert.equal(env.FOO, "bar", "operator's own env entries are preserved");
 			// G3: the http server has no env carrier (untouched).
 			const weather = (ns.mcpServers as Array<{ name: string; env?: unknown }>).find((s) => s.name === "weather");

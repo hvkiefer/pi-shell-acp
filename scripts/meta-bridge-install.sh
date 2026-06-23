@@ -55,7 +55,7 @@ echo "[meta-bridge-install] platform=$(uname -s) node=$NODE_VER ($NODE_BIN) pyth
 
 # Capture the user's pre-install values BEFORE any Claude CLI helper can mutate
 # settings.json / ~/.claude.json. Re-runs preserve the first snapshot, so
-# uninstall restores the true pre-pi-shell-acp state rather than the last install
+# uninstall restores the true pre-entwurf state rather than the last install
 # run's already-managed values.
 python3 "$REPO/scripts/meta-bridge-state.py" prepare --repo "$REPO" --asm "$ASM"
 

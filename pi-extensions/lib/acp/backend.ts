@@ -375,7 +375,7 @@ function persistRecord(session: BridgeSession, deps: AcpTurnDeps): void {
 
 // Detour A (A-c) — actionable rendering of a context-window overflow.
 //
-// An interactive / one-shot pi-shell-acp turn is `turn-scoped`, so it is ALWAYS
+// An interactive / one-shot entwurf turn is `turn-scoped`, so it is ALWAYS
 // `new`: every turn spawns a fresh ACP child and resends the FULL transcript +
 // first-user augment as one prompt (there is no persisted resume yet — that is
 // the deferred 1b-2c lane). A long, or resumed, conversation can therefore
@@ -385,7 +385,7 @@ function persistRecord(session: BridgeSession, deps: AcpTurnDeps): void {
 // the error — it only makes the broken state legible (Code Principle: surface
 // broken tool state AS broken).
 //
-// Resume itself is legitimate — pi-shell-acp locks the MODEL, not resume — so
+// Resume itself is legitimate — entwurf locks the MODEL, not resume — so
 // the hint never tells the operator to stop resuming; it names the real cause
 // (turn-scoped full-transcript replay) and the real follow-up fix.
 const ACP_CONTEXT_OVERFLOW_SIGNATURES: readonly RegExp[] = [
@@ -406,14 +406,14 @@ export function actionableAcpBackendHint(message: string): string | undefined {
 		"  Why: this turn used a FRESH ACP backend session (common in a turn-scoped / no --entwurf-control",
 		"       session, but also a resident's first or incompatible turn), so it resent the FULL transcript",
 		"       + augment as one prompt; a long or resumed conversation can exceed the backend model's input",
-		"       window. (Resume is legitimate — pi-shell-acp locks the model, not resume.)",
+		"       window. (Resume is legitimate — entwurf locks the model, not resume.)",
 		"  Now: start a fresh or shorter session to get unblocked.",
 		"  Root fix (follow-up): persisted resume (delta-only) or a window/summary policy.",
 	].join("\n");
 }
 
 /**
- * streamSimple for the pi-shell-acp provider. Returns the event stream
+ * streamSimple for the entwurf provider. Returns the event stream
  * synchronously and drives the ACP turn on a microtask.
  */
 export function streamShellAcp(
@@ -433,8 +433,8 @@ export function streamAcpTurn(
 ): ReturnType<typeof createAssistantMessageEventStream> {
 	const stream = createAssistantMessageEventStream();
 	const state: AcpPiStreamState = createAcpStreamState(stream, {
-		api: "pi-shell-acp",
-		provider: "pi-shell-acp",
+		api: "entwurf",
+		provider: "entwurf",
 		model: model.id,
 	});
 	const opts = options as
@@ -490,7 +490,7 @@ export function streamAcpTurn(
 		// Operator provider config (S2g) — resolve FIRST. A config the bridge
 		// cannot honor (bad mcpServers / skillPlugins / appendSystemPrompt:true /
 		// strictMcpConfig:false) fails loud into the stream before any spawn. This
-		// is the baseline fix: the operator's piShellAcpProvider.{mcpServers,
+		// is the baseline fix: the operator's entwurfProvider.{mcpServers,
 		// skillPlugins,tools,…} now actually reach the session.
 		let config: ResolvedAcpConfig;
 		try {
@@ -572,7 +572,7 @@ export function streamAcpTurn(
 		// (a NEW turn is not in the map yet — inFlightKeys). Checked BEFORE we
 		// claim/spawn/set any handler, so nothing to unwind (GPT blocker 1).
 		if (existing?.busy || inFlightKeys.has(sessionKey)) {
-			finishError(new Error(`pi-shell-acp session ${sessionKey} is busy with another prompt`), false);
+			finishError(new Error(`entwurf session ${sessionKey} is busy with another prompt`), false);
 			return;
 		}
 
@@ -679,7 +679,7 @@ export function streamAcpTurn(
 				},
 				readTextFile: async (req) => ({ content: readFileSync(req.path, "utf8") }),
 				writeTextFile: async (): Promise<never> => {
-					throw new Error("Client-side writeTextFile is not supported in pi-shell-acp ACP mode.");
+					throw new Error("Client-side writeTextFile is not supported in entwurf ACP mode.");
 				},
 			};
 			const connection = deps.createConnection(spawned, handlers);
@@ -706,7 +706,7 @@ export function streamAcpTurn(
 				connection.initialize({
 					protocolVersion: PROTOCOL_VERSION,
 					clientCapabilities: {},
-					clientInfo: { name: "pi-shell-acp", version: "s2d" },
+					clientInfo: { name: "entwurf", version: "s2d" },
 				}),
 				INITIALIZE_TIMEOUT_MS,
 			);

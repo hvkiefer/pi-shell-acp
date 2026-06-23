@@ -42,7 +42,7 @@
 //   - launch source MUST be the resolved package bin; a silent PATH fallback
 //     FAILS acceptance unless PI_SHELL_ACP_MEMORY_ALLOW_PATH_FALLBACK=1.
 //   - scratch cwd + overlay are fresh mkdtemp; the overlay's realDir is the
-//     operator's ~/.claude so live credentials pass through — pi-shell-acp
+//     operator's ~/.claude so live credentials pass through — entwurf
 //     neither copies nor proxies auth.
 
 import { strict as assert } from "node:assert";
@@ -180,8 +180,8 @@ async function readChildEnv(pid: number, key: string): Promise<string | undefine
 
 async function main(): Promise<void> {
 	const launch = resolveLaunch();
-	const scratch = await mkdtemp(join(tmpdir(), "pi-shell-acp-memguard-cwd-"));
-	const overlayDir = await mkdtemp(join(tmpdir(), "pi-shell-acp-memguard-overlay-"));
+	const scratch = await mkdtemp(join(tmpdir(), "entwurf-memguard-cwd-"));
+	const overlayDir = await mkdtemp(join(tmpdir(), "entwurf-memguard-overlay-"));
 
 	ensureClaudeConfigOverlay(CLAUDE_REAL_CONFIG_DIR, overlayDir);
 	const envOverride = claudeLaunchEnvDefaults(overlayDir);
@@ -292,7 +292,7 @@ async function main(): Promise<void> {
 			connection.initialize({
 				protocolVersion: PROTOCOL_VERSION,
 				clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
-				clientInfo: { name: "pi-shell-acp-smoke", version: "memguard" },
+				clientInfo: { name: "entwurf-smoke", version: "memguard" },
 			} as any),
 			30_000,
 		);

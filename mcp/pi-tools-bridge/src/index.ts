@@ -1,11 +1,11 @@
 /**
  * pi-tools-bridge — MCP adapter exposing selected pi-side tools to ACP hosts.
  *
- * Ownership: this adapter lives inside `pi-shell-acp` alongside the v2 entwurf
+ * Ownership: this adapter lives inside `entwurf` alongside the v2 entwurf
  * orchestration surface (pi-extensions/entwurf-control.ts + lib/entwurf-v2-*.ts +
  * pi/entwurf-targets.json). See AGENTS.md §Entwurf Orchestration.
  *
- * Wiring: registered only via piShellAcpProvider.mcpServers in pi settings.
+ * Wiring: registered only via entwurfProvider.mcpServers in pi settings.
  * No ambient discovery. The bridge never auto-promotes pi extension tools.
  *
  * Currently exposed tools (scope is deliberately narrow — anything that can live
@@ -26,7 +26,7 @@
  * Not here on purpose: semantic memory / session search / knowledge-base search.
  * Those are personal-workflow surfaces and live as Claude Code / Codex skills
  * (the "semantic-memory" skill, which in turn shells out to the user's
- * embedding CLI). Keeping them out of the MCP bridge is what lets pi-shell-acp
+ * embedding CLI). Keeping them out of the MCP bridge is what lets entwurf
  * be a generic public package rather than a reflection of one operator's setup.
  *
  * Layer separation (PM-mandated, do not blur): `entwurf_peers` reports facts;

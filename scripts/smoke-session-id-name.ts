@@ -33,7 +33,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const PI_BIN = process.env.PI_BIN ?? "pi";
 
 // v2-only retarget: the substrate smoke no longer rides the (removed) ACP
-// `pi-shell-acp` provider — the --session-id/--name primitives under test are
+// `entwurf` provider — the --session-id/--name primitives under test are
 // provider-agnostic. Drive a real pi-native provider/model instead, sharing the
 // v2 live-smoke env (PI_SHELL_ACP_LIVE_TARGET, default openai-codex/gpt-5.4).
 function resolveTarget(): { provider: string; model: string } {
@@ -59,7 +59,7 @@ process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.PI_ENTWURF_TARGETS_PATH = path.join(REPO_ROOT, "pi", "entwurf-targets.json");
 
 // The native retarget provider authenticates via <PI_CODING_AGENT_DIR>/auth.json.
-// The isolated temp dir has none (old ACP `pi-shell-acp` rode Claude Code OAuth, so
+// The isolated temp dir has none (old ACP `entwurf` rode Claude Code OAuth, so
 // isolation was free); copy the real OAuth creds in so real turns authenticate while
 // SESSIONS stay isolated — the whole point — and the dir is removed on exit.
 const realAuth = path.join(os.homedir(), ".pi", "agent", "auth.json");

@@ -5,7 +5,7 @@
 // repo tracks (`git ls-files --stage` shows 100755). README documents
 // running `run.sh install .` directly, and the pi-tools-bridge MCP
 // extension spawns `mcp/pi-tools-bridge/start.sh` — both break with
-// EACCES on a fresh `pi install npm:@junghanacs/pi-shell-acp`.
+// EACCES on a fresh `pi install npm:@junghanacs/entwurf`.
 //
 // CJS so it runs regardless of the consumer's package "type" and
 // regardless of whether the installed copy includes our package.json
@@ -35,7 +35,7 @@ function chmodIfPresent(rel) {
 		fs.chmodSync(abs, 0o755);
 	} catch (err) {
 		// Never fail install on chmod errors (Windows, read-only mount, etc.).
-		console.warn(`[pi-shell-acp postinstall] chmod ${rel} skipped: ${err.message}`);
+		console.warn(`[entwurf postinstall] chmod ${rel} skipped: ${err.message}`);
 	}
 }
 
@@ -53,6 +53,6 @@ for (const dir of scriptDirs) {
 			}
 		}
 	} catch (err) {
-		console.warn(`[pi-shell-acp postinstall] scan ${dir}/*.sh skipped: ${err.message}`);
+		console.warn(`[entwurf postinstall] scan ${dir}/*.sh skipped: ${err.message}`);
 	}
 }

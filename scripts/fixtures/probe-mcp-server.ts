@@ -2,7 +2,7 @@
 //
 // It exposes ONE tool — `probe_nonce` — that returns a per-run secret nonce
 // supplied via the PROBE_NONCE env var. The smoke registers this server in a
-// scratch `.pi/settings.json` under `piShellAcpProvider.mcpServers` and asks the
+// scratch `.pi/settings.json` under `entwurfProvider.mcpServers` and asks the
 // ACP model to CALL the tool and echo the nonce. If the operator mcpServers
 // passthrough (S2g) works, the ACP child spawns this server, the tool is visible
 // in the session schema, and the model's reply carries the nonce. If passthrough

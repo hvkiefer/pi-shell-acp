@@ -31,7 +31,7 @@
 //     the run is stamped debug/non-acceptance).
 //   - scratch cwd is a fresh mkdtemp (repo isolation); the overlay is a
 //     separate fresh mkdtemp with realDir = the operator's ~/.claude so live
-//     credentials pass through — pi-shell-acp neither copies nor proxies auth.
+//     credentials pass through — entwurf neither copies nor proxies auth.
 
 import { strict as assert } from "node:assert";
 import { type ChildProcessByStdio, spawn } from "node:child_process";
@@ -150,8 +150,8 @@ async function readChildEnv(pid: number, key: string): Promise<string | undefine
 
 async function main(): Promise<void> {
 	const launch = resolveLaunch();
-	const scratch = await mkdtemp(join(tmpdir(), "pi-shell-acp-s2b-cwd-"));
-	const overlayDir = await mkdtemp(join(tmpdir(), "pi-shell-acp-s2b-overlay-"));
+	const scratch = await mkdtemp(join(tmpdir(), "entwurf-s2b-cwd-"));
+	const overlayDir = await mkdtemp(join(tmpdir(), "entwurf-s2b-overlay-"));
 
 	// Materialize the overlay against the operator's REAL ~/.claude so live
 	// credentials pass through; settings.json (hooks:{}) is ours.
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
 			connection.initialize({
 				protocolVersion: PROTOCOL_VERSION,
 				clientCapabilities: {},
-				clientInfo: { name: "pi-shell-acp-smoke", version: "s2b-overlay" },
+				clientInfo: { name: "entwurf-smoke", version: "s2b-overlay" },
 			} as any),
 			30_000,
 		);

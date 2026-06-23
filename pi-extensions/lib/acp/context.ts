@@ -25,7 +25,7 @@ import type { AssistantMessage, Context, Message, ToolResultMessage, UserMessage
 // import (`./event-mapper.js`) — the lib modules share TYPES only. The mirror is
 // kept honest behaviorally by check-acp-session-reuse (a drift would leave the
 // `[acp: …]` notices in the captured ACP prompt and fail the gate).
-const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+const LIFECYCLE_NOTICE_SIGNATURE = "entwurf:lifecycle-notice-v1";
 
 /** An ACP text content block. */
 export interface AcpTextBlock {

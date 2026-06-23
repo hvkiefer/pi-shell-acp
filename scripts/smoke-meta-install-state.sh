@@ -72,11 +72,11 @@ JSON
 py() { python3 "$STATE" "$@" --repo "$REPO" --asm "$ASM"; }
 
 py prepare >/dev/null
-STATE_FILE="$CLAUDE_CONFIG_DIR/pi-shell-acp.install-state.json"
+STATE_FILE="$CLAUDE_CONFIG_DIR/entwurf.install-state.json"
 [ -f "$STATE_FILE" ] && ok "prepare writes install-state before any merge" || bad "state file missing after prepare"
 if python3 - <<'PY'
 import json, os, stat
-path=os.environ['CLAUDE_CONFIG_DIR'] + '/pi-shell-acp.install-state.json'
+path=os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'
 assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 s=json.load(open(path))
 assert s['files']['settings']['keys']['enabledPlugins.entwurf-meta-receive@meta-bridge-local']['original']['value'] is False
@@ -146,7 +146,7 @@ py prepare >/dev/null
 py apply >/dev/null
 if python3 - <<'PY'
 import json, os
-s=json.load(open(os.environ['CLAUDE_CONFIG_DIR'] + '/pi-shell-acp.install-state.json'))
+s=json.load(open(os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'))
 assert s['files']['settings']['keys']['enabledPlugins.entwurf-meta-receive@meta-bridge-local']['original']['value'] is False
 assert s['files']['settings']['keys']['cleanupPeriodDays']['original']['value'] == 30
 assert s['files']['settings']['keys']['env.DISABLE_AUTOCOMPACT']['original']['value'] == '0'
@@ -188,7 +188,7 @@ assert 'Bash' not in allow and 'mcp__pi-tools-bridge__*' not in allow
 assert 'Agent' in deny and 'UserDeniedAfterInstall' in deny and 'TaskCreate' not in deny
 assert root['mcpServers']['pi-tools-bridge']['command'] == 'old'
 assert 'keep-server' in root['mcpServers']
-assert not os.path.exists(os.environ['CLAUDE_CONFIG_DIR'] + '/pi-shell-acp.install-state.json')
+assert not os.path.exists(os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json')
 PY
 then ok "uninstall restores scalars/maps and removes only managed array additions"; else bad "uninstall restoration check failed"; fi
 
@@ -260,7 +260,7 @@ PY
 py prepare >/dev/null
 if python3 - <<'PY'
 import json, os
-s=json.load(open(os.environ['CLAUDE_CONFIG_DIR'] + '/pi-shell-acp.install-state.json'))
+s=json.load(open(os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'))
 assert s['files']['settings']['keys']['enabledPlugins.entwurf-meta-receive@meta-bridge-local']['original']['existed'] is False
 assert s['files']['settings']['keys']['extraKnownMarketplaces.meta-bridge-local']['original']['existed'] is False
 assert s['files']['claudeRoot']['keys']['mcpServers.pi-tools-bridge']['original']['existed'] is False

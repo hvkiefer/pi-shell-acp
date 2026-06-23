@@ -32,7 +32,7 @@ import { buildClaudeSessionMeta } from "../pi-extensions/lib/acp/tool-surface.ts
 import { ENTWURF_PROJECT_CONTEXT_OPEN_TAG } from "../protocol.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "acp-carrier-augment-"));
-const BRIDGE_MARK = "operating through pi-shell-acp";
+const BRIDGE_MARK = "operating through entwurf";
 
 // ===========================================================================
 // 1) loadEngraving is pure/deterministic + interpolates backend/mcp (sorted)

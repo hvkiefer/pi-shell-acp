@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # meta-bridge-uninstall.sh — honest inverse of install-meta-bridge.
 #
-# Uses ${CLAUDE_CONFIG_DIR:-~/.claude}/pi-shell-acp.install-state.json to restore
+# Uses ${CLAUDE_CONFIG_DIR:-~/.claude}/entwurf.install-state.json to restore
 # exactly the settings/MCP keys Phase 2 install touched. Without that state file,
 # uninstall cannot know whether a scalar false/true/path was user-owned, so it
 # fails instead of guessing.

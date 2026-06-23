@@ -21,7 +21,7 @@
 //     is stamped "debug/non-acceptance").
 //   - cwd is a fresh mkdtemp scratch — this isolates the repo, NOT ~/.claude
 //     side effects. Without an overlay the adapter reads the operator's own
-//     local Claude auth/config; pi-shell-acp neither copies nor proxies it.
+//     local Claude auth/config; entwurf neither copies nor proxies it.
 
 import { strict as assert } from "node:assert";
 import { type ChildProcessByStdio, spawn } from "node:child_process";
@@ -126,7 +126,7 @@ function resolveLaunch(): { command: string; args: string[]; source: string; acc
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
 	const launch = resolveLaunch();
-	const scratch = await mkdtemp(join(tmpdir(), "pi-shell-acp-s2a-raw-"));
+	const scratch = await mkdtemp(join(tmpdir(), "entwurf-s2a-raw-"));
 	console.error(`[smoke-acp-raw-turn-live] launch source: ${launch.source}`);
 	console.error(`[smoke-acp-raw-turn-live] scratch cwd:   ${scratch}`);
 	console.error(`[smoke-acp-raw-turn-live] model request:  ${REQUESTED_MODEL_ID}`);
@@ -199,7 +199,7 @@ async function main(): Promise<void> {
 			connection.initialize({
 				protocolVersion: PROTOCOL_VERSION,
 				clientCapabilities: {},
-				clientInfo: { name: "pi-shell-acp-smoke", version: "s2a-raw" },
+				clientInfo: { name: "entwurf-smoke", version: "s2a-raw" },
 			} as any),
 			30_000,
 		);

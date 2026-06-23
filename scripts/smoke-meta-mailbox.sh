@@ -111,7 +111,7 @@ SENDER_PI_ID="20260606T120000-aaaaaa"
 # the live-socket branch and MUST fall through to the mailbox. (Without this the
 # sender-socket touch above could be misread as also satisfying the target.)
 [ ! -e "$PI_ENTWURF_DIR/$GARDEN_A.sock" ] && ok "target has no control socket (mailbox fallback forced)" || bad "target socket unexpectedly present — fallback not forced"
-A_SEND=$(PI_AGENT_ID="pi-shell-acp/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
+A_SEND=$(PI_AGENT_ID="entwurf/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
   srv 10 "$(sendcall 10 "$GARDEN_A" "MAILBOX_SMOKE_A payload" true)")
 A_READ=$(srv 11 "$(readcall 11 "$GARDEN_A")")
 A_READ2=$(srv 12 "$(readcall 12 "$GARDEN_A")")
@@ -141,9 +141,9 @@ if ls "$PI_META_MAILBOX_DIR/$GARDEN_A"/*.msg >/dev/null 2>&1; then bad "unread .
 # the MCP-surface companion to check-meta-session's lower-level D8 drain proof and
 # smoke-meta-honesty's doorbell-count proof.
 # ---------------------------------------------------------------------------
-D_SEND1=$(PI_AGENT_ID="pi-shell-acp/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
+D_SEND1=$(PI_AGENT_ID="entwurf/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
   srv 30 "$(sendcall 30 "$GARDEN_D" "MAILBOX_SMOKE_D part 1" false)")
-D_SEND2=$(PI_AGENT_ID="pi-shell-acp/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
+D_SEND2=$(PI_AGENT_ID="entwurf/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
   srv 31 "$(sendcall 31 "$GARDEN_D" "MAILBOX_SMOKE_D part 2" false)")
 D_READ=$(srv 32 "$(readcall 32 "$GARDEN_D")")
 D_READ2=$(srv 33 "$(readcall 33 "$GARDEN_D")")
@@ -197,7 +197,7 @@ fi
 # terminated / never-armed session). A conversational send must REJECT and write
 # nothing — no .msg, no mailbox dir, no doorbell poke.
 # ---------------------------------------------------------------------------
-C_SEND=$(PI_AGENT_ID="pi-shell-acp/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
+C_SEND=$(PI_AGENT_ID="entwurf/claude-sonnet-4-6" PI_SESSION_ID="$SENDER_PI_ID" \
   srv 40 "$(sendcall 40 "$GARDEN_C" "MAILBOX_SMOKE_C should not land" false)")
 if echo "$C_SEND" | grep -q '"isError":true' && echo "$C_SEND" | grep -q 'not conversationally deliverable'; then
   ok "send to a record-backed but inactive receiver is rejected (SE-2)"

@@ -1,5 +1,5 @@
 /**
- * Shared wire-format constants for pi-shell-acp surfaces that must agree
+ * Shared wire-format constants for entwurf surfaces that must agree
  * across the root bridge and pi-extension / MCP helper code.
  *
  * Keep this file dependency-free. Single source for both runtime paths:

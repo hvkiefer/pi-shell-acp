@@ -37,7 +37,7 @@ import {
 // ---------------------------------------------------------------------------
 
 // Current pre-rename provider id. S1 must rename this load-bearing routing id to `entwurf` together with its gates.
-assert.equal(PROVIDER_ID, "pi-shell-acp", "PROVIDER_ID must match the current pre-rename provider id");
+assert.equal(PROVIDER_ID, "entwurf", "PROVIDER_ID must match the current pre-rename provider id");
 
 // no-auth sentinel shape: lowercase + hyphen only, so pi does not read it as an
 // ENV reference. An ALL-CAPS value would trip the legacy-env path.
@@ -46,7 +46,7 @@ assert.match(
 	/^[a-z0-9-]+$/,
 	`no-auth sentinel must be lowercase+hyphen (got "${PI_SHELL_ACP_NO_AUTH_SENTINEL}")`,
 );
-assert.equal(PI_SHELL_ACP_NO_AUTH_SENTINEL, "pi-shell-acp-no-auth", "no-auth sentinel literal drifted");
+assert.equal(PI_SHELL_ACP_NO_AUTH_SENTINEL, "entwurf-no-auth", "no-auth sentinel literal drifted");
 
 // curated Claude anchor present + full row shape.
 const models = curatedClaudeModels();
@@ -115,7 +115,7 @@ try {
 	const cap = calls[0];
 	assert.equal(cap.id, PROVIDER_ID, `entry registered the wrong provider id: ${cap.id}`);
 	assert.equal(cap.cfg.apiKey, PI_SHELL_ACP_NO_AUTH_SENTINEL, "entry apiKey is not the no-auth sentinel");
-	assert.equal(cap.cfg.api, "pi-shell-acp", "entry api field drifted");
+	assert.equal(cap.cfg.api, "entwurf", "entry api field drifted");
 	const capIds = (cap.cfg.models ?? []).map((m) => m.id);
 	for (const want of ["claude-sonnet-4-6", CURATED_ANCHOR_MODEL_ID]) {
 		assert.ok(capIds.includes(want), `entry model surface missing ${want} (got: ${capIds.join(", ") || "none"})`);

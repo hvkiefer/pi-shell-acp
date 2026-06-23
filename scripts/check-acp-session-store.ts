@@ -350,11 +350,7 @@ const baseInput = (): BridgeConfigInput => ({
 		assert.equal(readSessionRecord("sess/key 1", dir), undefined, "deleted record → undefined");
 		// On-disk JSON is pretty + has a provider field (sanity that it really wrote).
 		writeSessionRecord(rec, dir);
-		assert.match(
-			readFileSync(sessionRecordPath("sess/key 1", dir), "utf8"),
-			/"provider": "pi-shell-acp"/,
-			"json written",
-		);
+		assert.match(readFileSync(sessionRecordPath("sess/key 1", dir), "utf8"), /"provider": "entwurf"/, "json written");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

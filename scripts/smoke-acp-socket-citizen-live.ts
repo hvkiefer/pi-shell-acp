@@ -2,13 +2,13 @@
 //
 // Proves, end-to-end against a REAL pi resident, the S1 claim: a
 // `pi --entwurf-control` session whose model is an ACP model
-// (pi-shell-acp/claude-*) is a first-class v2 socket-citizen — peers-visible and
+// (entwurf/claude-*) is a first-class v2 socket-citizen — peers-visible and
 // get_info-answerable — WITHOUT running a backend turn. Citizenship is supplied
 // by the host control socket (model-agnostic), not by the ACP plugin.
 //
 // It also clears the two S1 question marks live:
 //   QM1  model-lock.ts does NOT revert a launch-with-ACP-model: get_info still
-//        reports provider "pi-shell-acp" after the resident anchors.
+//        reports provider "entwurf" after the resident anchors.
 //   QM2  the fail-loud streamSimple stub does NOT fire at launch: the resident
 //        stands its socket up and stays alive with no turn (no stub error on
 //        stderr); the stub is a turn-only hard stop, never a launch-time crash.
@@ -31,7 +31,7 @@ import { fetchControlSocketRuntimeInfo, formatRuntimeModel } from "../pi-extensi
 import { generateSessionId } from "../pi-extensions/lib/entwurf-core.ts";
 import { scanSocketProbes } from "../pi-extensions/lib/socket-discovery.ts";
 
-const ACP_PROVIDER = "pi-shell-acp";
+const ACP_PROVIDER = "entwurf";
 const ACP_MODEL = process.env.PI_SHELL_ACP_S1_MODEL?.trim() || "claude-opus-4-8";
 
 const REAL_CONTROL_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
 		const info = await fetchControlSocketRuntimeInfo(sockPath, { timeout: 3_000 });
 		ok("get_info answers (control RPC reachable)", info !== undefined);
 
-		// QM1: model-lock did NOT revert the launch model — provider is still pi-shell-acp.
+		// QM1: model-lock did NOT revert the launch model — provider is still entwurf.
 		ok(
 			`get_info model is the ACP model, not reverted (got ${formatRuntimeModel(info) ?? "none"})`,
 			info.modelProvider === ACP_PROVIDER && info.modelId === ACP_MODEL,

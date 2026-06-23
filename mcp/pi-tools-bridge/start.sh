@@ -5,7 +5,7 @@
 # build step. Node >= 22.6 (engines.node in ../../package.json).
 #
 # Env file loading is strictly opt-in — the launcher never reads any dotfile
-# unless PI_TOOLS_BRIDGE_ENV_FILE points at one. Rationale: pi-shell-acp is a
+# unless PI_TOOLS_BRIDGE_ENV_FILE points at one. Rationale: entwurf is a
 # public package; baking in personal conventions (~/.env.local, etc.) would
 # bleed the original author's dotfile habits into every consumer's shell.
 set -euo pipefail

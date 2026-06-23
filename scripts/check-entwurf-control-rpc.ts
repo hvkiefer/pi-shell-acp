@@ -149,14 +149,14 @@ async function main(): Promise<void> {
 	{
 		const parsed = parseGetInfoResponseData({
 			cwd: "/work/cos",
-			model: { provider: "pi-shell-acp", id: "gpt-5.5" },
+			model: { provider: "entwurf", id: "gpt-5.5" },
 			idle: false,
 		});
 		ok("5: parse cwd", parsed.cwd === "/work/cos");
 		ok("5: parse model id", parsed.modelId === "gpt-5.5");
-		ok("5: parse model provider", parsed.modelProvider === "pi-shell-acp");
+		ok("5: parse model provider", parsed.modelProvider === "entwurf");
 		ok("5: parse idle false", parsed.idle === false);
-		ok("5: format provider/model", formatRuntimeModel(parsed) === "pi-shell-acp/gpt-5.5");
+		ok("5: format provider/model", formatRuntimeModel(parsed) === "entwurf/gpt-5.5");
 		ok("5: format model-only fallback", formatRuntimeModel({ modelId: "gpt-5.5" }) === "gpt-5.5");
 		const malformed = parseGetInfoResponseData({ model: null });
 		ok(

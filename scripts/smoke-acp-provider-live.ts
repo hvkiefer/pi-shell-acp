@@ -4,7 +4,7 @@
 //
 // This is the S2c acceptance: it drives the REAL pi provider path end to end,
 // not the raw ACP pipe (S2a) or the overlay-aware raw driver (S2b). A real `pi`
-// process loads THIS checkout's extension, selects `pi-shell-acp/<model>`, and
+// process loads THIS checkout's extension, selects `entwurf/<model>`, and
 // pi's runner calls our `streamSimple` (lib/acp/backend.ts) — which spawns
 // claude-agent-acp under the overlay, drives one turn, and maps the result back
 // through the S2c event mapper. A unique nonce in the requested reply proves the
@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MODEL = process.env.PI_SHELL_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
-const PROVIDER = "pi-shell-acp";
+const PROVIDER = "entwurf";
 const TURN_TIMEOUT_MS = Number(process.env.PI_SHELL_ACP_PROVIDER_TIMEOUT_MS) || 240_000;
 
 function fail(msg: string): never {
@@ -50,8 +50,8 @@ const expected = `OK_${nonce}`;
 // after the turn (S2f Amber 1 — marker persistence).
 const sessionId = `psa-s2f-${nonce}`;
 
-const scratch = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2c-provider-"));
-const sessionDir = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2f-sessions-"));
+const scratch = mkdtempSync(join(tmpdir(), "entwurf-s2c-provider-"));
+const sessionDir = mkdtempSync(join(tmpdir(), "entwurf-s2f-sessions-"));
 try {
 	// --no-extensions + explicit -e REPO_ROOT: load ONLY this checkout's
 	// extensions (matches the S1 smoke). --mode text prints the assistant reply
@@ -142,7 +142,7 @@ try {
 		"lifecycle notice text reached the persisted JSONL transcript (display-only, but still saved as assistant text)",
 	);
 	assert.ok(
-		jsonl.includes("pi-shell-acp:lifecycle-notice-v1"),
+		jsonl.includes("entwurf:lifecycle-notice-v1"),
 		"the textSignature marker SURVIVED pi JSONL serialization — a `new` rebuild from a reloaded Context will still filter it (no replay, no signature drift)",
 	);
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # smoke-claude-native-resume-live — LIVE-only Claude Code native resume + meta-bridge neutrality probe.
 #
-# This smoke is deliberately NOT a pi-shell-acp ACP backend test. It exercises
+# This smoke is deliberately NOT a entwurf ACP backend test. It exercises
 # Claude Code's own native persistence/resume path while the meta-bridge hook is
-# installed, then checks that pi-shell-acp only records the native identity:
+# installed, then checks that entwurf only records the native identity:
 #   - a fresh `claude -p --output-format=json` turn returns a native session_id;
 #   - exactly one meta-record body binds backend=claude-code + nativeSessionId;
 #   - the recorded transcriptPath exists and stays attached to that native id;
@@ -11,7 +11,7 @@
 #   - the meta-record remains unique after resume (no duplicate garden citizen).
 #
 # It creates real Claude Code turns and writes normal Claude transcripts plus
-# pi-shell-acp meta-records. It never edits Claude config, credentials, or
+# entwurf meta-records. It never edits Claude config, credentials, or
 # transcripts, and it does not go through the ACP provider.
 set -euo pipefail
 

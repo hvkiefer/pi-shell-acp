@@ -22,13 +22,13 @@
 // METHOD (gnew-rpc-drive shape): launch a real resident on an ACP model, send one
 // `{type:"prompt"}` over stdin asking the model to call mcp__pi-tools-bridge__entwurf_self,
 // and capture — DIRECTLY from the stdout RPC event stream — the identity envelope
-// (the resident's own freshly-minted gid, agentId pi-shell-acp/<model>, socketState
+// (the resident's own freshly-minted gid, agentId entwurf/<model>, socketState
 // alive) plus `agent_end`. The gid is never told to the model: it lives only as the
 // resident's PI_SESSION_ID, injected into the bridge env, so the model can surface it
 // ONLY by actually calling the tool. JSONL is an L3 backstop, never the primary proof.
 //
 // The bundled bridge is supplied by the operator's REAL
-// piShellAcpProvider.mcpServers.pi-tools-bridge (global ~/.pi/agent/settings.json) —
+// entwurfProvider.mcpServers.pi-tools-bridge (global ~/.pi/agent/settings.json) —
 // this is the operator circuit, not a scratch-isolated probe. If the operator has not
 // wired it, the smoke fails loud (the circuit is not installed).
 //
@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 import { fetchControlSocketRuntimeInfo, formatRuntimeModel } from "../pi-extensions/lib/entwurf-control-rpc.ts";
 import { generateSessionId } from "../pi-extensions/lib/entwurf-core.ts";
 
-const ACP_PROVIDER = "pi-shell-acp";
+const ACP_PROVIDER = "entwurf";
 const ACP_MODEL = process.env.PI_SHELL_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
 
 const REAL_CONTROL_DIR = path.join(os.homedir(), ".pi", "entwurf-control");

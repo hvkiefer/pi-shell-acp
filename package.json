@@ -1,5 +1,5 @@
 {
-	"name": "@junghanacs/pi-shell-acp",
+	"name": "@junghanacs/entwurf",
 	"version": "0.11.0",
 	"description": "Pi-native garden-citizen dispatch substrate and meta-bridge for entwurf v2 sessions.",
 	"license": "MIT",
@@ -9,11 +9,11 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/junghan0611/pi-shell-acp.git"
+		"url": "git+https://github.com/junghan0611/entwurf.git"
 	},
-	"homepage": "https://github.com/junghan0611/pi-shell-acp#readme",
+	"homepage": "https://github.com/junghan0611/entwurf#readme",
 	"bugs": {
-		"url": "https://github.com/junghan0611/pi-shell-acp/issues"
+		"url": "https://github.com/junghan0611/entwurf/issues"
 	},
 	"keywords": [
 		"pi",
@@ -40,10 +40,10 @@
 		"demo/demo-baseline.sh",
 		"demo/compaction-policy-smoke/",
 		"docs/setup-clean-host.md",
-		"docs/assets/pi-shell-acp-hero.jpg",
-		"docs/assets/pi-shell-acp-demo.gif",
-		"docs/assets/pi-shell-acp-doomemacs.gif",
-		"docs/assets/pi-shell-acp-entwurf.gif",
+		"docs/assets/entwurf-hero.jpg",
+		"docs/assets/entwurf-demo.gif",
+		"docs/assets/entwurf-doomemacs.gif",
+		"docs/assets/entwurf-entwurf.gif",
 		"pi/entwurf-targets.json",
 		"pi/entwurf-capabilities.json",
 		"pi/settings.reference.json",
@@ -119,6 +119,6 @@
 			"./pi-extensions/entwurf-control.ts",
 			"./pi-extensions/model-lock.ts"
 		],
-		"image": "https://raw.githubusercontent.com/junghan0611/pi-shell-acp/main/docs/assets/pi-shell-acp-demo.gif"
+		"image": "https://raw.githubusercontent.com/junghan0611/entwurf/main/docs/assets/entwurf-demo.gif"
 	}
 }

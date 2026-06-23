@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stateful install/uninstall config manager for pi-shell-acp meta-bridge.
+"""Stateful install/uninstall config manager for entwurf meta-bridge.
 
 This is the Phase-2 honesty core: install records exactly what it touched before
 writing, and uninstall restores/removes only those keys/items. No blind jq merge.
@@ -20,7 +20,7 @@ PLUGIN = "entwurf-meta-receive"
 MARKETPLACE = "meta-bridge-local"
 PLUGIN_REF = f"{PLUGIN}@{MARKETPLACE}"
 STATE_VERSION = 1
-OWNER = "pi-shell-acp meta-bridge"
+OWNER = "entwurf meta-bridge"
 
 PERMISSION_ALLOW = [
     "Bash",
@@ -56,10 +56,10 @@ PERMISSION_DENY = [
     "TaskUpdate",
 ]
 
-# Claude Code single-driver policy scalars owned by pi-shell-acp for the native
+# Claude Code single-driver policy scalars owned by entwurf for the native
 # meta-bridge install. These are not theming/personal hooks; they close background
 # autonomy/suggestion/compaction surfaces so Claude Code behaves like the same
-# single forged screwdriver that pi-shell-acp already enforces for ACP backends.
+# single forged screwdriver that entwurf already enforces for ACP backends.
 MANAGED_SETTINGS_SCALARS: list[tuple[str, list[str], Any]] = [
     ("cleanupPeriodDays", ["cleanupPeriodDays"], 365),
     ("env.DISABLE_AUTOCOMPACT", ["env", "DISABLE_AUTOCOMPACT"], "1"),
@@ -97,7 +97,7 @@ def settings_path() -> Path:
 
 
 def state_path() -> Path:
-    return claude_config_dir() / "pi-shell-acp.install-state.json"
+    return claude_config_dir() / "entwurf.install-state.json"
 
 
 def claude_root_config_path() -> Path:
@@ -160,7 +160,7 @@ def ensure_object(parent: dict[str, Any], key: str, label: str) -> dict[str, Any
         value = {}
         parent[key] = value
     if not isinstance(value, dict):
-        die(f"{label} must be an object before pi-shell-acp can manage a child key")
+        die(f"{label} must be an object before entwurf can manage a child key")
     return value
 
 
@@ -216,7 +216,7 @@ def snapshot_value(
         return
     existed, value = get_nested(obj, path)
     # Phase-2 migration path: GLG's machine already had the Phase-0/1 tribal
-    # installer live before the state file existed. If an exact pi-shell-acp
+    # installer live before the state file existed. If an exact entwurf
     # managed value is present with no state, treating it as "original" would make
     # uninstall restore the legacy install instead of removing it. Exact-match
     # migration is limited to pi-owned identity keys (plugin/marketplace/MCP), not
@@ -433,7 +433,7 @@ def uninstall() -> None:
 
 
 def managed_keys() -> dict[str, Any]:
-    """The SSOT of settings.json / ~/.claude.json keys pi-shell-acp OWNS.
+    """The SSOT of settings.json / ~/.claude.json keys entwurf OWNS.
 
     Derived from the same constants install/apply/check use, so there is one
     source of truth for "which keys are ours". Cross-repo consumers (the keyset
@@ -501,7 +501,7 @@ def check(repo: Path, asm: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="pi-shell-acp meta-bridge state manager")
+    parser = argparse.ArgumentParser(description="entwurf meta-bridge state manager")
     parser.add_argument(
         "command",
         choices=["prepare", "apply", "preflight-uninstall", "uninstall", "check", "managed-keys"],

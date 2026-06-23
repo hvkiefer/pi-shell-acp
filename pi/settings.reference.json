@@ -2,7 +2,7 @@
 	"compaction": {
 		"enabled": false
 	},
-	"piShellAcpProvider": {
+	"entwurfProvider": {
 		"appendSystemPrompt": false,
 		"settingSources": [],
 		"strictMcpConfig": true,
@@ -35,7 +35,7 @@
 		"codexDisabledFeatures": ["image_generation", "tool_suggest", "tool_search", "multi_agent", "apps", "memories"],
 		"mcpServers": {
 			"pi-tools-bridge": {
-				"command": "/path/to/pi-shell-acp/mcp/pi-tools-bridge/start.sh",
+				"command": "/path/to/entwurf/mcp/pi-tools-bridge/start.sh",
 				"args": []
 			}
 		}

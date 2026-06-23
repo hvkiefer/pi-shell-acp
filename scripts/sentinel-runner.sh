@@ -83,10 +83,10 @@ Environment:
 
 Cells:
   1  native          → openai-codex/gpt-5.4
-  2  native          → pi-shell-acp/claude-sonnet-4-6
-  3  native          → pi-shell-acp/gpt-5.4 (explicitOnly)
+  2  native          → entwurf/claude-sonnet-4-6
+  3  native          → entwurf/gpt-5.4 (explicitOnly)
   4  acp-claude      → openai-codex/gpt-5.4
-  5  acp-claude      → pi-shell-acp/gpt-5.4 (explicitOnly)
+  5  acp-claude      → entwurf/gpt-5.4 (explicitOnly)
   6  acp-codex       → openai-codex/gpt-5.4
 
 Failure codes:
@@ -110,7 +110,7 @@ EOF
 # Prompt hygiene — 운영 룰 (2026-04-23 wording 오염 사건 교훈)
 #
 # 두 층은 별개다. 한 층의 통과를 다른 층의 통과로 외삽하지 말 것:
-#   - bridge continuity : child stderr `[pi-shell-acp:bootstrap]` path=resume|load
+#   - bridge continuity : child stderr `[entwurf:bootstrap]` path=resume|load
 #   - semantic continuity : 이전 turn의 사실을 다음 turn에서 회수
 #
 # 기억 토큰 선택 규칙:
@@ -130,10 +130,10 @@ pick_token() {
 # ----------------------------------------------------------------------------
 ALL_CELLS=(
   "1|native|openai-codex|gpt-5.4"
-  "2|native|pi-shell-acp|claude-sonnet-4-6"
-  "3|native|pi-shell-acp|gpt-5.4"
+  "2|native|entwurf|claude-sonnet-4-6"
+  "3|native|entwurf|gpt-5.4"
   "4|acp-claude|openai-codex|gpt-5.4"
-  "5|acp-claude|pi-shell-acp|gpt-5.4"
+  "5|acp-claude|entwurf|gpt-5.4"
   "6|acp-codex|openai-codex|gpt-5.4"
 )
 
@@ -145,8 +145,8 @@ ALL_CELLS=(
 # child_stderr_log (4th arg, optional): when set, exported to the parent pi as
 # PI_ENTWURF_CHILD_STDERR_LOG so entwurf-core's mirrorChildStderr() appends
 # the entwurf child's stderr to that file. This is the only way to observe
-# child-side `[pi-shell-acp:bootstrap]` bridge markers — parent stderr can't
-# see the bridge when target provider is pi-shell-acp (bridge lives in child).
+# child-side `[entwurf:bootstrap]` bridge markers — parent stderr can't
+# see the bridge when target provider is entwurf (bridge lives in child).
 # ----------------------------------------------------------------------------
 new_session_id() {
   bash "$SCRIPT_DIR/run.sh" new-session-id
@@ -190,15 +190,15 @@ parent_spawn() {
       # pnpm binary), so renaming the alias `pi`→`pia` does not affect the sentinel.
       PARENT_LAUNCH_SID=$(new_session_id) || return 2
       timeout "$TIMEOUT" pi --mode json -p --session-id "$PARENT_LAUNCH_SID" --entwurf-control \
-        -e "$REPOS/pi-shell-acp" \
-        --provider pi-shell-acp --model claude-sonnet-4-6 \
+        -e "$REPOS/entwurf" \
+        --provider entwurf --model claude-sonnet-4-6 \
         "$prompt" >"$out_file" 2>&1
       ;;
     acp-codex)
       PARENT_LAUNCH_SID=$(new_session_id) || return 2
       timeout "$TIMEOUT" pi --mode json -p --session-id "$PARENT_LAUNCH_SID" --entwurf-control \
-        -e "$REPOS/pi-shell-acp" \
-        --provider pi-shell-acp --model gpt-5.4 \
+        -e "$REPOS/entwurf" \
+        --provider entwurf --model gpt-5.4 \
         "$prompt" >"$out_file" 2>&1
       ;;
     *)
@@ -408,19 +408,19 @@ console.log(last);
 '
 }
 
-# Bridge continuity anchor — grep the child stderr mirror for pi-shell-acp's
+# Bridge continuity anchor — grep the child stderr mirror for entwurf's
 # bootstrap marker. Returns the path= value (new|resume|load|invalidated) or
 # empty if no marker is present.
 bridge_path_from_log() {
   local log="$1"
   [ -f "$log" ] || return 0
-  grep -oE '^\[pi-shell-acp:bootstrap\] path=[a-z-]+' "$log" | tail -1 | sed 's/^.*path=//'
+  grep -oE '^\[entwurf:bootstrap\] path=[a-z-]+' "$log" | tail -1 | sed 's/^.*path=//'
 }
 
 # Identity pass: session's recorded model equals the registry target,
 # modulo the known ACP prefix stripping. See PM-confirmed normalization:
 #   openai-codex/X   → session may record "X" or "openai-codex/X"
-#   pi-shell-acp/X   → session records bare "X" (ACP strips provider prefix)
+#   entwurf/X   → session records bare "X" (ACP strips provider prefix)
 identity_matches() {
   local tp="$1" tm="$2" session_model="$3"
   [ "$session_model" = "$tm" ] && return 0
@@ -447,13 +447,13 @@ run_cell() {
   # can't accidentally pass via cached state from a prior run.
   local CELL_TOKEN
   CELL_TOKEN=$(pick_token)
-  # Whether this cell's entwurf child uses pi-shell-acp bridge — decides
+  # Whether this cell's entwurf child uses entwurf bridge — decides
   # if S6/R4 bridge-path anchors apply. Only ACP target provider qualifies;
   # native target provider means no bridge in the child.
   local CELL_BRIDGE_CHILD=0
-  [ "$CELL_TP" = "pi-shell-acp" ] && CELL_BRIDGE_CHILD=1
+  [ "$CELL_TP" = "entwurf" ] && CELL_BRIDGE_CHILD=1
   # For Codex via ACP the second-load path is "load" (persisted state hydrate),
-  # for Claude via ACP it is "resume" (live ACP session reuse). See pi-shell-acp
+  # for Claude via ACP it is "resume" (live ACP session reuse). See entwurf
   # smoke-continuity for the canonical mapping.
   local CELL_EXPECTED_RESUME_PATH=""
   if [ "$CELL_BRIDGE_CHILD" -eq 1 ]; then
@@ -578,7 +578,7 @@ run_cell() {
     finalize_cell; return
   fi
 
-  # Bridge continuity on spawn (ACP-target only): child's pi-shell-acp should
+  # Bridge continuity on spawn (ACP-target only): child's entwurf should
   # announce path=new for the fresh session. If missing or different, the
   # bridge did not engage as expected.
   if [ "$CELL_BRIDGE_CHILD" -eq 1 ]; then
@@ -674,7 +674,7 @@ run_cell() {
     finalize_cell; return
   fi
 
-  # Bridge continuity on resume (ACP-target only): child's pi-shell-acp must
+  # Bridge continuity on resume (ACP-target only): child's entwurf must
   # announce path=resume (Claude) or path=load (Codex). Anything else — new,
   # invalidated, absent — means the bridge did not reconnect the session and
   # we're seeing structural turn growth over a freshly replayed history rather
@@ -859,7 +859,7 @@ main() {
     usage; exit 0
   fi
 
-  # Sanity: we need pi, jq, node, and the pi-shell-acp repo for ACP cells.
+  # Sanity: we need pi, jq, node, and the entwurf repo for ACP cells.
   command -v pi   >/dev/null || { log "missing binary: pi";   exit 2; }
   command -v jq   >/dev/null || { log "missing binary: jq";   exit 2; }
   command -v node >/dev/null || { log "missing binary: node"; exit 2; }

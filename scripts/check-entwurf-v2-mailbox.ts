@@ -43,7 +43,7 @@ const GID = "20260613T100000-aaaaaa";
 const SENDER: MailboxSenderEnvelope = {
 	sessionId: "20260613T120000-sender",
 	agentId: "openai-codex/gpt-5.5",
-	cwd: "/home/junghan/repos/gh/pi-shell-acp",
+	cwd: "/home/junghan/repos/gh/entwurf",
 	timestamp: "2026-06-13T04:00:00.000Z",
 	origin: "pi-session",
 	replyable: true,

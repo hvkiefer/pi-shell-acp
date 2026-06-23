@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # Model id convention (see AGENTS.md Hard Rule #1):
-#   - User-facing examples use the qualified form `pi-shell-acp/<backend-model>`
-#     (e.g. `pi-shell-acp/claude-sonnet-4-6`); the prefix routes to this provider
+#   - User-facing examples use the qualified form `entwurf/<backend-model>`
+#     (e.g. `entwurf/claude-sonnet-4-6`); the prefix routes to this provider
 #     so `--provider` is redundant and is dropped in docs.
 #   - Smoke helpers that feed `ensureBridgeSession({modelId})` directly (cancel,
 #     model-switch) pass BARE backend ids (`claude-sonnet-4-6`, `gpt-5.4`)
 #     because the bridge library contract is bare. Smoke helpers that invoke pi
-#     via the CLI still pin `--provider pi-shell-acp` and can accept either
+#     via the CLI still pin `--provider entwurf` and can accept either
 #     bare or qualified model, but we keep bare here to match the bridge-level
 #     dispatch tables.
 #
@@ -16,18 +16,18 @@ set -euo pipefail
 REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR_DEFAULT=$(pwd)
 TARGET_PROJECT_DIR=${2:-$PROJECT_DIR_DEFAULT}
-# npm publish identity. Scoped 2026-05-18 — bare `pi-shell-acp` was not on npm
+# npm publish identity. Scoped 2026-05-18 — bare `entwurf` was not on npm
 # and we adopted the same `@junghanacs` scope as the OpenClaw plugin sibling
-# (`@junghanacs/openclaw-pi-shell-acp`) for source-of-origin parity. This
+# (`@junghanacs/openclaw-entwurf`) for source-of-origin parity. This
 # variable documents intent; check-pack-install hardcodes the tarball name
 # and install path against the same scope for traceability.
-PACKAGE_NAME="@junghanacs/pi-shell-acp"
+PACKAGE_NAME="@junghanacs/entwurf"
 # Runtime provider id — DO NOT change. Embedded in model strings
-# (`pi-shell-acp/claude-sonnet-4-6`), settings keys (`piShellAcpProvider`),
-# log prefixes (`[pi-shell-acp:bootstrap]`), and the `--provider pi-shell-acp`
+# (`entwurf/claude-sonnet-4-6`), settings keys (`entwurfProvider`),
+# log prefixes (`[entwurf:bootstrap]`), and the `--provider entwurf`
 # CLI surface. Renaming this would break every consumer transcript and every
 # saved session anchor.
-PROVIDER_ID="pi-shell-acp"
+PROVIDER_ID="entwurf"
 
 usage() {
   cat <<'EOF'
@@ -93,15 +93,15 @@ Usage:
   ./run.sh uninstall-meta-bridge      # 1.0.0 meta-bridge Phase 2: stateful GLOBAL uninstall (restore only keys/items captured in install-state)
   ./run.sh doctor-meta-bridge         # 1.0.0 meta-bridge Phase 2: fail-loud doctor — toolchain + state + plugin/MCP + store scan + hook errors + SessionStart evidence + writer-version parity (source↔assembled↔installed: FAIL on a stale deployed meta-record writer)
   ./run.sh meta-bridge-prune          # 1.0.0 meta-bridge Phase 4: LISTING-ONLY store hygiene — classify orphan/stale/ambiguous/keep, print manual rm commands, delete NOTHING ([dir] [--ttl-days N])
-  ./run.sh meta-bridge-managed-keys   # 0.10.0 meta-bridge: print the SSOT of settings keys pi-shell-acp OWNS (consumers read this to stay disjoint — keyset-owner invariant)
+  ./run.sh meta-bridge-managed-keys   # 0.10.0 meta-bridge: print the SSOT of settings keys entwurf OWNS (consumers read this to stay disjoint — keyset-owner invariant)
   ./run.sh check-keyset-overlap <fragment.json...>  # 0.10.0 meta-bridge: PREVENTIVE keyset guard — fail if a consumer fragment collides with any pi-owned key (cross-repo; not in pnpm check)
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md + pi devDeps/peer pins) agree
   ./run.sh check-pack                 # publish gate (dry-run): npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
   ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.79.x peers
-  ./run.sh sync-auth                  # copy ~/.pi/agent/auth.json anthropic OAuth credentials to pi-shell-acp alias
+  ./run.sh sync-auth                  # copy ~/.pi/agent/auth.json anthropic OAuth credentials to entwurf alias
   ./run.sh install [project-dir]      # install this local package into project .pi/settings.json
   ./run.sh setup:links [--force]      # repair ~/.pi/agent/entwurf-targets.json link (use --force to replace a stale operator file or wrong symlink; a .bak is taken)
-  ./run.sh remove [project-dir]       # remove pi-shell-acp entries from project .pi/settings.json
+  ./run.sh remove [project-dir]       # remove entwurf entries from project .pi/settings.json
 
 Notes:
   - project-dir defaults to current directory
@@ -196,7 +196,7 @@ if not isinstance(packages, list):
 filtered = []
 for item in packages:
     source = item.get("source") if isinstance(item, dict) else item
-    if isinstance(source, str) and ("pi-shell-acp" in source) and source != repo_dir:
+    if isinstance(source, str) and ("entwurf" in source) and source != repo_dir:
         continue
     filtered.append(item)
 
@@ -205,16 +205,16 @@ if repo_dir not in filtered:
 
 data["packages"] = filtered
 
-# --- piShellAcpProvider.mcpServers bundled entries ---------------------------
+# --- entwurfProvider.mcpServers bundled entries ---------------------------
 # Ship the two in-repo MCP adapters pre-wired so `pi install` produces a
 # working setup without the consumer hand-editing settings.json. User-authored
 # overrides (different command/args) are preserved untouched.
-provider = data.setdefault("piShellAcpProvider", {})
+provider = data.setdefault("entwurfProvider", {})
 if not isinstance(provider, dict):
-    raise SystemExit("piShellAcpProvider is not an object")
+    raise SystemExit("entwurfProvider is not an object")
 servers = provider.setdefault("mcpServers", {})
 if not isinstance(servers, dict):
-    raise SystemExit("piShellAcpProvider.mcpServers is not an object")
+    raise SystemExit("entwurfProvider.mcpServers is not an object")
 
 BUNDLED = ("pi-tools-bridge",)
 # 0.4.14: session-bridge MCP was retracted (issue #7 — unified entwurf surface).
@@ -228,18 +228,18 @@ for name in BUNDLED:
     existing = servers.get(name)
     if existing is None:
         servers[name] = desired
-        print(f"install: added piShellAcpProvider.mcpServers.{name}")
+        print(f"install: added entwurfProvider.mcpServers.{name}")
     elif isinstance(existing, dict) and existing.get("command") == desired_cmd:
         # Already managed by us at the current repo path. Add the default args
         # field when missing, but never overwrite user-customized args.
         if "args" not in existing:
             existing["args"] = []
-            print(f"install: normalized piShellAcpProvider.mcpServers.{name}.args -> []")
+            print(f"install: normalized entwurfProvider.mcpServers.{name}.args -> []")
         elif existing.get("args") != []:
-            print(f"install: preserved piShellAcpProvider.mcpServers.{name}.args (custom args)")
+            print(f"install: preserved entwurfProvider.mcpServers.{name}.args (custom args)")
     else:
         cmd_repr = existing.get("command") if isinstance(existing, dict) else existing
-        print(f"install: preserved piShellAcpProvider.mcpServers.{name} (user override: {cmd_repr})")
+        print(f"install: preserved entwurfProvider.mcpServers.{name} (user override: {cmd_repr})")
 
 # 0.4.14 migration: also prune any session-bridge entry that this install wrote
 # in a prior version. We only remove entries whose command matches the bundled
@@ -252,9 +252,9 @@ for name in LEGACY_BUNDLED:
     cmd = existing.get("command")
     if not isinstance(cmd, str):
         continue
-    if cmd == f"{repo_dir}/mcp/{name}/start.sh" or cmd.endswith(f"/pi-shell-acp/mcp/{name}/start.sh"):
+    if cmd == f"{repo_dir}/mcp/{name}/start.sh" or cmd.endswith(f"/entwurf/mcp/{name}/start.sh"):
         del servers[name]
-        print(f"install: pruned legacy piShellAcpProvider.mcpServers.{name} (retracted in 0.4.14, issue #7)")
+        print(f"install: pruned legacy entwurfProvider.mcpServers.{name} (retracted in 0.4.14, issue #7)")
 
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"install: updated {settings_path}")
@@ -263,7 +263,7 @@ PY
   ensure_agent_dir_symlinks
 }
 
-# Ensure agent-level resources that pi-shell-acp code reads from
+# Ensure agent-level resources that entwurf code reads from
 # ~/.pi/agent/ are wired up at install time. Currently:
 #   - entwurf-targets.json — pi-extensions/lib/entwurf-core.ts reads
 #     ~/.pi/agent/entwurf-targets.json. The package ships the canonical
@@ -369,20 +369,20 @@ if isinstance(packages, list):
     filtered = []
     for item in packages:
         source = item.get("source") if isinstance(item, dict) else item
-        if isinstance(source, str) and ("pi-shell-acp" in source):
+        if isinstance(source, str) and ("entwurf" in source):
             pkg_removed += 1
             continue
         filtered.append(item)
     data["packages"] = filtered
 
-# --- piShellAcpProvider.mcpServers cleanup ------------------------------------
+# --- entwurfProvider.mcpServers cleanup ------------------------------------
 # Only remove entries that look like they came from ./run.sh install: either
 # the command matches the current $REPO_DIR anchor exactly, or it ends with
-# the bundled "/pi-shell-acp/mcp/<name>/start.sh" pattern (covers a rebuilt
+# the bundled "/entwurf/mcp/<name>/start.sh" pattern (covers a rebuilt
 # checkout under a different directory). Anything else is treated as a user
 # override and left in place.
 BUNDLED = ("pi-tools-bridge", "session-bridge")
-provider = data.get("piShellAcpProvider")
+provider = data.get("entwurfProvider")
 mcp_removed = 0
 if isinstance(provider, dict):
     servers = provider.get("mcpServers")
@@ -395,17 +395,17 @@ if isinstance(provider, dict):
             if not isinstance(cmd, str):
                 continue
             exact = cmd == f"{repo_dir}/mcp/{name}/start.sh"
-            pattern = cmd.endswith(f"/pi-shell-acp/mcp/{name}/start.sh")
+            pattern = cmd.endswith(f"/entwurf/mcp/{name}/start.sh")
             if exact or pattern:
                 del servers[name]
                 mcp_removed += 1
-                print(f"remove: removed piShellAcpProvider.mcpServers.{name}")
+                print(f"remove: removed entwurfProvider.mcpServers.{name}")
             else:
-                print(f"remove: preserved piShellAcpProvider.mcpServers.{name} (user override: {cmd})")
+                print(f"remove: preserved entwurfProvider.mcpServers.{name} (user override: {cmd})")
         if not servers:
             provider.pop("mcpServers", None)
     if not provider:
-        data.pop("piShellAcpProvider", None)
+        data.pop("entwurfProvider", None)
 
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"remove: removed {pkg_removed} packages[] entries, {mcp_removed} mcpServers entries from {settings_path}")
@@ -802,7 +802,7 @@ smoke_entwurf_v2_spawn_live() {
 smoke_acp_socket_citizen_live() {
   # S1 acceptance smoke (ACP plugin on v2) — OUT of pnpm check, needs LIVE=1.
   # Spawns a REAL `pi --entwurf-control` resident on an ACP model
-  # (pi-shell-acp/claude-opus-4-8) and proves it is a first-class socket-citizen:
+  # (entwurf/claude-opus-4-8) and proves it is a first-class socket-citizen:
   # the control socket stands up, get_info answers with the ACP model (model-lock
   # did NOT revert — QM1), idle/cwd are reported, and the fail-loud streamSimple
   # stub never fires (turn-free launch — QM2). No prompt is sent: S1 proves
@@ -863,7 +863,7 @@ smoke_acp_provider_live() {
   # S2c acceptance smoke (ACP plugin on v2) — OUT of pnpm check, needs LIVE=1.
   # Drives the REAL pi PROVIDER path end to end: a real `pi` loads this
   # checkout's extension (--no-extensions -e REPO_ROOT), selects
-  # pi-shell-acp/<model>, and pi's runner calls our streamSimple (backend.ts),
+  # entwurf/<model>, and pi's runner calls our streamSimple (backend.ts),
   # which spawns claude-agent-acp under the overlay, runs one turn, and maps the
   # result back through the S2c event mapper. Asserts a unique nonce in the
   # assistant reply (live model proof) + the removed S0 stub error never appears
@@ -906,7 +906,7 @@ smoke_acp_mcp_live() {
   # probe-mcp-server.ts, one tool probe_nonce) in a scratch .pi/settings.json and
   # drives one real provider turn: the model must CALL the tool and echo the nonce
   # that lives only inside the MCP server env. Proves the operator's
-  # piShellAcpProvider.mcpServers reaches the live ACP session (the GLG-baseline
+  # entwurfProvider.mcpServers reaches the live ACP session (the GLG-baseline
   # fix). Isolated probe (not pi-tools-bridge) so a failure does not blur into
   # identity/env wiring. Model override: PI_SHELL_ACP_PROVIDER_MODEL.
   #   LIVE=1 ./run.sh smoke-acp-mcp-live
@@ -917,7 +917,7 @@ smoke_acp_skill_live() {
   # S2g LIVE 2 — operator skillPlugins passthrough acceptance. OUT of pnpm check,
   # needs LIVE=1. Builds a temp skill plugin (.claude-plugin/plugin.json +
   # skills/<name>/SKILL.md carrying a unique nonce instruction), points
-  # piShellAcpProvider.skillPlugins at it, and drives one real provider turn: the
+  # entwurfProvider.skillPlugins at it, and drives one real provider turn: the
   # model must surface/use the skill and echo the nonce. Proves skillPlugins +
   # the Skill/Skill(*) auto-add reach the live session (the other half of the GLG
   # baseline). Model override: PI_SHELL_ACP_PROVIDER_MODEL.
@@ -943,7 +943,7 @@ smoke_acp_bundled_mcp_live() {
 
 smoke_acp_rgg_live() {
   # S2e-2 — ACP-provider resident garden guard (RGG). Thin wrapper (GPT c32a6c8):
-  # runs the SHARED resident-garden-guard runner against the pi-shell-acp provider
+  # runs the SHARED resident-garden-guard runner against the entwurf provider
   # target with the DETERMINISTIC half only (SMOKE_RGG_POSITIVE=0). What this lane
   # treats as release-blocking is that garden-native resident discipline (uuid
   # refuse / new·clone cancel / legacy-resume pre-cancel / gnew clean birth) holds
@@ -953,9 +953,9 @@ smoke_acp_rgg_live() {
   # surface (plugin stays lightweight, no ambient MCP — S2b/S2d boundary). To
   # observe that boundary directly, run the shared runner with SMOKE_RGG_POSITIVE=1
   # and PI_SHELL_ACP_LIVE_TARGET set (T3 will report N/A, not a real failure).
-  # Target override: PI_SHELL_ACP_RGG_TARGET (default pi-shell-acp/claude-sonnet-4-6).
+  # Target override: PI_SHELL_ACP_RGG_TARGET (default entwurf/claude-sonnet-4-6).
   #   ./run.sh smoke-acp-rgg-live
-  local target="${PI_SHELL_ACP_RGG_TARGET:-pi-shell-acp/claude-sonnet-4-6}"
+  local target="${PI_SHELL_ACP_RGG_TARGET:-entwurf/claude-sonnet-4-6}"
   (cd "$REPO_DIR" && PI_SHELL_ACP_LIVE_TARGET="$target" SMOKE_RGG_POSITIVE=0 bash scripts/smoke-resident-garden-guard.sh)
 }
 
@@ -1283,7 +1283,7 @@ check_auth_boundary() {
   # Auth-boundary guard (re-introduced for the ACP plugin on v2, retargeted off
   # the deleted 0.11.0 index.ts/acp-bridge.ts onto the new provider entry). This
   # is the code-level pair of AGENTS §Operating boundaries (trust invariants):
-  # pi-shell-acp is a no-auth ACP plugin at the pi provider layer — it does NOT
+  # entwurf is a no-auth ACP plugin at the pi provider layer — it does NOT
   # provide, resell, or bypass any backend credentials.
   #
   # pi.registerProvider requires an apiKey when defining custom models, but the
@@ -1311,12 +1311,12 @@ for (const f of files) {
   const re = /apiKey:\s*"([A-Z][A-Z0-9_]*)"/g;
   let m;
   while ((m = re.exec(src)) !== null) offenders.push(`${f}: apiKey: "${m[1]}"`);
-  if (src.includes('pi-shell-acp-no-auth')) sentinelSeen = true;
+  if (src.includes('entwurf-no-auth')) sentinelSeen = true;
 }
 assert.equal(offenders.length, 0,
   `ACP provider apiKey must be a no-auth sentinel, not a legacy-ENV reference. Offenders:\n  ${offenders.join('\n  ')}`);
 assert.ok(sentinelSeen,
-  'no-auth sentinel literal "pi-shell-acp-no-auth" not found in the ACP provider surface — auth boundary unverified');
+  'no-auth sentinel literal "entwurf-no-auth" not found in the ACP provider surface — auth boundary unverified');
 console.log(`[check-auth-boundary] ok — no legacy-ENV apiKey literal across ${files.length} ACP provider file(s); no-auth sentinel present`);
 EOF
   )
@@ -1580,7 +1580,7 @@ check_pack_install() {
   #   2. actual `npm pack` — produces the real tarball
   #   3. `tar -tf` — cross-checks contents against dry-run invariants
   #   4. fresh-temp project local install smoke — pnpm add the tarball
-  #      with required peers, then import('@junghanacs/pi-shell-acp/package.json')
+  #      with required peers, then import('@junghanacs/entwurf/package.json')
   #      to confirm the installed shape resolves end-to-end.
   #
   # Excluded from the default `pnpm check` because the install smoke
@@ -1598,10 +1598,10 @@ check_pack_install() {
   local version tgz_name tgz_path
   version=$(node -p "require('${REPO_DIR}/package.json').version")
   # Scoped npm packages produce a tarball named "<scope>-<name>-<version>.tgz"
-  # where the `@` is stripped and `/` becomes `-`. For `@junghanacs/pi-shell-acp`
-  # that lands as `junghanacs-pi-shell-acp-<version>.tgz`. Hardcoded against
+  # where the `@` is stripped and `/` becomes `-`. For `@junghanacs/entwurf`
+  # that lands as `junghanacs-entwurf-<version>.tgz`. Hardcoded against
   # the scope above so a name change cannot silently slide past this gate.
-  tgz_name="junghanacs-pi-shell-acp-${version}.tgz"
+  tgz_name="junghanacs-entwurf-${version}.tgz"
   tgz_path="${REPO_DIR}/${tgz_name}"
   rm -f "$tgz_path"
 
@@ -1681,10 +1681,10 @@ check_pack_install() {
   # baseline so the smoke matches the same shape an external pi user
   # would have after `pi install`.
   local tmp
-  tmp=$(mktemp -d -t pi-shell-acp-install-smoke.XXXXXX)
+  tmp=$(mktemp -d -t entwurf-install-smoke.XXXXXX)
   trap 'rm -rf "$tmp" "$tgz_path"' RETURN
 
-  printf '%s\n' '{ "name": "pi-shell-acp-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
+  printf '%s\n' '{ "name": "entwurf-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
 
   echo "[check-pack-install] pnpm add into $tmp (with 0.79.x peers + typebox)"
   local install_log
@@ -1705,7 +1705,7 @@ check_pack_install() {
   # consumer pi runtime would fail to register any extension.
   local probe
   probe=$(cd "$tmp" && node --input-type=module -e "
-    const m = await import('@junghanacs/pi-shell-acp/package.json', { with: { type: 'json' } });
+    const m = await import('@junghanacs/entwurf/package.json', { with: { type: 'json' } });
     const pkg = m.default;
     const exts = Array.isArray(pkg.pi?.extensions) ? pkg.pi.extensions.length : 0;
     if (exts === 0) { console.error('pi.extensions missing or empty'); process.exit(1); }
@@ -1730,13 +1730,13 @@ check_pack_install() {
   fi
 
   local loader_out
-  loader_out=$(cd "$tmp" && pi -e "$tmp/node_modules/@junghanacs/pi-shell-acp" --list-models pi-shell-acp 2>&1) || {
+  loader_out=$(cd "$tmp" && pi -e "$tmp/node_modules/@junghanacs/entwurf" --list-models entwurf 2>&1) || {
     fail "[check-pack-install] pi loader smoke failed (exit non-zero):"
     echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
     return 1
   }
-  if ! grep -q "pi-shell-acp" <<<"$loader_out"; then
-    fail "[check-pack-install] pi loader output missing pi-shell-acp model surface:"
+  if ! grep -q "entwurf" <<<"$loader_out"; then
+    fail "[check-pack-install] pi loader output missing entwurf model surface:"
     echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
     return 1
   fi
@@ -1751,7 +1751,7 @@ check_pack_install() {
       return 1
     fi
   done
-  echo "[check-pack-install] pi loader smoke pass (pi-shell-acp registered, claude-sonnet-4-6 + claude-opus-4-8 anchor)"
+  echo "[check-pack-install] pi loader smoke pass (entwurf registered, claude-sonnet-4-6 + claude-opus-4-8 anchor)"
 
   ok "[check-pack-install] publish install smoke pass"
   return 0
@@ -1887,14 +1887,14 @@ session_messaging_run() {
 }
 
 
-# setup_all — full pi-shell-acp v2 install.
+# setup_all — full entwurf v2 install.
 #
 # Installs the v2 dispatch substrate + MCP pi-tools-bridge into a target project
 # and verifies the installed bridge boundary. ACP/v1 backend interview gates are
 # deliberately not part of setup on v2-only; the heavier live v2 substrate proof
 # is release-gate's job.
 #
-# An external harness that consumes pi-shell-acp (e.g. agent-config as a
+# An external harness that consumes entwurf (e.g. agent-config as a
 # pi package + skills set) may still have its own install/setup for its
 # own concerns; those are outside the scope of this script.
 setup_all() {
@@ -1912,7 +1912,7 @@ setup_all() {
   # setup-time error. Fail early with an actionable message. package.json
   # engines.node mirrors this floor.
   if ! node -e 'const [M,m]=process.versions.node.split(".").map(Number); process.exit((M>22||(M===22&&m>=6))?0:1)'; then
-    echo "[setup] pi-shell-acp requires Node >= 22.6.0 (got $(node -v))" >&2
+    echo "[setup] entwurf requires Node >= 22.6.0 (got $(node -v))" >&2
     echo "[setup] MCP bridge launchers depend on --experimental-strip-types." >&2
     exit 1
   fi
@@ -1934,7 +1934,7 @@ setup_all() {
   validate_pi_tools_bridge
 
   echo ""
-  echo "DONE: pi-shell-acp setup + v2 install smoke green. Run release-gate for live substrate acceptance."
+  echo "DONE: entwurf setup + v2 install smoke green. Run release-gate for live substrate acceptance."
 }
 
 # ---------------------------------------------------------------------------
@@ -1942,13 +1942,13 @@ setup_all() {
 #
 # pi 0.77 --exclude-tools/-xt removes a tool from pi's active set + "Available
 # tools:" system prompt, but the ACP backend CLI keeps its own tool surface that
-# pi-shell-acp does NOT gate per-tool (Claude gets providerSettings.tools;
+# entwurf does NOT gate per-tool (Claude gets providerSettings.tools;
 # Codex/Gemini expose native shell+file tools regardless). The 0.8.0 policy is
 # truthfulness-first FAIL-FAST: excluding a backend-backed built-in
 # (read/bash/edit/write) is rejected up front (index.ts assertExcludeToolsHonored)
 # rather than silently letting the backend keep the tool (declared != actual).
 #
-# This gate asserts, per backend, that `pi --provider pi-shell-acp -xt <builtin>`
+# This gate asserts, per backend, that `pi --provider entwurf -xt <builtin>`
 # is rejected before backend launch with the policy error and runs NO tool — and
 # (positive control) that excluding an EXTENSION tool (entwurf) is NOT rejected,
 # because extension tools are pi-side and never reach the backend.
@@ -1957,7 +1957,7 @@ xt_tool_surface_single() {
   local backend=$1 model=$2 excluded=$3
   local out
   out=$(timeout 120 pi --mode json -p -e "$REPO_DIR" \
-    --provider pi-shell-acp --model "$model" -xt "$excluded" \
+    --provider entwurf --model "$model" -xt "$excluded" \
     "say hi" 2>&1) || true
   if ! echo "$out" | grep -q "cannot honor --exclude-tools ($excluded) on the $backend backend"; then
     fail "xt-tool-surface[$backend]: expected fail-fast on -xt $excluded, got none"
@@ -1979,7 +1979,7 @@ xt_tool_surface_extension_honored() {
   local backend=$1 model=$2
   local out
   out=$(timeout 120 pi --mode json -p -e "$REPO_DIR" \
-    --provider pi-shell-acp --model "$model" -xt entwurf \
+    --provider entwurf --model "$model" -xt entwurf \
     "reply with the single word ok" 2>&1) || true
   if echo "$out" | grep -q "cannot honor --exclude-tools"; then
     fail "xt-tool-surface[$backend]: -xt entwurf wrongly tripped the guard (extension tools must be exempt)"
@@ -2061,7 +2061,7 @@ release_gate() {
   # smoke-acp-bundled-mcp-live is a DELIBERATE exception to the PWD=project_dir
   # routing: it runs its resident with cwd=os.tmpdir() and relies on the
   # operator's INSTALLED bundled bridge (global ~/.pi/agent/settings.json
-  # piShellAcpProvider.mcpServers.pi-tools-bridge) — that IS the operator circuit
+  # entwurfProvider.mcpServers.pi-tools-bridge) — that IS the operator circuit
   # this axis restores, not a scratch-isolated probe (that is smoke-acp-mcp-live's
   # job). It writes only a tmpdir-cwd session (no repo pollution) and fails loud if
   # the operator has not wired the bundled bridge.
@@ -2293,7 +2293,7 @@ case "$cmd" in
     release_gate "$@"
     ;;
   xt-tool-surface)
-    warn "xt-tool-surface is LEGACY (ACP backend exclude-tools policy) — broken on v2-only (assumes the removed pi-shell-acp provider). Dropped from the release floor; kept for reference, v2 rewrite pending."
+    warn "xt-tool-surface is LEGACY (ACP backend exclude-tools policy) — broken on v2-only (assumes the removed entwurf provider). Dropped from the release floor; kept for reference, v2 rewrite pending."
     xt_tool_surface
     ;;
   check-bridge)
@@ -2553,7 +2553,7 @@ case "$cmd" in
   uninstall-meta-bridge)
     # 1.0.0 meta-bridge Phase 2: honest inverse of install-meta-bridge. Uses the
     # install-state file to restore original scalar/map values and remove only the
-    # permission-array entries pi-shell-acp added; without state it refuses to guess.
+    # permission-array entries entwurf added; without state it refuses to guess.
     (cd "$REPO_DIR" && bash scripts/meta-bridge-uninstall.sh "$@")
     ;;
   doctor-meta-bridge)
@@ -2578,13 +2578,13 @@ case "$cmd" in
     ;;
   meta-bridge-managed-keys)
     # 0.10.0 meta-bridge: emit the SSOT of settings.json/~/.claude.json keys that
-    # pi-shell-acp's install OWNS. Consumers (agent-config fragment, future
+    # entwurf's install OWNS. Consumers (agent-config fragment, future
     # harnesses) read this to set only their OWN keys — the keyset-owner invariant.
     (cd "$REPO_DIR" && python3 scripts/meta-bridge-state.py managed-keys)
     ;;
   check-keyset-overlap)
     # 0.10.0 meta-bridge: PREVENTIVE half of the keyset guard. Fails loud if a
-    # consumer fragment sets a key pi-shell-acp owns (exact or ancestor/descendant).
+    # consumer fragment sets a key entwurf owns (exact or ancestor/descendant).
     # Cross-repo + non-hermetic (fragment path is an arg) → NOT in pnpm check;
     # its own logic is regression-tested hermetically by smoke-meta-keyset-guard.
     shift || true

@@ -3,7 +3,7 @@
 // claude-agent-acp's SettingsManager loads the operator's `~/.claude/settings.json`
 // DIRECTLY (CLAUDE_CONFIG_DIR is the only knob that redirects that read). So the
 // operator's native `permissions.defaultMode` ("auto"), hooks, plugins, and
-// per-cwd memory/projects state would otherwise leak into pi-shell-acp ACP
+// per-cwd memory/projects state would otherwise leak into entwurf ACP
 // sessions. The overlay redirects SettingsManager at a pi-owned directory whose
 // `settings.json` WE author (minimal, `hooks:{}`), while keeping exactly the
 // operator entries a backend needs (credentials, caches, built-in skills)
@@ -187,7 +187,7 @@ export function ensureClaudeConfigOverlay(
 				symlinkSync(realPath, overlayPath);
 			} catch (error) {
 				console.error(
-					`[pi-shell-acp:claude-overlay] symlink failed for ${entry}: ${error instanceof Error ? error.message : String(error)}`,
+					`[entwurf:claude-overlay] symlink failed for ${entry}: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
 		}

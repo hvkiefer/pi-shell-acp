@@ -35,7 +35,7 @@ import type { AcpBootstrapPath } from "./context.js";
 // source and cannot resolve a cross-sibling VALUE import; lib modules share
 // TYPES only. check-acp-session-reuse enforces equality behaviorally (a drift
 // would let display-only notices perturb the reuse-compat signature).
-const LIFECYCLE_NOTICE_SIGNATURE = "pi-shell-acp:lifecycle-notice-v1";
+const LIFECYCLE_NOTICE_SIGNATURE = "entwurf:lifecycle-notice-v1";
 
 /** sha256 hex digest. Used so on-disk records carry digests, never raw prompt text. */
 function sha256(value: string): string {
@@ -43,7 +43,7 @@ function sha256(value: string): string {
 }
 
 export const SESSION_RECORD_VERSION = 1;
-export const SESSION_RECORD_PROVIDER = "pi-shell-acp" as const;
+export const SESSION_RECORD_PROVIDER = "entwurf" as const;
 
 /** Where the child survives relative to a turn — ORTHOGONAL to bootstrapPath. */
 export type LifecyclePolicy = "process-scoped" | "turn-scoped";
@@ -136,14 +136,14 @@ export class SessionModelLockedError extends Error {
 	readonly fromModel: string;
 	readonly toModel: string;
 	constructor(fromModel: string, toModel: string) {
-		super(`pi-shell-acp session is locked to model ${fromModel}; refusing switch to ${toModel}`);
+		super(`entwurf session is locked to model ${fromModel}; refusing switch to ${toModel}`);
 		this.name = "SessionModelLockedError";
 		this.fromModel = fromModel;
 		this.toModel = toModel;
 	}
 }
 
-const SESSION_CACHE_DIR = join(homedir(), ".pi", "agent", "cache", "pi-shell-acp", "sessions");
+const SESSION_CACHE_DIR = join(homedir(), ".pi", "agent", "cache", "entwurf", "sessions");
 
 // ---------------------------------------------------------------------------
 // 1) signatures

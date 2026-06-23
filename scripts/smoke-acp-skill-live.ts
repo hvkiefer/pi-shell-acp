@@ -12,7 +12,7 @@
 // Method (GPT `…2f9325` LIVE 2): a temp skill plugin (.claude-plugin/plugin.json
 // + skills/<name>/SKILL.md) whose SKILL.md body carries a per-run nonce and an
 // instruction to emit it. A scratch `.pi/settings.json` points
-// `piShellAcpProvider.skillPlugins` at the plugin dir. The prompt asks the model
+// `entwurfProvider.skillPlugins` at the plugin dir. The prompt asks the model
 // to use that skill and report the nonce. The nonce lives ONLY in the skill body,
 // so it cannot appear unless the skill reached the session's tool schema and the
 // model activated it.
@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MODEL = process.env.PI_SHELL_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
-const PROVIDER = "pi-shell-acp";
+const PROVIDER = "entwurf";
 const TURN_TIMEOUT_MS = Number(process.env.PI_SHELL_ACP_PROVIDER_TIMEOUT_MS) || 240_000;
 
 function fail(msg: string): never {
@@ -46,7 +46,7 @@ if (process.env.LIVE !== "1") {
 
 const STUB_PATTERN = /AcpBackendNotImplementedError|not implemented in S0/i;
 
-const scratch = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2g-skill-"));
+const scratch = mkdtempSync(join(tmpdir(), "entwurf-s2g-skill-"));
 try {
 	const nonce = `SKILL_${process.pid.toString(36)}${Date.now().toString(36)}`;
 	const skillName = "probe-secret";
@@ -56,7 +56,7 @@ try {
 	mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
 	writeFileSync(
 		join(pluginDir, ".claude-plugin", "plugin.json"),
-		`${JSON.stringify({ name: "pi-shell-acp-s2g-probe-plugin", description: "S2g live skill passthrough probe." }, null, 2)}\n`,
+		`${JSON.stringify({ name: "entwurf-s2g-probe-plugin", description: "S2g live skill passthrough probe." }, null, 2)}\n`,
 	);
 	const skillDir = join(pluginDir, "skills", skillName);
 	mkdirSync(skillDir, { recursive: true });
@@ -81,7 +81,7 @@ try {
 	mkdirSync(join(scratch, ".pi"), { recursive: true });
 	writeFileSync(
 		join(scratch, ".pi", "settings.json"),
-		`${JSON.stringify({ piShellAcpProvider: { skillPlugins: [pluginDir] } }, null, 2)}\n`,
+		`${JSON.stringify({ entwurfProvider: { skillPlugins: [pluginDir] } }, null, 2)}\n`,
 	);
 
 	const prompt =

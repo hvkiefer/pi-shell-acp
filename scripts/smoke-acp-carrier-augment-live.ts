@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MODEL = process.env.PI_SHELL_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
-const PROVIDER = "pi-shell-acp";
+const PROVIDER = "entwurf";
 const TURN_TIMEOUT_MS = Number(process.env.PI_SHELL_ACP_PROVIDER_TIMEOUT_MS) || 240_000;
 
 function fail(msg: string): never {
@@ -119,7 +119,7 @@ function assertCleanTurn(label: string, turn: { status: number | null; combined:
 	}
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "pi-shell-acp-s2e1-"));
+const scratch = mkdtempSync(join(tmpdir(), "entwurf-s2e1-"));
 try {
 	// A nonce unique to this run; lives ONLY in the cwd AGENTS.md, never the prompt.
 	const nonce = `${process.pid.toString(36)}${Date.now().toString(36)}`;
@@ -128,7 +128,7 @@ try {
 	writeFileSync(
 		agentsPath,
 		[
-			"# Scratch project — pi-shell-acp S2e-1 augment live check",
+			"# Scratch project — entwurf S2e-1 augment live check",
 			"",
 			`SECRET_PROJECT_CODE: ${secret}`,
 			"",
