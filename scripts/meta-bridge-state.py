@@ -56,6 +56,14 @@ PERMISSION_DENY = [
     "TaskUpdate",
 ]
 
+# Legacy permission-allow items from the pre-rename bridge name (pi-tools-bridge
+# → entwurf-bridge). apply() prunes these so an old install's stale allow does
+# not linger forever (append_unique only adds; it never removes). Parallel to
+# install.sh's one-shot `claude mcp remove pi-tools-bridge`. Uninstall does not
+# restore them — the tool no longer exists under the old name, and they were
+# never user-authored items.
+LEGACY_PERMISSION_ALLOW = ["mcp__pi-tools-bridge__*"]
+
 # Claude Code single-driver policy scalars owned by entwurf for the native
 # meta-bridge install. These are not theming/personal hooks; they close background
 # autonomy/suggestion/compaction surfaces so Claude Code behaves like the same
@@ -360,7 +368,10 @@ def apply(repo: Path, asm: Path) -> None:
         existed, value = get_nested(settings, path_)
         if existed and not isinstance(value, list):
             die(f"{'.'.join(path_)} exists but is not an array; refusing to merge managed permission items")
-        set_nested(settings, path_, append_unique(value if isinstance(value, list) else [], desired))
+        merged = append_unique(value if isinstance(value, list) else [], desired)
+        if path_ == ["permissions", "allow"]:
+            merged = [item for item in merged if item not in LEGACY_PERMISSION_ALLOW]
+        set_nested(settings, path_, merged)
     for _name, path_, desired in MANAGED_SETTINGS_SCALARS:
         set_nested(settings, path_, desired)
     set_nested(settings, ["statusLine"], desired_statusline(repo))

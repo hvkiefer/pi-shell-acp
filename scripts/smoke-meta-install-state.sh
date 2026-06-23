@@ -37,7 +37,7 @@ cat > "$CLAUDE_CONFIG_DIR/settings.json" <<'JSON'
     "keep@user": true
   },
   "permissions": {
-    "allow": ["Read", "CustomUserTool"],
+    "allow": ["Read", "CustomUserTool", "mcp__pi-tools-bridge__*"],
     "deny": ["Agent"]
   },
   "env": {
@@ -108,6 +108,10 @@ assert settings['skipDangerousModePermissionPrompt'] is True
 for item in ['Bash','Read','Write','Edit','Grep','Glob','WebFetch','WebSearch','Skill','mcp__entwurf-bridge__*']:
     assert item in settings['permissions']['allow'], item
 assert settings['permissions']['allow'].count('Read') == 1
+# S2 rename cutover: the legacy pre-rename allow item is pruned, but an unrelated
+# user-authored allow item survives (prune is targeted, not a blanket wipe).
+assert 'mcp__pi-tools-bridge__*' not in settings['permissions']['allow']
+assert 'CustomUserTool' in settings['permissions']['allow']
 assert 'keep-server' in root['mcpServers']
 assert root['mcpServers']['entwurf-bridge']['env']['ENTWURF_BRIDGE_EXTERNAL_AGENT_ID'] == 'external-mcp/claude-code'
 PY
