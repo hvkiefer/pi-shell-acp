@@ -1,8 +1,8 @@
 # VERIFY.md
 
-Replicant-testing-replicant verification guide for `pi-shell-acp`.
+Replicant-testing-replicant verification guide for `entwurf`.
 
-> **Current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing seven tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_v2`, `entwurf_peers`, `entwurf_self`, `entwurf_inbox_read`. The 0.4.x `session-bridge` adapter has been retired — its capabilities folded into the unified `entwurf*` surface. History rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation. Native pi entwurf routing (e.g. `openai-codex/gpt-5.4` without `provider="pi-shell-acp"`) does not enroll `pi-tools-bridge` as an MCP at all — pi delivers entwurf capability via extension surface on the native path, so "MCP not visible" is the correct PASS on native, while ACP-routed targets MUST see `pi-tools-bridge`.
+> **Current surface note.** The live release surface is one bundled MCP server, `pi-tools-bridge`, exposing seven tools: `entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_v2`, `entwurf_peers`, `entwurf_self`, `entwurf_inbox_read`. The 0.4.x `session-bridge` adapter has been retired — its capabilities folded into the unified `entwurf*` surface. History rows that mention `session-bridge` / 8-tool surfaces are retained as historical baseline records, not as the current expectation. Native pi entwurf routing (e.g. `openai-codex/gpt-5.4` without `provider="entwurf"`) does not enroll `pi-tools-bridge` as an MCP at all — pi delivers entwurf capability via extension surface on the native path, so "MCP not visible" is the correct PASS on native, while ACP-routed targets MUST see `pi-tools-bridge`.
 
 This document is a **working document, not a metrics document**.
 Even if scripts break, an agent that follows these steps and reads the results should be able to immediately determine:
@@ -17,7 +17,7 @@ Even if scripts break, an agent that follows these steps and reads the results s
 
 ## Why this document exists — Replicant testing replicant
 
-VERIFY.md is the **agent-driven** verification surface (BASELINE.md is the operator-driven one). One ACP-bridged model runs the script against another ACP-bridged model and writes down what it sees. Both pass through the same `pi-shell-acp` carrier; if the bridge is faithful, **two replicants looking at the same mirror produce the same description of the mirror**. Cross-validation between the two transcripts (verifier vs subject) becomes the strongest **in-bridge cross-validation** evidence so far that the bridge transmits environment truth without distortion. It is not external evidence — both verifier and subject share the same bridge, the same MCP servers, the same operator-config overlay, and any uniform corruption of those would not surface here. See "Evidence Levels" below for what each kind of test does and does not prove.
+VERIFY.md is the **agent-driven** verification surface (BASELINE.md is the operator-driven one). One ACP-bridged model runs the script against another ACP-bridged model and writes down what it sees. Both pass through the same `entwurf` carrier; if the bridge is faithful, **two replicants looking at the same mirror produce the same description of the mirror**. Cross-validation between the two transcripts (verifier vs subject) becomes the strongest **in-bridge cross-validation** evidence so far that the bridge transmits environment truth without distortion. It is not external evidence — both verifier and subject share the same bridge, the same MCP servers, the same operator-config overlay, and any uniform corruption of those would not surface here. See "Evidence Levels" below for what each kind of test does and does not prove.
 
 A run is meaningful when it satisfies three conditions at once:
 
@@ -33,7 +33,7 @@ These supersede the per-section rules they touch — the original sections are k
 
 - **§1A.4 Layer 3 pass criterion** is **8 turns / 3+ early facts / one verbatim string injected before turn 5**, not 5 turns. Real bridge runs at 9-turn / 4-fact / 100% recall with the current code; lowering the bar to 5 turns hides regressions.
 - **§10.3 process-count formula** counts **distinct alive `(sessionKey, backend, modelId, bridgeConfigSignature)` tuples**, not entwurf sessionIds. A single `entwurf` + N `entwurf_resume` calls on the same target reuse one child (see `acp-bridge.ts:2340` — `bridgeSessions.get(sessionKey)` + `isSessionCompatible`). Delta=0 against a verifier that was already holding the bridge session is the **expected** state, not an under-count.
-- **§1A.5 Layer 4 prerequisite**: a verifier already running through `pi-shell-acp` cannot dispatch to direct Claude Code via standard MCP tools — it can only call its sibling via entwurf. Layer 4 requires either a human in the loop or a verifier that holds both transport handles. Attempting Layer 4 from inside a single bridged session produces meaningless symmetry, not comparison.
+- **§1A.5 Layer 4 prerequisite**: a verifier already running through `entwurf` cannot dispatch to direct Claude Code via standard MCP tools — it can only call its sibling via entwurf. Layer 4 requires either a human in the loop or a verifier that holds both transport handles. Attempting Layer 4 from inside a single bridged session produces meaningless symmetry, not comparison.
 - **§12.1 `PI_ENTWURF_CHILD_STDERR_LOG` self-spawn limit**: `export` from a shell that is already bound to a running bridge process does **not** propagate into that bridge — the env must be present at bridge-process spawn time. Either restart the parent session with the env exported, or run VERIFY.md from a plain shell that has not yet bound the bridge.
 
 ## Evidence Levels
@@ -65,9 +65,9 @@ This document records only **verification intent (what we're looking at) and pas
 
 ### Default Execution Shape — entwurf orchestration
 
-- Single-turn verification: one `entwurf(provider="pi-shell-acp", model="<M>", mode="sync")` call
+- Single-turn verification: one `entwurf(provider="entwurf", model="<M>", mode="sync")` call
 - Multi-turn verification: first turn via `entwurf(mode="sync")`, subsequent turns via `entwurf_resume(mode="sync", sessionId=...)`. Both surfaces default to `async` since 0.7.x (spawn from 0.7.0, resume from 0.7.6); pass `mode="sync"` explicitly for verification turns because the operator needs inline answers, not detached followUp delivery.
-- Different backend verification: same pattern with only provider/model changed (e.g., `pi-shell-acp/codex-...`)
+- Different backend verification: same pattern with only provider/model changed (e.g., `entwurf/codex-...`)
 
 ### Async resume — separate live gate
 
@@ -77,7 +77,7 @@ The async path is verified by `./run.sh smoke-async-resume` (scripts/smoke-async
 
 The `--entwurf-control` garden-native enforcement is verified by `./run.sh smoke-resident-garden-guard` (scripts/smoke-resident-garden-guard.sh). The deterministic half lives in `./run.sh check-entwurf-session-identity` (158 assertions, in the `pnpm check` chain): `assertGardenNativeSessionId` (uuid→throw / garden→pass), `buildGardenSessionName` (registry-free native model, `entwurf` tag forbidden, round-trip), `computeResidentStatusLabel` (`🪛 ready`/`🪛 <id>`), the regression that a `control`-tagged resident session is NOT `entwurf_resume`-able, and the `/gnew` writer's fail-closed guarantees (`wx`, collision refusal, full read-back incl. timestamp, guarded orphan cleanup). The live half now covers four slices: NEGATIVE (default, **0 tokens**) launches raw `pi --entwurf-control` with no `--session-id` and asserts nonzero exit + no `agent_start` + no token usage + no control socket + no session file (the guard `process.exit(1)`s at `session_start` before any turn — `ctx.shutdown()` alone was verified insufficient, the model turn ran and leaked 26k tokens); REPLACEMENT (0-token RPC) proves builtin `/new` / `/clone` are cancelled in-process instead of killing the whole process; GNEW (0-token RPC) proves same-terminal garden birth with socket rebound and no uuid leak; POSITIVE (`SMOKE_RGG_POSITIVE=1`, ~1 cheap turn) launches with a garden `--session-id "$(./run.sh new-session-id)"` and asserts the garden header id on disk plus backend identity after `/gnew` (`entwurf_self` reports the new garden id). Run it after any change to `pi-extensions/entwurf-control.ts` or the resident helpers in `pi-extensions/lib/entwurf-core.ts`. Baseline 2026-06-04: full resident-gate sweep PASS (31/0). **Release-gate scoping (0.11.0):** the deterministic half (NEGATIVE / REPLACEMENT / GNEW zero-token, `SMOKE_RGG_POSITIVE=0`) is **MUST** (release-blocking); the positives-enabled run (`SMOKE_RGG_POSITIVE=1` re-runs the full guard and *adds* the post-`/gnew` `entwurf_self` identity turn [T3] and the positive garden model turn — it is not a positive-only mode) is **BEHAVIOR (advisory)** because those two added turns depend on the backend child autonomously calling `entwurf_self`. The `entwurf_self` tool *callability/schema* itself stays MUST via `check-bridge` / `mcp/pi-tools-bridge/test.sh`; only "the model autonomously calls it after a switch" is advisory — that coverage moves to the non-blocking lane, and the loss is recorded here on purpose.
 
-**ACP-provider RGG (acp-on-v2, S2e-2):** `./run.sh smoke-acp-rgg-live` drives this same runner against the `pi-shell-acp` provider target (`PI_SHELL_ACP_LIVE_TARGET=pi-shell-acp/claude-sonnet-4-6`, override via `PI_SHELL_ACP_RGG_TARGET`) with the deterministic half only (`SMOKE_RGG_POSITIVE=0`). The release-blocking claim is that garden-native resident discipline holds under the ACP provider too — verified 2026-06-19: **30/0 PASS** (NEGATIVE uuid-refuse / REPLACEMENT new·clone cancel / RESUME-INTO-UUID pre-cancel / GNEW clean birth + socket rebound + control tag). The positives-enabled run additionally exercises the GNEW T3 `entwurf_self` turn, which is **N/A by ACP boundary**: the ACP child is spawned with `mcpServers:[]`, so it has no `entwurf_self` call surface (the plugin stays lightweight, no ambient MCP — S2b/S2d boundary). A T3 FAIL (`selfEnvelopeSessionIds:[]`) under an ACP target is therefore an expected boundary result, not a regression; the positive garden model turn itself still passes (ACP backend turn, garden header on disk, control tag). This is the same boundary that makes the ACP citizen mailbox-absent by design.
+**ACP-provider RGG (acp-on-v2, S2e-2):** `./run.sh smoke-acp-rgg-live` drives this same runner against the `entwurf` provider target (`PI_SHELL_ACP_LIVE_TARGET=entwurf/claude-sonnet-4-6`, override via `PI_SHELL_ACP_RGG_TARGET`) with the deterministic half only (`SMOKE_RGG_POSITIVE=0`). The release-blocking claim is that garden-native resident discipline holds under the ACP provider too — verified 2026-06-19: **30/0 PASS** (NEGATIVE uuid-refuse / REPLACEMENT new·clone cancel / RESUME-INTO-UUID pre-cancel / GNEW clean birth + socket rebound + control tag). The positives-enabled run additionally exercises the GNEW T3 `entwurf_self` turn, which is **N/A by ACP boundary**: the ACP child is spawned with `mcpServers:[]`, so it has no `entwurf_self` call surface (the plugin stays lightweight, no ambient MCP — S2b/S2d boundary). A T3 FAIL (`selfEnvelopeSessionIds:[]`) under an ACP target is therefore an expected boundary result, not a regression; the positive garden model turn itself still passes (ACP backend turn, garden header on disk, control tag). This is the same boundary that makes the ACP citizen mailbox-absent by design.
 
 ### Release gate — current floor
 
@@ -110,7 +110,7 @@ Always write both axes, never collapse them: e.g. a Claude Code self-fetch mailb
 
 The following patterns **bypass the delegation logic itself** that we're trying to verify. Even if continuity appears to hold on the surface, these are not the real operational path (entwurf → entwurf_resume), so passing does not mean production is healthy.
 
-- ✗ Creating session files directly with `mktemp /tmp/pi-shell-acp-verify-XXXXXX.jsonl`
+- ✗ Creating session files directly with `mktemp /tmp/entwurf-verify-XXXXXX.jsonl`
 - ✗ Manual calls of the form `pi -e <REPO> --session <FILE> --model <M> -p '...'`
 - ✗ Faking multi-turn by passing the same session file twice
 
@@ -150,7 +150,7 @@ These two layers are treated separately:
 - **bridge continuity**: same `sessionKey` / persisted record hit / same `acpSessionId` / `bootstrap path=resume|load`
 - **semantic continuity**: a fact given in a previous turn can be retrieved in a subsequent turn
 
-Bridge continuity can be alive while semantic continuity is broken (the wording contamination case above). The reverse is also possible. Do not extrapolate a pass in one layer as a pass in the other. When observability of the bootstrap path (§12 item 1) is weak, it's easy to confuse the two layers and misdiagnose wording contamination as continuity failure. When in doubt, change the wording and try once more, and also check the `[pi-shell-acp:bootstrap]` lines in bridge stderr.
+Bridge continuity can be alive while semantic continuity is broken (the wording contamination case above). The reverse is also possible. Do not extrapolate a pass in one layer as a pass in the other. When observability of the bootstrap path (§12 item 1) is weak, it's easy to confuse the two layers and misdiagnose wording contamination as continuity failure. When in doubt, change the wording and try once more, and also check the `[entwurf:bootstrap]` lines in bridge stderr.
 
 ## 0. Quality Criteria
 
@@ -167,7 +167,7 @@ The goals are:
 4. **Thin bridge**
    - Do not build a second harness inside this repo
 5. **Capability exposure boundary is explicit**
-   - pi custom tool / user MCP visibility is determined solely by `piShellAcpProvider.mcpServers` configuration
+   - pi custom tool / user MCP visibility is determined solely by `entwurfProvider.mcpServers` configuration
    - No automatic `~/.mcp.json` loading
 6. **Operational hygiene**
    - No orphan subprocesses, no excess persisted session garbage
@@ -176,7 +176,7 @@ The goals are:
 
 ## 1. Setup
 
-pi-shell-acp supports two legitimate install paths. Pick the one that matches the machine you are on. Both paths end in the same runtime state (a valid `.pi/settings.json` with `piShellAcpProvider.mcpServers` wired) — they differ in who owns the checkout and whether you intend to edit it.
+entwurf supports two legitimate install paths. Pick the one that matches the machine you are on. Both paths end in the same runtime state (a valid `.pi/settings.json` with `entwurfProvider.mcpServers` wired) — they differ in who owns the checkout and whether you intend to edit it.
 
 | Path | Who | Shape | Example target |
 |------|-----|-------|----------------|
@@ -185,32 +185,32 @@ pi-shell-acp supports two legitimate install paths. Pick the one that matches th
 
 ### 1.1 Path A — consumer install
 
-Use when you want to *use* pi-shell-acp but will not edit it.
+Use when you want to *use* entwurf but will not edit it.
 
 ```bash
 # 1. register with pi (pi auto-clones + installs deps into its managed checkout)
-pi install git:github.com/junghan0611/pi-shell-acp
+pi install git:github.com/junghan0611/entwurf
 
 # 2. wire the bundled mcpServers into a consumer project
 cd /path/to/consumer-project
-~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh install .
+~/.pi/agent/git/github.com/junghan0611/entwurf/run.sh install .
 
 # 3. verify model surface
-pi --list-models pi-shell-acp
+pi --list-models entwurf
 
 # 4. one-turn smoke
-~/.pi/agent/git/github.com/junghan0611/pi-shell-acp/run.sh smoke-all .
+~/.pi/agent/git/github.com/junghan0611/entwurf/run.sh smoke-all .
 ```
 
 Expected:
-- step 1 — pi prints package install messages; `pi list` afterwards shows `git:github.com/junghan0611/pi-shell-acp` under `User packages` with a path under `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp`.
-- step 2 — `install: added piShellAcpProvider.mcpServers.pi-tools-bridge` + `install: updated <project>/.pi/settings.json`.
+- step 1 — pi prints package install messages; `pi list` afterwards shows `git:github.com/junghan0611/entwurf` under `User packages` with a path under `~/.pi/agent/git/github.com/junghan0611/entwurf`.
+- step 2 — `install: added entwurfProvider.mcpServers.pi-tools-bridge` + `install: updated <project>/.pi/settings.json`.
 - step 3 — curated model surface prints (claude-sonnet-4-6, claude-opus-4-8, gpt-5.4, gpt-5.5, gemini-3.1-pro-preview).
 - step 4 — `[smoke-all] Claude runtime smoke: ok (codex/gemini live tests dropped — 0.11.0 claude-only floor)`. Codex/Gemini are verified on demand with `smoke-codex` / `smoke-gemini`.
 
 Notes:
-- The checkout path `~/.pi/agent/git/github.com/junghan0611/pi-shell-acp` is pi-managed. Do not edit files there on a consumer machine — `pi update` would overwrite local edits.
-- Step 2 is still required after `pi install git:…`. `pi install` only adds the package to `~/.pi/agent/settings.json#packages`; it does not pre-wire the per-project `piShellAcpProvider.mcpServers` entries. `./run.sh install .` is what produces a working ACP-visible MCP surface in the current project.
+- The checkout path `~/.pi/agent/git/github.com/junghan0611/entwurf` is pi-managed. Do not edit files there on a consumer machine — `pi update` would overwrite local edits.
+- Step 2 is still required after `pi install git:…`. `pi install` only adds the package to `~/.pi/agent/settings.json#packages`; it does not pre-wire the per-project `entwurfProvider.mcpServers` entries. `./run.sh install .` is what produces a working ACP-visible MCP surface in the current project.
 
 ### 1.2 Path B — developer install
 
@@ -218,8 +218,8 @@ Use when you will edit this repo and want a fast inner loop (`npm run typecheck`
 
 ```bash
 # 1. clone + deps
-git clone https://github.com/junghan0611/pi-shell-acp /path/to/pi-shell-acp
-cd /path/to/pi-shell-acp
+git clone https://github.com/junghan0611/entwurf /path/to/entwurf
+cd /path/to/entwurf
 pnpm install   # or: npm install (pnpm is the project's pinned packageManager)
 
 # 2. register the local checkout with pi (relative or absolute path both fine)
@@ -250,12 +250,12 @@ Re-running step 3 is idempotent. User-authored `mcpServers.<name>` overrides wit
 
 ```bash
 # Path A
-export REPO_DIR=$HOME/.pi/agent/git/github.com/junghan0611/pi-shell-acp
+export REPO_DIR=$HOME/.pi/agent/git/github.com/junghan0611/entwurf
 # Path B (pick one)
-# export REPO_DIR=/path/to/pi-shell-acp
+# export REPO_DIR=/path/to/entwurf
 
 export PROJECT_DIR=/path/to/consumer-project
-export CACHE_DIR=$HOME/.pi/agent/cache/pi-shell-acp/sessions
+export CACHE_DIR=$HOME/.pi/agent/cache/entwurf/sessions
 mkdir -p "$CACHE_DIR"
 ```
 
@@ -308,9 +308,9 @@ If the verifier strictly needs a fresh ACP session inside this sequence, switch 
 Four axes to compare a fresh self-awareness report against:
 
 1. **Same backend, different install path.** Path A (`pi install git:…`) on one machine vs Path B (`git clone + pi install ./`) on another. Same answer expected — the install path must be invisible to the bridged model.
-2. **Same backend, different machine.** Two `pi-shell-acp/claude-sonnet-4-6` instances (e.g. local + Oracle), or the same exercise for Codex / Gemini when those backends are available. Identical native tool list for the same backend, identical MCP server list, identical 5 MCP tool functions.
-3. **Different backend, same bridge.** Compare `pi-shell-acp/claude-sonnet-4-6`, `pi-shell-acp/gpt-5.4`, and `pi-shell-acp/gemini-3.1-pro-preview`. Same harness identification (`pi-shell-acp`), same MCP server (`pi-tools-bridge`), same 5 MCP tool functions — but **different** native tool surface (Claude: `Bash/Read/Edit/Write/Skill`; Codex: `exec_command/write_stdin/apply_patch/update_plan/request_user_input/list_mcp_resources/read_mcp_resource/...`; Gemini: `read_file/list_directory/glob/grep_search/write_file/replace/run_shell_command/activate_skill`) and **different** backend carrier / namespace conventions where the backend exposes them.
-4. **Native pi routing vs ACP-bridged routing, same backend model.** Compare an entwurf target spawned via the native pi provider (e.g. `openai-codex/gpt-5.4`, no `provider="pi-shell-acp"` argument) against the ACP-bridged equivalent (`pi-shell-acp/gpt-5.4`). The pair shares a model identity but takes two structurally different paths to it. They are expected to **differ**, not match — and the shape of the difference is itself a verified property.
+2. **Same backend, different machine.** Two `entwurf/claude-sonnet-4-6` instances (e.g. local + Oracle), or the same exercise for Codex / Gemini when those backends are available. Identical native tool list for the same backend, identical MCP server list, identical 5 MCP tool functions.
+3. **Different backend, same bridge.** Compare `entwurf/claude-sonnet-4-6`, `entwurf/gpt-5.4`, and `entwurf/gemini-3.1-pro-preview`. Same harness identification (`entwurf`), same MCP server (`pi-tools-bridge`), same 5 MCP tool functions — but **different** native tool surface (Claude: `Bash/Read/Edit/Write/Skill`; Codex: `exec_command/write_stdin/apply_patch/update_plan/request_user_input/list_mcp_resources/read_mcp_resource/...`; Gemini: `read_file/list_directory/glob/grep_search/write_file/replace/run_shell_command/activate_skill`) and **different** backend carrier / namespace conventions where the backend exposes them.
+4. **Native pi routing vs ACP-bridged routing, same backend model.** Compare an entwurf target spawned via the native pi provider (e.g. `openai-codex/gpt-5.4`, no `provider="entwurf"` argument) against the ACP-bridged equivalent (`entwurf/gpt-5.4`). The pair shares a model identity but takes two structurally different paths to it. They are expected to **differ**, not match — and the shape of the difference is itself a verified property.
 
 Pass:
 
@@ -323,7 +323,7 @@ This is the matrix described under "Diversifying the verifier matrix" near the e
 
 ---
 
-## 1A. Main Agent Evaluation — Is `pi-shell-acp` Claude Strong Enough?
+## 1A. Main Agent Evaluation — Is `entwurf` Claude Strong Enough?
 
 This section moves the evaluation questionnaire from the llmlog into this repo's operational document.
 The core question is one:
@@ -332,7 +332,7 @@ The core question is one:
 
 This evaluation is separate from the continuity smoke. If smoke proves "sessions continue," this questionnaire examines **tool self-awareness / native tool usability / pi-facing MCP boundary awareness / long-turn focus / quality relative to direct Claude Code**.
 
-The execution shape follows §0A — Layers 0–3 start with one `entwurf` for a single target (`pi-shell-acp/claude-sonnet-4-6`) and continue via `entwurf_resume` with the same sessionId for multi-turn. Layer 4 is a comparison with direct Claude Code, so it uses a separate path.
+The execution shape follows §0A — Layers 0–3 start with one `entwurf` for a single target (`entwurf/claude-sonnet-4-6`) and continue via `entwurf_resume` with the same sessionId for multi-turn. Layer 4 is a comparison with direct Claude Code, so it uses a separate path.
 
 ### 1A.1 Layer 0 — Self-Awareness at Session Start
 
@@ -356,16 +356,16 @@ Fail:
 
 #### 1A.1.0 Two carrier surfaces — engraving vs pi-context-augment
 
-`pi-shell-acp` delivers identity-relevant text into the bridged session through **two structurally distinct surfaces**. A faithful self-report must keep them separated; collapsing them into "the system prompt" is the most common verifier-side mistake under 0.5.0, and replicant-testing-replicant runs exist precisely to surface this kind of carrier-surface confusion.
+`entwurf` delivers identity-relevant text into the bridged session through **two structurally distinct surfaces**. A faithful self-report must keep them separated; collapsing them into "the system prompt" is the most common verifier-side mistake under 0.5.0, and replicant-testing-replicant runs exist precisely to surface this kind of carrier-surface confusion.
 
 | Surface | Source | Delivery shape | Default 0.5.0 content |
 |---|---|---|---|
 | **Engraving carrier** | `prompts/engraving.md` (or `PI_SHELL_ACP_ENGRAVING_PATH`) via `engraving.ts` | Claude `_meta.systemPrompt` / Codex `-c developer_instructions=` / Gemini `GEMINI_SYSTEM_MD` — all full-replacement identity slots, string vs file is shape, not authority | **Operator-authored, optional opt-out, tiny non-empty by default on current Claude ACP.** The repo ships `# Engraving Here` and `engraving.ts` now emits it as a real string carrier: for Claude this replaces the `claude_code` preset and strips its auto-memory advertisement. Emptying the file remains the explicit opt-out branch. |
-| **pi-context-augment** | `pi-context-augment.ts`; concatenates bridge identity narrative + `~/AGENTS.md` + `cwd/AGENTS.md` (`<project-context path="...">`) + date/cwd | First-user-message prepend (`enrichTaskWithProjectContext` → first user turn). Not the system slot. | **Always populated on ACP-routed targets** under 0.5.0. Three components must arrive: (1) the line `You are operating through pi-shell-acp, an ACP bridge between pi (the harness) and the underlying model.`, (2) the user-level `~/AGENTS.md` body, (3) the cwd repo's `AGENTS.md` wrapped in a `<project-context path="…">` block. |
+| **pi-context-augment** | `pi-context-augment.ts`; concatenates bridge identity narrative + `~/AGENTS.md` + `cwd/AGENTS.md` (`<project-context path="...">`) + date/cwd | First-user-message prepend (`enrichTaskWithProjectContext` → first user turn). Not the system slot. | **Always populated on ACP-routed targets** under 0.5.0. Three components must arrive: (1) the line `You are operating through entwurf, an ACP bridge between pi (the harness) and the underlying model.`, (2) the user-level `~/AGENTS.md` body, (3) the cwd repo's `AGENTS.md` wrapped in a `<project-context path="…">` block. |
 
 Historical note: prior to the 0.5.0 prompt-pipeline fix, the engraving carrier was the only path that reliably reached the bridged backend — the pi-context-augment surface was incomplete, so `~/AGENTS.md` and the bridge identity narrative were silently dropped on some routes. After the fix, the bridge identity belongs in pi-context-augment, not engraving. On the current Claude ACP lane the default placeholder is nevertheless emitted deliberately as a tiny preset-replacement carrier, not as bridge identity: it exists to remove Claude Code native auto-memory guidance while rich operator context still rides pi-context-augment.
 
-> **Gemini carrier-isolation canary.** On the Gemini backend, the engraving carrier (`GEMINI_SYSTEM_MD`) is not truly empty even when `prompts/engraving.md` is placeholder — the bridge writes a single carrier-isolation line `[carrier-canary] GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1` into the carrier file. A faithful Gemini subject reports the canary verbatim and otherwise no pi-shell-acp identity text in the engraving slot. Absence of the canary on a Gemini target is the regression signal that the overlay isolation (BASELINE.md 0.4.8 surface-isolation work) has drifted — re-confirm before proceeding. This was empirically reconfirmed under 0.5.0 on 2026-05-14.
+> **Gemini carrier-isolation canary.** On the Gemini backend, the engraving carrier (`GEMINI_SYSTEM_MD`) is not truly empty even when `prompts/engraving.md` is placeholder — the bridge writes a single carrier-isolation line `[carrier-canary] GEMINI_SYSTEM_MD_CANARY_PISHELLACP_V1` into the carrier file. A faithful Gemini subject reports the canary verbatim and otherwise no entwurf identity text in the engraving slot. Absence of the canary on a Gemini target is the regression signal that the overlay isolation (BASELINE.md 0.4.8 surface-isolation work) has drifted — re-confirm before proceeding. This was empirically reconfirmed under 0.5.0 on 2026-05-14.
 
 Pass — extended for §1A.1 carrier honesty:
 
@@ -380,7 +380,7 @@ Fail:
 - Subject claims pi-context-augment is empty when the run is ACP-routed (real 0.5.0 regression signal).
 - Subject invents engraving content that the placeholder does not contain.
 
-> **Native pi routing exception.** On native (non-ACP) entwurf targets, pi-context-augment runs through a different code path: the cwd `<project-context>` block is delivered as a normal `enrichTaskWithProjectContext` prepend, but the bridge-identity narrative line and `~/AGENTS.md` body are not part of the native augment — the host pi may surface them through its own developer-instructions slot or not at all, depending on the backend. The PASS criterion on native targets is **honesty about what arrived**, not the three-component checklist above. A native Codex target that reports "I see the cwd `<project-context>` and a `pi`-identifying developer instruction but no `~/AGENTS.md` and no `pi-shell-acp` identity narrative" is correct for native routing — see §1.7 axis-4.
+> **Native pi routing exception.** On native (non-ACP) entwurf targets, pi-context-augment runs through a different code path: the cwd `<project-context>` block is delivered as a normal `enrichTaskWithProjectContext` prepend, but the bridge-identity narrative line and `~/AGENTS.md` body are not part of the native augment — the host pi may surface them through its own developer-instructions slot or not at all, depending on the backend. The PASS criterion on native targets is **honesty about what arrived**, not the three-component checklist above. A native Codex target that reports "I see the cwd `<project-context>` and a `pi`-identifying developer instruction but no `~/AGENTS.md` and no `entwurf` identity narrative" is correct for native routing — see §1.7 axis-4.
 
 #### 1A.1.1 Codex objective wiring check (when backend = codex)
 
@@ -444,9 +444,9 @@ Fail:
 - Unnecessarily repeats the same file exploration
 - Paraphrases an early-turn fact instead of returning the verbatim string
 
-Note: pi-shell-acp does not implement compaction (0.5.0 declaration). The provider cancels pi-side compaction by default because a pi JSONL summary does not reduce the backend transcript. Backend-native context management is always allowed, and the bridge does not expose backend-specific compaction knobs. The only bridge knob is `PI_SHELL_ACP_ALLOW_PI_COMPACTION=1` for rare pi-side opt-in; legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` fails at spawn intent. For long sessions, use the backend's own `usage_update` / bridge fallback meter as an overflow-risk signal and verify continuity with sentinel recall plus mapping stability. Verification: `./run.sh smoke-compaction-policy` for deterministic policy checks; `LIVE=1` adds backend-owned continuation probes without promising a single cross-backend `/compact` semantic.
+Note: entwurf does not implement compaction (0.5.0 declaration). The provider cancels pi-side compaction by default because a pi JSONL summary does not reduce the backend transcript. Backend-native context management is always allowed, and the bridge does not expose backend-specific compaction knobs. The only bridge knob is `PI_SHELL_ACP_ALLOW_PI_COMPACTION=1` for rare pi-side opt-in; legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` fails at spawn intent. For long sessions, use the backend's own `usage_update` / bridge fallback meter as an overflow-risk signal and verify continuity with sentinel recall plus mapping stability. Verification: `./run.sh smoke-compaction-policy` for deterministic policy checks; `LIVE=1` adds backend-owned continuation probes without promising a single cross-backend `/compact` semantic.
 
-> **Semantic difference vs native pi.** In pi-shell-acp the footer follows the ACP backend's `usage_update.used / size`, not pi's visible-transcript estimate. This may differ from native pi because the backend counts its own prompt / cache / tool / session state on top of the visible transcript. A small pi conversation can show a large ACP footer; that is a backend overflow-risk signal, not a meter bug. The bridge does not maintain an extra meter sidecar to "correct" this — it surfaces the backend's own number and labels it as such.
+> **Semantic difference vs native pi.** In entwurf the footer follows the ACP backend's `usage_update.used / size`, not pi's visible-transcript estimate. This may differ from native pi because the backend counts its own prompt / cache / tool / session state on top of the visible transcript. A small pi conversation can show a large ACP footer; that is a backend overflow-risk signal, not a meter bug. The bridge does not maintain an extra meter sidecar to "correct" this — it surfaces the backend's own number and labels it as such.
 
 ### Long-session footer behavior
 
@@ -461,9 +461,9 @@ To verify on a real long session:
 
 ### 1A.5 Layer 4 — Comparison with Direct Claude Code
 
-> **Prerequisite.** This layer requires a verifier capable of dispatching to **both** the `pi-shell-acp` path and a direct Claude Code path. A verifier already running through `pi-shell-acp` can invoke its sibling via `entwurf`, but cannot dispatch to direct Claude Code through standard MCP tools — Layer 4 therefore requires either a human in the loop or a verifier holding both transport handles. Attempting Layer 4 from inside a single bridged session produces symmetric output, not comparison.
+> **Prerequisite.** This layer requires a verifier capable of dispatching to **both** the `entwurf` path and a direct Claude Code path. A verifier already running through `entwurf` can invoke its sibling via `entwurf`, but cannot dispatch to direct Claude Code through standard MCP tools — Layer 4 therefore requires either a human in the loop or a verifier holding both transport handles. Attempting Layer 4 from inside a single bridged session produces symmetric output, not comparison.
 
-Throw the same questions to both direct Claude Code and the `pi-shell-acp` path (= entwurf target `pi-shell-acp/claude-sonnet-4-6`) and compare. Not string matching, but **semantic-level parity of work quality and tool selection**.
+Throw the same questions to both direct Claude Code and the `entwurf` path (= entwurf target `entwurf/claude-sonnet-4-6`) and compare. Not string matching, but **semantic-level parity of work quality and tool selection**.
 
 Example comparison questions: summarize the core invariants of this repo / explain the smoke verification system in `run.sh` / explain the 0.5.0 compaction declaration (bridge does not implement compaction; backend-native allowed, pi-side blocked) / next 3 improvement points (maintaining thin bridge principle).
 
@@ -477,7 +477,7 @@ Judgment:
 
 - Layers 0–2 healthy → basic qualifications as a main coding agent are confirmed
 - Layer 2 weak → review tool description / MCP visibility explanation / operating contract candidates
-- Layer 3 weak → strengthen prompt shape and long-session observation; distinguish pi-side compaction (blocked by default) from backend-native compaction (allowed), then corroborate with `[pi-shell-acp:usage]`, bootstrap logs, process state, and sentinel recall
+- Layer 3 weak → strengthen prompt shape and long-session observation; distinguish pi-side compaction (blocked by default) from backend-native compaction (allowed), then corroborate with `[entwurf:usage]`, bootstrap logs, process state, and sentinel recall
 - Layer 4 significantly weaker than direct → revisit bridge handoff or capability framing
 
 This questionnaire does not replace smoke.
@@ -510,7 +510,7 @@ Note:
 
 ## 3. Single-Turn Verification — The First Regression Point to Break
 
-One sync `entwurf` call for the `pi-shell-acp/claude-sonnet-4-6` target.
+One sync `entwurf` call for the `entwurf/claude-sonnet-4-6` target.
 
 > **Operational note — `entwurf` uniqueness per (provider, model, session).** The MCP bridge enforces one live `entwurf` per (provider, model) tuple within a verifier session. Strictly speaking §3.1 and §3.2 are two separate single-turn intents, but the second one cannot be a fresh `entwurf` to the same target — it must be the **first `entwurf_resume` of the same `sessionId`**. This is operationally fine: §3.1 verifies hook prompt extraction (turn 1), §3.2 verifies tool-call mapping (turn 2 = first resume). Fact injection (§4) then begins from turn 3 onward. If the verifier strictly needs a fresh ACP session for §3.2, run it against a different target (e.g., `claude-opus-4-8` or `gpt-5.5`).
 
@@ -536,7 +536,7 @@ Pass:
 
 ## 4. Multi-Turn Verification — Does a Single Target Continue?
 
-This is where it gets important. The execution shape follows §0A — start with a first turn `entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync")`, then continue throwing `entwurf_resume` with the same sessionId.
+This is where it gets important. The execution shape follows §0A — start with a first turn `entwurf(provider="entwurf", model="claude-sonnet-4-6", mode="sync")`, then continue throwing `entwurf_resume` with the same sessionId.
 
 Verification facts follow the §0A wording guide — ban `secret token` / `password` / `API key` types, use only non-sensitive plaintext (code names / colors / animal names, etc.).
 
@@ -654,7 +654,7 @@ Note:
 
 ### 8.1–8.3 read / grep / bash Character
 
-One sync `entwurf` call each for the `pi-shell-acp/claude-sonnet-4-6` target, with different-intent short task sets: read part of a file and summarize, grep for a specific function definition, current git branch and the latest commit.
+One sync `entwurf` call each for the `entwurf/claude-sonnet-4-6` target, with different-intent short task sets: read part of a file and summarize, grep for a specific function definition, current git branch and the latest commit.
 
 Pass:
 - Tool usage of read/search/bash character is consistent
@@ -669,18 +669,18 @@ Observation points:
 
 What we're looking at here is not native tools like `bash`, `read`, `grep`, but **whether pi's custom tools (`entwurf`, `entwurf_resume`, `entwurf_send`, `entwurf_peers`, `entwurf_self` — the current set exposed by `mcp/pi-tools-bridge/`) are visible when going through ACP**. Native pi (non-ACP) routing receives the same capability via extension surface, not MCP, so native targets correctly report `pi-tools-bridge` as not visible — see the §1.7 native-vs-ACP axis and the §0 surface note for the boundary.
 
-> **Branching note — which PASS case applies depends on the project's `piShellAcpProvider.mcpServers`.**
+> **Branching note — which PASS case applies depends on the project's `entwurfProvider.mcpServers`.**
 >
-> - If `piShellAcpProvider.mcpServers` is **empty or omitted** → §8.4 PASS = the spawn replies `entwurf tool not visible` / `pi custom tools not visible`. This is the default contract.
-> - If `piShellAcpProvider.mcpServers` **registers `pi-tools-bridge`** (e.g., this repo's own checkout) → §8.4 reduces to honesty check (no hallucination, no overclaim) and §8.5 takes over as the actual visibility verification — the spawn must list precisely those registered servers.
+> - If `entwurfProvider.mcpServers` is **empty or omitted** → §8.4 PASS = the spawn replies `entwurf tool not visible` / `pi custom tools not visible`. This is the default contract.
+> - If `entwurfProvider.mcpServers` **registers `pi-tools-bridge`** (e.g., this repo's own checkout) → §8.4 reduces to honesty check (no hallucination, no overclaim) and §8.5 takes over as the actual visibility verification — the spawn must list precisely those registered servers.
 >
 > Before running §8.4, verify which case applies:
 > ```bash
-> jq '.piShellAcpProvider.mcpServers // {} | keys' "$PROJECT_DIR/.pi/settings.json"
+> jq '.entwurfProvider.mcpServers // {} | keys' "$PROJECT_DIR/.pi/settings.json"
 > ```
 > An empty array (`[]`) means §8.4 strict path. A populated array means §8.5 strict path.
 
-Verification intent: inside the `pi-shell-acp/claude-sonnet-4-6` target, ask "can you see this tool?" and have it reply "not visible" if it cannot. Agreed exact responses:
+Verification intent: inside the `entwurf/claude-sonnet-4-6` target, ask "can you see this tool?" and have it reply "not visible" if it cannot. Agreed exact responses:
 - Single entwurf visibility: `entwurf tool not visible`
 - pi custom tool bundle visibility: `pi custom tools not visible`
 
@@ -694,7 +694,7 @@ Verification intent: inside the `pi-shell-acp/claude-sonnet-4-6` target, ask "ca
 
 Current code suspect points:
 - `acp-bridge.ts`'s `newSession/loadSession/resumeSession` calls now pass `params.mcpServers`
-- That list only comes from `piShellAcpProvider.mcpServers` configuration (§8.5) — no automatic `~/.mcp.json` loading
+- That list only comes from `entwurfProvider.mcpServers` configuration (§8.5) — no automatic `~/.mcp.json` loading
 - `buildSessionMeta()` passes Claude-side `tools: { type: "preset", preset: "claude_code" }`
 
 That is, with the current default (no configuration), **Claude Code native tools are visible but pi custom tools are not** — this is the normal state.
@@ -744,23 +744,23 @@ Empirical confirmation: in self-report tests across all three backends (2026-04-
 
 Meaning of this item:
 - The default is declared as "Claude-native only"
-- pi harness parity only occurs when a **separate MCP adapter** is created and injected via `piShellAcpProvider.mcpServers`
+- pi harness parity only occurs when a **separate MCP adapter** is created and injected via `entwurfProvider.mcpServers`
 - The bridge only pass-throughs that; it does not have promotion logic inside the repo
 
 If this test fails:
 - Do not force Claude to recursively call `pi` via `bash` to imitate entwurf
 - First **make a clear judgment of the current bridge's tool exposure boundary**
-- If needed, explicitly add an external MCP adapter to `piShellAcpProvider.mcpServers` and verify via §8.5
+- If needed, explicitly add an external MCP adapter to `entwurfProvider.mcpServers` and verify via §8.5
 
 ### 8.5 pi-facing MCP Injection Visibility — Is a Single Explicit Setting Reflected Equally Across resume/load/new?
 
-The sole MCP responsibility of `pi-shell-acp` is: inject the pi-facing MCPs registered in `piShellAcpProvider.mcpServers` equally into all ACP session requests (`newSession` / `resumeSession` / `loadSession`). What this test verifies is not a "general MCP manager" but "does the one MCP that pi actually wants visible appear consistently across all three paths."
+The sole MCP responsibility of `entwurf` is: inject the pi-facing MCPs registered in `entwurfProvider.mcpServers` equally into all ACP session requests (`newSession` / `resumeSession` / `loadSession`). What this test verifies is not a "general MCP manager" but "does the one MCP that pi actually wants visible appear consistently across all three paths."
 
 Register one explicit pi-facing MCP in the project settings. In the current release, the canonical check is the bundled `pi-tools-bridge` entry already written by `./run.sh install`.
 
 **Basic visibility (1 turn):**
 
-From the same project, throw a prompt like "list the visible MCP server names separated by commas" to the `pi-shell-acp/claude-sonnet-4-6` target via one sync `entwurf`.
+From the same project, throw a prompt like "list the visible MCP server names separated by commas" to the `entwurf/claude-sonnet-4-6` target via one sync `entwurf`.
 
 Pass:
 - The registered MCP (`pi-tools-bridge` in the default 0.8.0 setup) appears in the response list
@@ -775,7 +775,7 @@ Fail: Only visible in turn 1, or different in turn 2 → session fingerprint or 
 
 **Config change → session invalidation:**
 
-When `piShellAcpProvider.mcpServers` changes, `bridgeConfigSignature` changes, causing the persisted session to fail compatibility and transition to a new session. Immediately after adding/removing a `mcpServers` entry in settings.json, throw `entwurf_resume` or a new `entwurf` and confirm the new configuration is immediately reflected.
+When `entwurfProvider.mcpServers` changes, `bridgeConfigSignature` changes, causing the persisted session to fail compatibility and transition to a new session. Immediately after adding/removing a `mcpServers` entry in settings.json, throw `entwurf_resume` or a new `entwurf` and confirm the new configuration is immediately reflected.
 
 Pass: New configuration reflected immediately (no stale capabilities).
 
@@ -785,7 +785,7 @@ Under the current operational standard, this visibility check is run for **Claud
 
 ## 9. Scenario Testing — Use It Like an Actual Worker
 
-This step is more important than synthetic benchmarks. One sync `entwurf` call each for a single target (`pi-shell-acp/claude-sonnet-4-6`), with different-intent task sets.
+This step is more important than synthetic benchmarks. One sync `entwurf` call each for a single target (`entwurf/claude-sonnet-4-6`), with different-intent task sets.
 
 - **9.1 Self-understanding**: read AGENTS.md/README and summarize this repo's current invariants in 7 lines or fewer (provider/model/settings names, session continuity boundary, bootstrap order, what not to do)
 - **9.2 Structural explanation**: explain the core structure based on `acp-bridge.ts`, `index.ts`. Use agent-shell as a semantic reference and include things not intentionally brought in
@@ -901,19 +901,19 @@ Important:
 
 The following are documented but observability/automation is still insufficient.
 
-1. Making the actual bootstrap path — whether `resume`, `load`, or `new` — immediately visible externally. Currently only verifiable via stderr `[pi-shell-acp:bootstrap]` lines. In the entwurf orchestration path, that stderr is not surfaced to the front end, making it difficult to immediately answer whether `bridge continuity` passed during failure diagnosis. This lack of observability causes wording contamination to be misdiagnosed as continuity failure (see §0A "bridge vs semantic continuity"). **Current reinforcement path**: `PI_ENTWURF_CHILD_STDERR_LOG` opt-in env mirrors child stderr to a file to automatically verify the S6 (spawn `path=new`) / R4 (resume `path=resume|load`) gate. (This sentinel runner itself lives in the test runner maintained by agent-config as consumer, but spawn authority and registry are owned by this repo. The past agent-config sentinel commit is `9ee39aa`.)
+1. Making the actual bootstrap path — whether `resume`, `load`, or `new` — immediately visible externally. Currently only verifiable via stderr `[entwurf:bootstrap]` lines. In the entwurf orchestration path, that stderr is not surfaced to the front end, making it difficult to immediately answer whether `bridge continuity` passed during failure diagnosis. This lack of observability causes wording contamination to be misdiagnosed as continuity failure (see §0A "bridge vs semantic continuity"). **Current reinforcement path**: `PI_ENTWURF_CHILD_STDERR_LOG` opt-in env mirrors child stderr to a file to automatically verify the S6 (spawn `path=new`) / R4 (resume `path=resume|load`) gate. (This sentinel runner itself lives in the test runner maintained by agent-config as consumer, but spawn authority and registry are owned by this repo. The past agent-config sentinel commit is `9ee39aa`.)
    <br>
    **Verifier one-liner** — to capture bootstrap evidence during a manual VERIFY.md run, export the env before any `entwurf` call and grep the result after:
    ```bash
-   export PI_ENTWURF_CHILD_STDERR_LOG=/tmp/pi-shell-acp-verify-stderr.log
+   export PI_ENTWURF_CHILD_STDERR_LOG=/tmp/entwurf-verify-stderr.log
    # ... run §3 / §4 / §5 entwurf calls ...
-   grep -E '\[pi-shell-acp:(bootstrap|model-switch|cancel|shutdown)\]' \
+   grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' \
      "$PI_ENTWURF_CHILD_STDERR_LOG"
    ```
    Without this, §5/§7 can only judge **semantic continuity** — `bridge continuity` (sessionKey/acpSessionId/bootstrap path) remains unverified.
 
-   > **Self-spawn limitation.** This env must be present in the bridge process at startup. If you run VERIFY.md from inside a pi-shell-acp session (verifier already bound to the bridge), `export` from the running shell does **not** propagate into that bridge — restart the parent session with `PI_ENTWURF_CHILD_STDERR_LOG` already exported, or run VERIFY.md from a plain shell that has not yet bound the bridge. This is a known operational corner of replicant-testing-replicant runs (see "Why this document exists" at the top).
-2. When persisted session incompatibility occurs, operators reading the invalidation reason quickly — partially covered for the transcript-poison class via the `[pi-shell-acp:prompt-error] reason=transcript_poison` line and §12.6. The general incompatibility-reason gap remains.
+   > **Self-spawn limitation.** This env must be present in the bridge process at startup. If you run VERIFY.md from inside an entwurf session (verifier already bound to the bridge), `export` from the running shell does **not** propagate into that bridge — restart the parent session with `PI_ENTWURF_CHILD_STDERR_LOG` already exported, or run VERIFY.md from a plain shell that has not yet bound the bridge. This is a known operational corner of replicant-testing-replicant runs (see "Why this document exists" at the top).
+2. When persisted session incompatibility occurs, operators reading the invalidation reason quickly — partially covered for the transcript-poison class via the `[entwurf:prompt-error] reason=transcript_poison` line and §12.6. The general incompatibility-reason gap remains.
 3. ~~Clearly observing the `unstable_setSessionModel` path vs new session fallback path on model switch~~ — see §12.3
 4. ~~Observing how cleanly bridge and child process are cleaned up on cancel/abort~~ — see §12.4
 5. Checking stream shape stability as tool notices / thinking / text blocks accumulate in long sessions
@@ -924,23 +924,23 @@ In other words, this document is not a completion declaration but an **operation
 
 ### 12.3 Model Switch Observability (green, 0.5.x — locked, partial fix)
 
-pi-shell-acp sessions are locked to their starting model after the session starts. The normal path is the extension-side guard in `pi-extensions/model-lock.ts`: once the conversation is anchored, any `model_select` transition that touches `pi-shell-acp` is reverted to the previous model. Native-to-native switching remains free.
+entwurf sessions are locked to their starting model after the session starts. The normal path is the extension-side guard in `pi-extensions/model-lock.ts`: once the conversation is anchored, any `model_select` transition that touches `entwurf` is reverted to the previous model. Native-to-native switching remains free.
 
-The bridge-side guard in `ensureBridgeSession` remains load-bearing as a fallback/direct-call boundary: if a live pi-shell-acp bridge session is asked to serve a different model, it throws `ModelSwitchLockedError` before closing the old ACP child or bootstrapping a new backend session. This prevents the operator-dangerous "looks like resume, behaves like fresh handoff" failure.
+The bridge-side guard in `ensureBridgeSession` remains load-bearing as a fallback/direct-call boundary: if a live entwurf bridge session is asked to serve a different model, it throws `ModelSwitchLockedError` before closing the old ACP child or bootstrapping a new backend session. This prevents the operator-dangerous "looks like resume, behaves like fresh handoff" failure.
 
 **This does not make the UX transcript-clean.** pi-core (`AgentSession.setModel()` in `packages/coding-agent/src/core/agent-session.ts`) mutates `agent.state.model` and calls `appendModelChange()` before the extension or provider boundary can refuse. Extension-side revert leaves `model_change` as `X -> Y -> X`; bridge fallback leaves the attempted `X -> Y` record. A fully clean refusal requires a pi-core model-switch preflight/hook that this repo intentionally does not patch.
 
 Wire-level evidence the failure mode was real (captured during the issue #14 investigation): a same pi session that switched from Claude sonnet to Codex gpt-5.4 produced
 
 ```text
-[pi-shell-acp:debug-ensure] requestedModelId=gpt-5.4 backend=codex
+[entwurf:debug-ensure] requestedModelId=gpt-5.4 backend=codex
                             existingModelId=claude-sonnet-4-6 existingBackend=claude
-[pi-shell-acp:shutdown]     closeRemote=true invalidatePersisted=true
+[entwurf:shutdown]     closeRemote=true invalidatePersisted=true
                             closedRemote=ok childExit=exited
-[pi-shell-acp:bootstrap]    path=new backend=codex acpSessionId=019e2481-...
+[entwurf:bootstrap]    path=new backend=codex acpSessionId=019e2481-...
 ```
 
-— the Claude backend was reaped and a fresh Codex backend bootstrapped, while pi JSONL still pointed at the original Sonnet conversation. After the 0.5.x bridge fallback, the second `ensureBridgeSession` call throws `ModelSwitchLockedError` and no `[pi-shell-acp:shutdown]` / `[pi-shell-acp:bootstrap] path=new backend=codex` lines appear.
+— the Claude backend was reaped and a fresh Codex backend bootstrapped, while pi JSONL still pointed at the original Sonnet conversation. After the 0.5.x bridge fallback, the second `ensureBridgeSession` call throws `ModelSwitchLockedError` and no `[entwurf:shutdown]` / `[entwurf:bootstrap] path=new backend=codex` lines appear.
 
 Extension policy matrix:
 
@@ -952,21 +952,21 @@ Extension policy matrix:
 | reload with existing messages | locked |
 | reload after previous module state was already locked | locked |
 | `native -> native` | free |
-| `native -> pi-shell-acp` | revert + UI notify |
-| `pi-shell-acp -> native` | revert + UI notify |
-| `pi-shell-acp/X -> pi-shell-acp/Y` | revert + UI notify on the normal path; bridge fallback also refuses direct/reuse mismatch |
+| `native -> entwurf` | revert + UI notify |
+| `entwurf -> native` | revert + UI notify |
+| `entwurf/X -> entwurf/Y` | revert + UI notify on the normal path; bridge fallback also refuses direct/reuse mismatch |
 
 Diagnostic format:
 
 ```text
-[pi-shell-acp:model-switch] path=bootstrap|reuse outcome=applied|unsupported|failed|locked sessionKey=... backend=... acpSessionId=... fromModel=... toModel=... reason=...
+[entwurf:model-switch] path=bootstrap|reuse outcome=applied|unsupported|failed|locked sessionKey=... backend=... acpSessionId=... fromModel=... toModel=... reason=...
 ```
 
 Semantics (actual rules, not just observability):
 
 - `path=bootstrap` — the `enforceRequestedSessionModel` path immediately after new/resume/load. This is the lifetime starting point, NOT a mid-life switch, and the bridge fallback does not apply here. If `requestedModelId` is present, enforcement is always attempted. `resolveModelIdFromSessionResponse()` uses requested as fallback when the backend does not return currentModelId, so skipping with "current == requested" judgment is wrong. `outcome=failed` still throws and fails the entire bootstrap (fail-fast maintained).
 - `path=reuse` — fallback when `modelId` changes against a live existing session in `ensureBridgeSession`. The lock fires **above** `isSessionCompatible` so it catches same-backend AND cross-backend switches identically.
-  - `outcome=locked reason=pi_shell_acp_session_locked_to_starting_model`: required 0.5.x path. The bridge throws `ModelSwitchLockedError` (exported from `acp-bridge.ts`, carries `{ sessionKey, fromBackend, toBackend, fromModel, toModel }`). No close, no persisted invalidation, no fresh spawn. The existing session continues to serve the saved model.
+  - `outcome=locked reason=entwurf_session_locked_to_starting_model`: required 0.5.x path. The bridge throws `ModelSwitchLockedError` (exported from `acp-bridge.ts`, carries `{ sessionKey, fromBackend, toBackend, fromModel, toModel }`). No close, no persisted invalidation, no fresh spawn. The existing session continues to serve the saved model.
   - In-place `outcome=applied|unsupported|failed` on the reuse path is invalid for 0.5.x — would indicate a partial regression.
   - Legacy `outcome=respawn` on the reuse path is invalid for 0.5.x and is treated as a smoke failure (see `smoke-model-switch` legacy guard).
 
@@ -978,7 +978,7 @@ Deterministic extension gate:
 
 Pass criteria — `check-model-lock` covers the 18-case extension matrix:
 
-- all four provider quadrants (`native/native`, `native/pi-shell-acp`, `pi-shell-acp/native`, `pi-shell-acp/pi-shell-acp`)
+- all four provider quadrants (`native/native`, `native/entwurf`, `entwurf/native`, `entwurf/entwurf`)
 - same-model no-op
 - fresh startup/new pre-turn freedom
 - `agent_start` anchoring
@@ -1001,10 +1001,10 @@ Pass criteria — `smoke-model-switch` runs three cases:
 
 For every case:
 
-- `[pi-shell-acp:model-switch] path=reuse outcome=locked ... reason=pi_shell_acp_session_locked_to_starting_model` line exists.
-- Exactly one `[pi-shell-acp:bootstrap] path=new backend=<backend_a>` line — a second bootstrap line indicates the old respawn semantics regressed.
+- `[entwurf:model-switch] path=reuse outcome=locked ... reason=entwurf_session_locked_to_starting_model` line exists.
+- Exactly one `[entwurf:bootstrap] path=new backend=<backend_a>` line — a second bootstrap line indicates the old respawn semantics regressed.
 - No `outcome=respawn` line anywhere.
-- For cross-backend: no `[pi-shell-acp:bootstrap] path=new backend=<backend_b>` line — the lock must prevent the silent handoff.
+- For cross-backend: no `[entwurf:bootstrap] path=new backend=<backend_b>` line — the lock must prevent the silent handoff.
 - The second `ensureBridgeSession` throws `ModelSwitchLockedError` with `fromBackend`/`toBackend`/`fromModel`/`toModel` matching the smoke parameters.
 - A second prompt on the original session under the original model still completes with `stopReason=end_turn` — the lock does not poison the live session.
 
@@ -1015,15 +1015,15 @@ Operational default is resilient (stderr diagnostic + preflight throw, pi sessio
 The cancel/abort path flows 3 types of diagnostic lines so operators can read them directly in stderr. Same `key=value` format as bootstrap lines.
 
 ```text
-[pi-shell-acp:cancel]      sessionKey=... backend=... acpSessionId=... outcome=dispatched|unsupported|failed reason=...
-[pi-shell-acp:shutdown]    sessionKey=... backend=... acpSessionId=... closeRemote=... invalidatePersisted=... childPid=... closedRemote=ok|fail|skip childExit=exited|timeout
-[pi-shell-acp:orphan-kill] sessionKey=... backend=... pid=... signal=SIGKILL
+[entwurf:cancel]      sessionKey=... backend=... acpSessionId=... outcome=dispatched|unsupported|failed reason=...
+[entwurf:shutdown]    sessionKey=... backend=... acpSessionId=... closeRemote=... invalidatePersisted=... childPid=... closedRemote=ok|fail|skip childExit=exited|timeout
+[entwurf:orphan-kill] sessionKey=... backend=... pid=... signal=SIGKILL
 ```
 
 Cleanup invariant (actual rules, not just observability):
 
 - `onAbort` only calls `cancelActivePrompt()` and does not destroy bridge/child (session must remain reusable after abort)
-- In the `streamShellAcp` catch block, for `stopReason === "error"` cases (= actual error, not user abort), explicitly clean up with `closeBridgeSession(..., {closeRemote:true, invalidatePersisted:<transcript_poison ? true : false>})`. The flag is `true` only when `isTranscriptPoisonError(error)` matches an Anthropic transcript-validity 400 — currently the `cache_control cannot be set for empty text blocks` surface or the `API Error: 400 messages: text content blocks must be non-empty` surface — AND `bridgeSession.bootstrapPath !== "new"` (the persisted record was actually used to bootstrap this session). See §12.6 and pi-shell-acp#12. All other error classes keep `invalidatePersisted:false` so the persisted mapping remains reusable.
+- In the `streamShellAcp` catch block, for `stopReason === "error"` cases (= actual error, not user abort), explicitly clean up with `closeBridgeSession(..., {closeRemote:true, invalidatePersisted:<transcript_poison ? true : false>})`. The flag is `true` only when `isTranscriptPoisonError(error)` matches an Anthropic transcript-validity 400 — currently the `cache_control cannot be set for empty text blocks` surface or the `API Error: 400 messages: text content blocks must be non-empty` surface — AND `bridgeSession.bootstrapPath !== "new"` (the persisted record was actually used to bootstrap this session). See §12.6 and entwurf#12. All other error classes keep `invalidatePersisted:false` so the persisted mapping remains reusable.
 - `destroyBridgeSession` waits up to 2 seconds for child exit, printing `orphan-kill` line if needed
 
 Smoke:
@@ -1034,19 +1034,19 @@ Smoke:
 
 Pass criteria:
 
-- `[pi-shell-acp:cancel]` line is present in stderr
+- `[entwurf:cancel]` line is present in stderr
 - `outcome=dispatched` or `outcome=unsupported` is normal, `outcome=failed` is a failure
 - After abort, the next prompt with the same sessionKey succeeds (session reuse)
-- `[pi-shell-acp:shutdown]` line is present
+- `[entwurf:shutdown]` line is present
 - After explicit `closeBridgeSession`, backend process delta is 0
 
 Operational default is resilient (stderr diagnostic only, pi session continues); smoke is fail-fast (any violation causes total failure).
 
 ### 12.5 Entwurf-Style Continuity (bridge-level)
 
-This smoke mimics exactly the spawn form that entwurf actually uses (`pi --mode json -p --no-extensions -e <repo> --provider pi-shell-acp --model <M> --session <F> <task>`) to verify turn1=new → turn2=resume(Claude)/load(Codex) continuity. Evidence is checked both in bridge diagnostic lines (`[pi-shell-acp:bootstrap]`, `[pi-shell-acp:model-switch]`, `[pi-shell-acp:shutdown]`) and in the session file assistant payload.
+This smoke mimics exactly the spawn form that entwurf actually uses (`pi --mode json -p --no-extensions -e <repo> --provider entwurf --model <M> --session <F> <task>`) to verify turn1=new → turn2=resume(Claude)/load(Codex) continuity. Evidence is checked both in bridge diagnostic lines (`[entwurf:bootstrap]`, `[entwurf:model-switch]`, `[entwurf:shutdown]`) and in the session file assistant payload.
 
-What this smoke proves is **bridge-level continuity**: "pi-shell-acp can continue sessions via resume/load path for a given (backend, session file, model) combination." **Which target to spawn for / async orchestration / resume identity lock / matrix coverage** is handled by this repo's `pi/entwurf-targets.json` registry and `mcp/pi-tools-bridge` (entwurf orchestration; previously owned by agent-config before migration).
+What this smoke proves is **bridge-level continuity**: "entwurf can continue sessions via resume/load path for a given (backend, session file, model) combination." **Which target to spawn for / async orchestration / resume identity lock / matrix coverage** is handled by this repo's `pi/entwurf-targets.json` registry and `mcp/pi-tools-bridge` (entwurf orchestration; previously owned by agent-config before migration).
 
 Smoke:
 
@@ -1056,9 +1056,9 @@ Smoke:
 
 Pass criteria:
 
-- turn1 `[pi-shell-acp:bootstrap] path=new backend=<backend>` line exists + acpSessionId extractable
+- turn1 `[entwurf:bootstrap] path=new backend=<backend>` line exists + acpSessionId extractable
 - turn1 session file has 1 or more `role:"assistant"` records
-- turn2 `[pi-shell-acp:bootstrap] path=resume|load backend=<backend>` line exists + acpSessionId matches turn1
+- turn2 `[entwurf:bootstrap] path=resume|load backend=<backend>` line exists + acpSessionId matches turn1
 - No `bootstrap-invalidate` / `bootstrap-fallback` lines in turn2
 - Session file assistant message count ≥ 2 and last assistant payload length > 0
 
@@ -1077,10 +1077,10 @@ A poisoned backend transcript — an empty user/text content block, with or with
 - `API Error: 400 messages.<i>.content.<j>.text: cache_control cannot be set for empty text blocks` — empty text block at a cache breakpoint.
 - `API Error: 400 messages: text content blocks must be non-empty` — empty user/text content block, no cache breakpoint required.
 
-The bridge classifies both as `transcript_poison` and drops the persisted `pi:<sessionId>` → `acpSessionId` mapping. The poison failure itself is surfaced via `[pi-shell-acp:prompt-error] reason=transcript_poison`. Recovery is left to the existing bootstrap ladder running against the now-empty persisted record — if the host re-enters `ensureBridgeSession` (even within the same CLI invocation), the next bootstrap fires as `path=new` instead of resuming the poisoned `acpSessionId`. The bridge does not implement a force-new retry of its own; the same-invocation recovery observed in live repro is the host's normal re-entry pattern, not a bridge-driven retry.
+The bridge classifies both as `transcript_poison` and drops the persisted `pi:<sessionId>` → `acpSessionId` mapping. The poison failure itself is surfaced via `[entwurf:prompt-error] reason=transcript_poison`. Recovery is left to the existing bootstrap ladder running against the now-empty persisted record — if the host re-enters `ensureBridgeSession` (even within the same CLI invocation), the next bootstrap fires as `path=new` instead of resuming the poisoned `acpSessionId`. The bridge does not implement a force-new retry of its own; the same-invocation recovery observed in live repro is the host's normal re-entry pattern, not a bridge-driven retry.
 
 ```text
-[pi-shell-acp:prompt-error] reason=transcript_poison sessionKey=... bootstrapPath=resume|load|reuse acpSessionId=...
+[entwurf:prompt-error] reason=transcript_poison sessionKey=... bootstrapPath=resume|load|reuse acpSessionId=...
 ```
 
 This complements the §12.4 cleanup invariant: `invalidatePersisted` is `true` only on this poison class, `false` for every other error class.
@@ -1094,17 +1094,17 @@ This complements the §12.4 cleanup invariant: `invalidatePersisted` is `true` o
 Pass criteria:
 
 - `[poison-smoke] classifier: ok` line — `isTranscriptPoisonError` matches both documented poison surfaces and only those (positive cases include the cache_control 400 from the 2026-05-12 `homeagent-config` regression AND the `text content blocks must be non-empty` 400 from demo-style synthetic repro; negative cases include unrelated 4xx, transient network failures, non-string inputs, and adjacent-string traps such as a 401 that happens to share the "text content blocks must be non-empty" substring — the prefix guard rejects those).
-- `[poison-smoke] invalidate: ok` line — `closeBridgeSession(..., { invalidatePersisted: true })` removes the persisted record file at the canonical cache path (`~/.pi/agent/cache/pi-shell-acp/sessions/<sha256(sessionKey)>.json`).
+- `[poison-smoke] invalidate: ok` line — `closeBridgeSession(..., { invalidatePersisted: true })` removes the persisted record file at the canonical cache path (`~/.pi/agent/cache/entwurf/sessions/<sha256(sessionKey)>.json`).
 - `[poison-smoke] preserve: ok` line — `invalidatePersisted: false` leaves the record intact, guarding against an accidental always-true regression.
 - Final `[poison-smoke] PASS`.
 
 This smoke is intentionally narrow — it does NOT spawn a bridge or call Anthropic. The wiring from `streamShellAcp`'s prompt-error catch block to `closeBridgeSession` is a single conditional expression and verified by code review against `index.ts`. The end-to-end wiring (resume → poison error → invalidation → next bootstrap goes `path=new`) was separately confirmed on 2026-05-12 via demo-style synthetic empty-user poison:
 
 ```text
-[pi-shell-acp:bootstrap]    path=resume   ... acpSessionId=<poisoned>
-[pi-shell-acp:prompt-error] reason=transcript_poison ... bootstrapPath=resume acpSessionId=<poisoned>
-[pi-shell-acp:shutdown]     ... acpSessionId=<poisoned> invalidatePersisted=true
-[pi-shell-acp:bootstrap]    path=new      ... acpSessionId=<fresh>
+[entwurf:bootstrap]    path=resume   ... acpSessionId=<poisoned>
+[entwurf:prompt-error] reason=transcript_poison ... bootstrapPath=resume acpSessionId=<poisoned>
+[entwurf:shutdown]     ... acpSessionId=<poisoned> invalidatePersisted=true
+[entwurf:bootstrap]    path=new      ... acpSessionId=<fresh>
 ```
 
 That observation is the source of the §12.4 invariant correction and the §12.6 phrasing — same-invocation recovery is host-driven re-entry against an empty persisted record, not a bridge-driven force-new retry.
@@ -1121,15 +1121,15 @@ containing four user turns with empty text content blocks (`content[0].text == "
 
 If a future incident produces a similar artifact and you want end-to-end evidence of the invalidation path:
 
-1. Spawn a fresh pi-shell-acp claude session in the cwd that owns the poisoned JSONL so the persisted record's `cwd`, `bridgeConfigSignature`, and context signatures match what the next bootstrap will compute.
-2. After the first valid turn, locate the persisted record at `~/.pi/agent/cache/pi-shell-acp/sessions/<sha256(sessionKey)>.json` and patch `acpSessionId` to the poisoned id (e.g. `db0b36ea-...`).
+1. Spawn a fresh entwurf claude session in the cwd that owns the poisoned JSONL so the persisted record's `cwd`, `bridgeConfigSignature`, and context signatures match what the next bootstrap will compute.
+2. After the first valid turn, locate the persisted record at `~/.pi/agent/cache/entwurf/sessions/<sha256(sessionKey)>.json` and patch `acpSessionId` to the poisoned id (e.g. `db0b36ea-...`).
 3. Stop the bridge child without invalidating the persisted record (`./run.sh smoke-cancel`-style abort, or close the host pi session and let `cleanupBridgeSessionProcess` run — it passes `invalidatePersisted: false`).
 4. Send a fresh prompt with the same `sessionKey`. The bridge will resume the patched `acpSessionId`, claude-agent-acp will load the poisoned JSONL, the first API call will return the 400, and the prompt-error branch should:
-   - Emit one `[pi-shell-acp:prompt-error] reason=transcript_poison ...` stderr line.
+   - Emit one `[entwurf:prompt-error] reason=transcript_poison ...` stderr line.
    - Remove the persisted record file.
-5. Send the next prompt. `[pi-shell-acp:bootstrap] path=new` should fire — the dead `acpSessionId` is no longer reused.
+5. Send the next prompt. `[entwurf:bootstrap] path=new` should fire — the dead `acpSessionId` is no longer reused.
 
-If step 4 instead emits `[pi-shell-acp:bootstrap-invalidate] reason=incompatible_config`, the persisted record's config drifted from the current bridge config and the poison branch is never reached — re-run from step 1 in the original cwd / model / system-prompt combination.
+If step 4 instead emits `[entwurf:bootstrap-invalidate] reason=incompatible_config`, the persisted record's config drifted from the current bridge config and the poison branch is never reached — re-run from step 1 in the original cwd / model / system-prompt combination.
 
 This live repro is documented but not wired as an automated smoke. Smokes stay small and deterministic; a billable API turn against an external artifact does not meet that bar.
 
@@ -1142,7 +1142,7 @@ find "$CACHE_DIR" -maxdepth 1 -type f | sort
 ls ~/.pi/agent/sessions/--*--/*_${SESSION_ID}.jsonl 2>/dev/null
 # bootstrap evidence (only available if PI_ENTWURF_CHILD_STDERR_LOG was set, §12.1)
 [ -n "$PI_ENTWURF_CHILD_STDERR_LOG" ] && \
-  grep -E '\[pi-shell-acp:(bootstrap|model-switch|cancel|shutdown)\]' \
+  grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' \
     "$PI_ENTWURF_CHILD_STDERR_LOG"
 ```
 
@@ -1157,13 +1157,13 @@ Short record example:
 
 ```text
 [verify] multi-turn continuity failed
-- call: entwurf(provider="pi-shell-acp", model="claude-sonnet-4-6", mode="sync") → sessionId=...
+- call: entwurf(provider="entwurf", model="claude-sonnet-4-6", mode="sync") → sessionId=...
         then entwurf_resume(sessionId=..., task="What was the password I just told you? Reply in one word only.")
 - injected: "The password is owl. Reply with READY only, no explanation."
 - expected: second turn returns "owl"
 - actual: model says it does not remember
 - cache: persisted file existed
-- bridge stderr: [pi-shell-acp:bootstrap] line not captured
+- bridge stderr: [entwurf:bootstrap] line not captured
 - process: no orphan / or orphan 1 left
 - wording-recheck: tried again with "The codename is penguin" → still fails (rules out wording contamination)
 - suspicion: resume/load path broken or session compatibility gate too strict
@@ -1184,8 +1184,8 @@ The minimum passing bar is:
 7. Tool use / event mapping generally normal
 8. No excessive orphan processes / garbage records
 9. pi session transcript is usable as a shared memory axis
-10. pi-facing MCP injection is reflected only as configured in `piShellAcpProvider.mcpServers`, visibility is identical across resume/load/new paths, sessions are correctly invalidated on config change, and invalid configs fail-fast with `McpServerConfigError`
-11. **Identity boundary preservation across backends and machines** — for Claude, Codex, and Gemini backends, regardless of install path or host, the bridged model honestly identifies the harness as `pi-shell-acp`, names its backend accordingly (`claude`, `codex`, `gemini`), lists the same configured MCP server (`pi-tools-bridge`) and MCP tool function set, and presents a **backend-native** (not normalized) tool surface. Confabulation about pi internals or cross-backend tool surface contamination is a fail.
+10. pi-facing MCP injection is reflected only as configured in `entwurfProvider.mcpServers`, visibility is identical across resume/load/new paths, sessions are correctly invalidated on config change, and invalid configs fail-fast with `McpServerConfigError`
+11. **Identity boundary preservation across backends and machines** — for Claude, Codex, and Gemini backends, regardless of install path or host, the bridged model honestly identifies the harness as `entwurf`, names its backend accordingly (`claude`, `codex`, `gemini`), lists the same configured MCP server (`pi-tools-bridge`) and MCP tool function set, and presents a **backend-native** (not normalized) tool surface. Confabulation about pi internals or cross-backend tool surface contamination is a fail.
 
 Passing all 11 establishes a **release verification floor**, not a full 8-hours-a-day operational guarantee. The floor says: protocol smoke holds, the agent honestly recognizes its environment, no tool surface is normalized away, no cross-backend identity leaks, no orphan processes. What it does **not** say: that a real-day workload (50–100+ turns, tool-heavy bursts, partial MCP failures, auth/version drift over weeks) survives. That guarantee needs L3–L5 evidence — see "Evidence Levels" and "Next experimental directions".
 
@@ -1205,7 +1205,7 @@ Each load-bearing claim this document or its parent docs make, with the highest 
 | 0.5.0 compaction policy: bridge does not implement compaction. Backend-native context management is allowed; pi-side compaction is blocked by default; the legacy single knob throws at spawn intent; backend differences are recorded as adapter facts under one bridge contract. | **L3 deterministic + L4 live/source** | `./run.sh smoke-compaction-policy` verifies the deterministic policy boundary: pi-side compact is blocked with an honest message, legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` throws, and production spawn carries the same guard. `LIVE=1` adds backend-owned continuation probes: plant sentinel, trigger the backend's available context-management surface, recall sentinel, and confirm the same mapping continues when the backend can continue. Evidence is classified by backend-visible text, wire usage signal, or source-confirmed absence of a command surface; no single `/compact` behavior is assumed across backends. | Live probes require authenticated backends and can cost money, so they are not part of pre-commit. Some backends expose no ACP compact command; that is a recorded adapter fact, not a bridge failure. | L5: 50-turn run per backend with periodic sentinel recall under natural context pressure. |
 | Long-session fact retention holds across 8+ turns under the 0.5.0 policy (backend-native compaction allowed) | **L1 (0.4.x baseline)** | 2026-04-29 intra run: 4 facts across 9 turns, verbatim including a 27-character timestamp string. **Note: this baseline was recorded with backend auto-compaction disabled (0.4.x); the 0.5.0 policy lets the backend compact on its own, which is a different long-session shape and needs a new baseline.** | One run, one length range, one model — and the 0.5.0 policy has not yet been re-baselined here | L3: examine `usage_update` payloads through a 0.5.0 LIVE smoke; L5: 50+ turn run with periodic recall under 0.5.0 defaults |
 | Backend ACP child reuse + idle reaping holds within `AFTER_<BACKEND> <= BEFORE_<BACKEND> + alive_tuples` upper bound | **L2 / L3 partial** | `pgrep` snapshots and bridge reuse logic (`acp-bridge.ts`) confirm bounded child reuse on covered backends. The same baseline/delta accounting applies to every backend under test. | Repeated long-run / orphan-walk coverage and fault injection are not automated for every backend. | L3: scripted parent-walk + orphan kill check across all backends; L5: parallel verifier sessions stressing the same `(provider, model)` tuples. |
-| `pi-shell-acp` performs at native or near-native quality on 8-hour-a-day workloads | **NOT YET MEASURED** | Anecdotal operator report only; the official verification surface (this document) has not exercised L4 / L5 | Almost everything that matters at production scale | L4: side-by-side native vs bridged on identical task batches; L5: 2–4 hour soak with fault injection |
+| `entwurf` performs at native or near-native quality on 8-hour-a-day workloads | **NOT YET MEASURED** | Anecdotal operator report only; the official verification surface (this document) has not exercised L4 / L5 | Almost everything that matters at production scale | L4: side-by-side native vs bridged on identical task batches; L5: 2–4 hour soak with fault injection |
 | Operator-config isolation overlays preserve backend identity while hiding operator state | **L2 + L3** | BASELINE history plus `check-backends` cover the shared contract: carrier reaches the backend's native identity slot, operator memory/config/history are isolated, skills/MCP are exposed only through explicit bridge settings, and pi-owned memory remains external. Backend-specific mechanisms differ (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`/`CODEX_SQLITE_HOME`, `GEMINI_CLI_HOME`/`GEMINI_SYSTEM_MD`), but the release claim is one invariant. | Some backend-specific edge probes remain historical rather than repeated on every release. Subscription/billing parity is outside this claim. | L4: direct-native vs bridged side-by-side per backend; L5: long-session canary recheck under each backend. |
 | Skill + MCP capability dignity is preserved across Claude / Codex / Gemini | **L3 / L4 mixed** | Direct `check-bridge` covers MCP protocol shape; `smoke-async-resume` + `sentinel` cover live backend invocation/orchestration across available backends; BASELINE history records the earlier Gemini asymmetry retraction. The current invariant is parity of capability, not identical tool spelling or identical backend implementation. | Long-session stability of the advertised surface is not yet soaked. | L5: repeat MCP/skill callable checks during long sessions and after backend context-pressure events. |
 | Spawn harness invariant — entwurf spawn target must be a YOLO harness (`pi`; `claude-code` candidate); backend CLIs are model carriers, not spawn targets | **L4 (operator-observed live pair, not a formal smoke)** | 2026-05-22 live pair from a Claude Code external MCP host: a personal-repo advisory spawned via `pi --provider openai-codex --model gpt-5.5 -p` (✅ pi harness, completed in 6m08s with llmlog written, async recall channels all intact); a second work-project advisory spawned via `codex exec -m gpt-5.5` (❌ same model reached, but codex CLI's default permission-ask sandbox left the harness in a slip — the child reached llmlog by luck while the harness path itself was non-YOLO). Same model, same recall channels (llmlog + tmux + `entwurf-peek`); only difference = spawn harness. This is the empirical evidence for the "Source-agnostic does not mean harness-agnostic" invariant added to `AGENTS.md` § Entwurf in the same round. | Only Claude Code as external host observed; Codex CLI / Gemini CLI / OpenCode hosts unmeasured. `claude-code` as a spawn-target candidate is currently narrative — not yet exercised in a live spawn case here. No automated detector for the slip in `entwurf-peek` (deliberately deferred to keep observer ≠ enforcer). | L3: corroborate the two live cases on disk — JSONL trail under `~/.pi/agent/sessions/`, tmux session lifetime, process tree shape — so the evidence stops resting on transcript self-report alone. L4 retry under `claude-code` as spawn target — a paired pi-style case but throwing into claude-code instead of pi. Broaden the host axis (Codex CLI host, Gemini CLI host) and record whether the same slip surfaces. |
@@ -1246,14 +1246,14 @@ The output of this run is not a pass/fail bit; it is a transcript that future re
 
 Run the same prompt batch (15–25 prompts spanning self-awareness, tool use, multi-turn fact, refactor, debugging) against:
 
-- `pi-shell-acp/claude-sonnet-4-6`
+- `entwurf/claude-sonnet-4-6`
 - direct Claude Code (no bridge)
-- `pi-shell-acp/gpt-5.4`
+- `entwurf/gpt-5.4`
 - direct Codex (no bridge)
-- `pi-shell-acp/gemini-3.1-pro-preview`
+- `entwurf/gemini-3.1-pro-preview`
 - direct Gemini CLI (no bridge, when available)
 
-Quality scoring stays semantic, not string-equality. Pass = bridged path's quality is within the run-to-run noise of the matching direct path. This is the only test that can actually back the claim "pi-shell-acp is native-quality".
+Quality scoring stays semantic, not string-equality. Pass = bridged path's quality is within the run-to-run noise of the matching direct path. This is the only test that can actually back the claim "entwurf is native-quality".
 
 These three directions are the load-bearing experiments for any claim about real-world operational quality. Until they have been run, narrative in this repo (and downstream READMEs) should not promise more than the floor in §14.
 
@@ -1274,7 +1274,7 @@ The §1A.4 long-turn fact retention bar (8 turns / 3+ facts / verbatim) held acr
 
 What the cross-vendor samples (Codex on Oracle 2026-04-29, plus the reverse-direction run later that day) confirmed beyond intra-Anthropic runs:
 
-- **Bridge identity is backend-invariant.** Both Claude and Codex self-report `pi-shell-acp` as the harness and enumerate the same two MCP servers (`pi-tools-bridge` + `session-bridge`) and the same eight MCP tool functions. Whatever distortion the bridge could introduce is empirically not introduced.
+- **Bridge identity is backend-invariant.** Both Claude and Codex self-report `entwurf` as the harness and enumerate the same two MCP servers (`pi-tools-bridge` + `session-bridge`) and the same eight MCP tool functions. Whatever distortion the bridge could introduce is empirically not introduced.
 - **Native tool surface is correctly backend-specific.** Claude reports `Bash/Read/Edit/Write/Skill`; Codex reports `exec_command/write_stdin/apply_patch/update_plan/request_user_input/list_mcp_resources/read_mcp_resource/multi_tool_use.parallel`. Neither side hallucinates the other's native tools — the bridge does not normalize the tool surface, which is the §0 thin-bridge invariant in operation.
 - **MCP namespace convention difference is the agent-visible boundary marker** (§8.4 verified property). A Claude session reporting underscore form, or a Codex session reporting hyphen form, would be a backend-identity leak. The §8.4 "two-layer naming" note disambiguates the outer `__` separator (same on both backends) from the inner server name (`pi-tools-bridge` vs `pi_tools_bridge` — the actual marker).
 - **Prompt-only echo-chamber risk closed by objective MCP tool calls; shared-infrastructure blind spots remain.** A pile of self-reports could in principle agree on a hallucinated bridge if the bridge were transmitting its own hallucination uniformly through the prompt layer. The 2026-04-29 reverse-direction run resolved that prompt-layer concern: Codex called `mcp__pi_tools_bridge__entwurf_peers` and `mcp__session_bridge__session_info` directly and got back real `controlDir` / `sessionId` / `socketPath` payloads matching on-disk state. What is **not** closed: the verifier still relies on the same MCP bridge implementation, same on-disk state, and same operator-config overlay as the subject — uniform corruption of those layers would survive this test. Closing those blind spots needs L3 (independent on-disk / process corroboration) and L5 (long-haul soak with fault injection); see "Evidence Levels" and "Next experimental directions" below.

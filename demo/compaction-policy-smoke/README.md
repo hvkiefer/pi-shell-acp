@@ -4,7 +4,7 @@
 
 ## What 0.5.0 declares
 
-> `pi-shell-acp` does not implement compaction. When a backend
+> `entwurf` does not implement compaction. When a backend
 > compacts natively, the pi session and mapping survive that. The
 > bridge boundary stays explicit. pi-side JSONL compaction stays
 > blocked — it would not reduce the backend transcript anyway.
@@ -30,7 +30,7 @@ or knob shapes.
 |---|---|---|
 | 02 | `session_before_compact` message honestly tells the operator: pi-side compact does **not** reduce the backend transcript, and points at the backend-native compaction path. | deterministic |
 | 03 | **Live**: Claude ACP session survives a backend `/compact`. Spawns a real ACP child via `runEntwurfSync`, plants a unique sentinel + asserts READY, sends literal `/compact` as a backend prompt, then asserts the sentinel survives a recall prompt. Same `sessionId` across all three prompts. | LIVE=1 |
-| 04 | **Live**: same 3-prompt driver against the Codex adapter, routed through pi-shell-acp ACP via `PI_ENTWURF_ACP_FOR_CODEX=1`. | LIVE=1 |
+| 04 | **Live**: same 3-prompt driver against the Codex adapter, routed through entwurf ACP via `PI_ENTWURF_ACP_FOR_CODEX=1`. | LIVE=1 |
 | 05 | Legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` is rejected at spawn intent with a next-action message pointing at `PI_SHELL_ACP_ALLOW_PI_COMPACTION`. | deterministic |
 | 06 | **Live (exploratory)**: same 3-prompt driver against Gemini. Gemini ACP does not advertise `/compact`; the probe records the actual observation, not a release claim. | LIVE=1 |
 
@@ -68,7 +68,7 @@ bridge-facing recipe.
 | Signal | Source | Means |
 |---|---|---|
 | text | `classifyCompactResponse((b).text, sentinel)` | `ack` if the reply talks about compaction/summary/context-reduction; `refusal` if the backend says it does not recognize the command; `ambiguous` otherwise. Sentinel is stripped before matching so the planted token cannot self-trigger an `ack`. |
-| wire | `classifyUsageEvidence(...)` reads `[pi-shell-acp:usage] meter=acpUsageUpdate` lines in bridge stderr | `compact_boundary_signal` (an explicit `used=0` synthetic usage_update — claude-agent-acp emits this when the SDK performs compaction), `usage_drop` (final used ≥ 50% lower than pre-`/compact` baseline), or `no_evidence`. |
+| wire | `classifyUsageEvidence(...)` reads `[entwurf:usage] meter=acpUsageUpdate` lines in bridge stderr | `compact_boundary_signal` (an explicit `used=0` synthetic usage_update — claude-agent-acp emits this when the SDK performs compaction), `usage_drop` (final used ≥ 50% lower than pre-`/compact` baseline), or `no_evidence`. |
 | sentinel recalled | recall prompt reply | does it contain the planted sentinel verbatim. |
 
 | text | wire | sentinel recalled | outcome |
@@ -119,7 +119,7 @@ failures.
 
 ### Cross-backend symmetry note
 
-Claude and Codex remain inside the same bridge thesis: pi-shell-acp
+Claude and Codex remain inside the same bridge thesis: entwurf
 does not implement compaction; the backend does its own thing; the
 pi session lives. They differ in default thresholds — Claude SDK
 compacts much earlier (~60% fill on Sonnet 4.6, ~120k of 200k);
@@ -143,7 +143,7 @@ Use the smoke driver directly — `LIVE=1 ./run.sh smoke-compaction-policy --ste
 
 Pattern B is intentionally manual and backend-native. Drive a sandboxed
 session toward the backend's own default context threshold with ordinary
-file reads and analytic prompts, then verify `[pi-shell-acp:usage]`
+file reads and analytic prompts, then verify `[entwurf:usage]`
 shows the backend's compact signal and the next turn answers the user
 prompt rather than a bridge-injected summary. Backend-specific threshold
 knob names are not documented here; the bridge does not surface them.

@@ -1,10 +1,10 @@
-# Contributing to pi-shell-acp
+# Contributing to entwurf
 
 This is a daily-driver bridge. Correctness beats feature breadth. Read this before opening a PR.
 
 ## What this repo is
 
-`pi-shell-acp` is a **thin ACP bridge** that lets pi talk to Claude Code, Codex, and Gemini. It borrows each backend's identity (system prompt preset, model behavior, tool implementations) and shapes the *operating surface* — what tools, MCP, skills, and permissions are visible — to match pi's own policy. That is the entire scope.
+`entwurf` is a **thin ACP bridge** that lets pi talk to Claude Code, Codex, and Gemini. It borrows each backend's identity (system prompt preset, model behavior, tool implementations) and shapes the *operating surface* — what tools, MCP, skills, and permissions are visible — to match pi's own policy. That is the entire scope.
 
 If a change moves the bridge toward "second harness" — prompt reconstruction, transcript hydration, ambient discovery, silent fallback — it does not belong here.
 
@@ -14,7 +14,7 @@ These are enforced by code, gates, and review. Do not weaken them in a PR; if yo
 
 1. **Bootstrap order**: `resume > load > new`. Always.
 2. **Session persistence**: only `pi:<sessionId>` is persisted. `cwd:<cwd>` is never persisted.
-3. **MCP injection**: only via `piShellAcpProvider.mcpServers`. No ambient `~/.mcp.json` scanning, no `~/.claude/settings.json` MCP inheritance.
+3. **MCP injection**: only via `entwurfProvider.mcpServers`. No ambient `~/.mcp.json` scanning, no `~/.claude/settings.json` MCP inheritance.
 4. **Operating surface, not config inheritance**: the user's filesystem Claude Code config (`~/.claude/settings.json` hooks, env, plugins, `permissions.defaultMode`) is intentionally *not* inherited. Skills come from `skillPlugins`, permissions from `permissionAllow`, deferred-tool surface from `disallowedTools`. The `CLAUDE_CONFIG_DIR` overlay enforces this even where the SDK reads filesystem independently of `settingSources`.
 5. **Codex sandbox**: defaults to `full-access` (the only preset that lets pi-baseline skills like `gogcli` reach `~/.gnupg/`). Tightening is opt-in via `PI_SHELL_ACP_CODEX_MODE`. Invalid values throw, never fall back.
 6. **Bridge does not implement compaction (0.5.0)**: When a backend compacts natively, the pi session and mapping survive that. Default — pi JSONL compaction blocked (pi-side summary does not reduce the backend transcript), backend-native compaction **always allowed (no bridge knob)**. Single knob — `PI_SHELL_ACP_ALLOW_PI_COMPACTION=1` opts back into pi-side compact. Operators who need to alter a specific backend's auto-compaction configure that backend through its own native interface — the bridge intentionally does not surface backend-specific compaction names. Legacy `PI_SHELL_ACP_ALLOW_COMPACTION=1` is rejected at spawn intent with a next-action message pointing at `PI_SHELL_ACP_ALLOW_PI_COMPACTION`.
@@ -40,7 +40,7 @@ These need a real ACP subprocess, so they stay manual — the hook does not run 
 
 ## What gets PRs rejected
 
-- adds ambient MCP discovery (project `.mcp.json`, `~/.mcp.json`, etc.) without an explicit `piShellAcpProvider.mcpServers` opt-in path
+- adds ambient MCP discovery (project `.mcp.json`, `~/.mcp.json`, etc.) without an explicit `entwurfProvider.mcpServers` opt-in path
 - inherits user / project / local backend config by default (i.e. flips `settingSources` away from `[]`, drops the `CLAUDE_CONFIG_DIR` overlay, removes the codex `-c` config flags)
 - weakens `resume > load > new` (e.g. silently downgrading to `new` without a logged invalidation reason)
 - introduces `console.warn` / silent fallback where the bridge should `throw` (see `AGENTS.md` "Never warn. Throw.")
@@ -54,7 +54,7 @@ These need a real ACP subprocess, so they stay manual — the hook does not run 
   - fail-fast: throw on bad config, never warn-and-continue
   - no `try/catch` swallowing — `catch {}` is allowed only for environment probing
   - send-is-throw — messages aren't awaited
-  - one surface name (`pi-shell-acp`)
+  - one surface name (`entwurf`)
 - Comments explain *why*, not *what*. Reach for them at non-obvious decisions, especially around SDK / claude-agent-acp / codex-rs interaction edges that future maintainers won't know to look up.
 - Keep changes single-responsibility per commit; bundling a refactor with a behavior change makes review and bisect painful.
 
