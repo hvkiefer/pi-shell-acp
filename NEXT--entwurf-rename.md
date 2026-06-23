@@ -7,7 +7,7 @@
 > - **openclaw consumer는 허구다.** `plugins/openclaw`는 2026-06-10 deprecate·**디렉토리째 제거**(find 0건). repo 내 `openclaw` 언급은 전부 historical docs(README/CHANGELOG/ROADMAP/docs/run.sh 주석) — **코드 lockstep 0**. oracle이 docs 기록을 live 배포 consumer로 오인했던 §4-B는 **삭제**.
 > - **rename이 먼저. npm publish는 최후행.** 순서 = **코드 rename(S1~S3) → repo/dir rename(GLG) → npm publish(GLG, 맨 마지막)**(§6 시퀀스). publish는 rename 트리거가 아니다. package.json `name` *문자열*은 S1 소스 치환 대상이지만 *registry publish*는 모든 rename 완료 후 별도. 설치 동기화 cut-choreography **폐기** — 쓰는 사람은 전문가, 내 방향 따라오거나 안 쓰면 그만. 범용 도구가 아니다.
 >
-> **▶ 다음 세션 진입점 (실제 작업):** self-review + **GPT 2라운드 = "GO for S1 dry-run 진입"**, RED/Amber 전부 반영, **§6 GLG 결정 4건 확정 완료**(§9). 진행: ① fresh rg 전수 ✅ → ② **S1 dry-run = GREEN ✅(2026-06-23, §9 ledger)** → 남은: ③ **dry-run 산출물 GPT 최종 GO** → ④ GLG 비준 시 live S1 일격. *본 트리 치환 0건 유지(dry-run은 버린 worktree).*
+> **▶ 다음 세션 진입점 (실제 작업):** self-review + **GPT 2라운드 = "GO for S1 dry-run 진입"**, RED/Amber 전부 반영, **§6 GLG 결정 4건 확정 완료**(§9). 진행: ① fresh rg ✅ → ② S1 dry-run GREEN(보정 포함) ✅ → ③ **GPT 4R = live S1 GO ✅**(조건: §6-5 A 잠금) → 남은: ④ **GLG 비준**(§6-5 meta-bridge state A 승인 + live S1 착수) → ⑤ live S1 실행(§5 S1 시퀀스 8단계) + 직후 S1-doc commit. *본 트리 치환 0건 유지(dry-run은 버린 worktree).*
 
 ---
 
@@ -152,6 +152,9 @@
   - **★ dry-run 가드 (GPT 확정):** ① **S1 범위만** 치환 — `pi-tools-bridge`(S2)·`PI_*` env namespace(S3)는 **건드리지 말 것**(섞으면 검증 의미 흐려짐). ② live `~/.pi` 금지(§5-c). ③ **산출물 필수 형태:** worktree path · replacement script/명령 · `git diff --stat` · residual rg 요약(runtime/code RENAME **0** / KEEP pi 잔존 / historical·docs allowlist 잔존) · `pnpm check` · `pnpm run check-pack-install` · 실패 시 첫 failure log.
 - *consumer(agent-config)는 이 commit에 없다 — 담당자가 별도 beat로 맞춘다.*
 
+#### ▶▶ live S1 실행 시퀀스 (GPT 4R 확정, dry-run green 후):
+1. 본 트리 clean 확인 + 현재 HEAD 기록. 2. content-driven 선택으로 **S1만** 치환(S2 bridge·S3 env 보존). 3. `biome check --write`. 4. residual `git grep`(확장자 무관): S1 0 / S2·S3·KEEP 잔존. 5. 게이트 = **본 트리 전체 `pnpm check`** + `check-pack-install`(필수, pnpm check 밖) + `smoke-meta-install-state` + `smoke-meta-keyset-guard` + 핵심 게이트 재확인. 6. **commit skill 경유 S1 runtime/package/state identity commit.** 7. **직후 S1-doc commit**(live-instruction docs만, runtime diff와 분리). 8. **user state migration = commit과 별개 운영 단계** — meta-bridge state(§6-5 A) + ACP cache(§6-④ A)는 fixture 검증·backup 후 one-shot, live `~/.pi`/`~/.claude`는 resident/Claude Code 상태 확인 후. **push/repo-rename/npm = GLG.**
+
 ### ▶ S2 — MCP bridge
 `mcp/pi-tools-bridge`→`mcp/entwurf-bridge`(dir+서버명) + tool id `mcp__pi-tools-bridge__*`→`mcp__entwurf-bridge__*` 전수 + install/remove/prune settings + `check-pi-tools-bridge-boot`. (consumer mcpServers·노트 C 경로 = 담당자.)
 
@@ -177,7 +180,7 @@ taxonomy(§3)대로 `PI_SHELL_ACP_*` 20개 의미별 분해 + `PI_TOOLS_BRIDGE_*
    - **⚠️ framing 정밀화 (GPT 2R, 실증):** `readSessionRecord` production 호출 **0건** · `backend.ts:591` "persisted resume/load is OFF" — 현재 live reuse는 **in-memory candidate** 기반이라 persisted record는 *지금 안 읽힘*. 따라서 (A) rewrite는 *지금 live resume을 살리는 게 아니라* **future-lane(persisted ON) 위한 record hygiene**. 그래도 비용≈0이라 S1에 넣어 깨끗이 가져간다(미래에 ON 시 즉시 resume). **[GLG 확정 — 무조건 포함]:** persisted resume을 *켜는 방향으로 개선*할 의도이므로(side-effect 없음 확인 전제) cache (A)는 그 선결조건. drop 옵션 폐기.
    - **★ cwd 축 (GPT 2R 새 발견 — 별개):** compat은 `session-store.ts:254` `candidate.cwd === params.cwd`도 봄. **dir rename으로 record `cwd` prefix(`…/pi-shell-acp`→`…/entwurf`)가 바뀌면 또 다른 incompat=cold-start.** persisted OFF라 지금 무영향이나, future lane에선 repo/dir rename 이벤트(§6-③) 때 **cwd prefix one-shot rewrite 별도** 또는 그 순간 cold-start 허용을 명시해야. provider rewrite(S1)와 다른 축.
 
-5. **meta-bridge install-state migration (GPT 3R — S1이 `meta-bridge-state.py` 건드림):** `~/.claude/pi-shell-acp.install-state.json` → `entwurf.install-state.json`. 이 state는 Claude Code settings 키 *소유권* SSOT(doctor/uninstall이 이걸로 청소). rename 후 못 찾으면 uninstall이 옛 키를 orphan으로 남김. **추천: one-shot migration**(ACP cache §6-④와 동류 — 숨은 alias 금지, mv+검증). live는 §5-c처럼 fixture 먼저·backup 후, dry-run에선 코드 문자열만. *대안 = documented break(기존 meta-bridge uninstall 후 재install). GLG 택1.* **[GLG 결정 대기]**
+5. **meta-bridge install-state migration = (A) one-shot [GPT 3R/4R 확정 권고, GLG 승인 대기].** `~/.claude/pi-shell-acp.install-state.json` → `entwurf.install-state.json`. **ACP cache(§6-④)보다 중요** — ACP는 persisted read OFF(future hygiene)지만 meta-bridge state는 **doctor/uninstall/preflight가 실제 읽는 state authority**. 못 찾으면 uninstall fail 또는 새 install이 현재 managed state를 "original"로 오기록해 원복 의미 상실. **알고리즘:** old=`pi-shell-acp.install-state.json`/new=`entwurf.install-state.json` · old有new無→backup→JSON validate(schema/owner old)→owner `entwurf meta-bridge`로 rewrite(repo/assembled path는 보존, path rewrite는 repo/dir rename 이벤트 때 별도)→atomic write new→old는 `.bak`/archive · old有new有→fail-loud · old無new有→validate ok · old無new無→ok · **숨은 dual-read alias 금지**(명시적 `migrate-meta-bridge-state` step). live는 §5-c처럼 fixture 먼저·backup 후, dry-run엔 코드 문자열만. *대안 documented break는 GLG 택1.*
 
 **후행 결정 (rename 전부 끝난 뒤 — S1 트리거 아님):**
 1. **npm publish = 최후행 (나중).** `@junghanacs/pi-shell-acp`→`@junghanacs/entwurf`. npm in-place rename 미지원 → 새 이름 publish + 옛것 deprecate 마킹. *설치자 동기화 cut-choreography 없음.* package.json `name` 문자열 치환은 S1에 이미 포함; 여기서 정하는 건 *registry 행위 + deprecate 문구*뿐, 시점은 "모든 rename·검증 완료 후"로 고정. **[GLG 확정 — 나중]**
@@ -203,7 +206,8 @@ README/VERIFY/CHANGELOG stale(backend overclaim·packaged docs·persisted contin
 - **GPT 검수 (`20260623T075242-7f3777`, 2026-06-23, 2라운드):**
   - **1R 조건부 GO** → RED2(ACP cache cold-start §1-③·§5-c·§6-④ / `check-pack-install` 하드코딩 §2·§5) + Amber(RENAME-0 3계층화 §5-a) 반영.
   - **2R = GO for S1 dry-run 진입** (큰 RED 없음). 새 발견 3건 실증 반영: ① `readSessionRecord` production 0건·`backend.ts:591` persisted OFF → cache migration은 *future-lane hygiene*(지금 live 무영향) ② rewrite 알고리즘 엣지(lock·temp atomic·partial scan §5-c) ③ cwd가 별도 compat 축(`session-store.ts:254`) → dir rename 시 cwd cold-start(§6-③·④). Amber 문구 2: S1 게이트에 `check-pack-install` 명시 + entry point 정밀화 = 반영.
-  - **live S1 최종 GO는 dry-run green 산출물 보고.**
+  - **3R = 정확한 RED** — content-driven blind spot(.py/.cjs/.husky 4파일). 보정 후 재-dry-run GREEN.
+  - **4R = live S1 GO (조건부)** — 코드 diff GO. 조건 = **§6-5 meta-bridge state를 (A) one-shot으로 잠그고 live S1 후 usage-ok 선언 전 운영계획 수행/기록.** live S1 시퀀스 8단계(§5 S1) 확정.
 - **✅ S1 dry-run GREEN (2026-06-23, worktree `/tmp/entwurf-s1-dryrun` detached `28a4588`):**
   - **★ 파일 선택 = content-driven 필수 (GPT 3R RED, 실증):** 1차 시도가 확장자 whitelist(`.ts/.sh/.json/.toml/.mjs/.js`)라 **`.py`/`.cjs`/`.husky`를 빠뜨림** — `scripts/meta-bridge-state.py`(9, OWNER·state file명·managed-key SSOT) · `check-keyset-overlap.py`(3) · `postinstall-chmod.cjs`(3) · `.husky/pre-commit`(2) 잔존했었음. **교정 레시피 = `git grep -Il -e 'pi-shell-acp' -e 'piShellAcp' -e 'PiShellAcp' -- ':!*.md' ':!NEXT*' ':!docs/**' ':!*.org'` 로 선택**(확장자 무관, docs 제외) → perl 치환 → `biome --write` → residual rg(역시 `git grep`).
   - **보정 후 GREEN:** diffstat **77 files 458/469** · residual S1 RENAME **0** · S2 `pi-tools-bridge`/S3 `PI_SHELL_ACP_` 보존. **게이트:** typecheck EXIT0 · lint 0err(12 pre-existing warn) · check-pack-install EXIT0(`junghanacs-entwurf-0.11.0.tgz`→pi loader `entwurf` 등록) · check-{package-source-routing,model-lock,entwurf-session-identity,auth-boundary} EXIT0 · **smoke-meta-install-state·smoke-meta-keyset-guard EXIT0**(meta-bridge .py 커버). **발견:** 치환→biome reflow 2건→`--write`. *전체 `pnpm check` 체인은 socket/`~/.pi` substrate 의존이라 worktree 부적합 — rename 회귀 핵심만 선별.*
