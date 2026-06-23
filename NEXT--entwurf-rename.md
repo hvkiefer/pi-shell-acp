@@ -270,10 +270,21 @@ README/VERIFY/CHANGELOG stale(backend overclaim·packaged docs·persisted contin
 **복구 후 GREEN (= "확실하게 글로벌" 달성):** `doctor-meta-bridge` PASS · `check-entwurf-v2-surface` 42/42 ·
 `entwurf-bridge: ✔ Connected` (USER scope) · upstream `entwurf-rename → origin/entwurf-rename` 재연결(rename 시 끊겨 있었음).
 
-**→ 수정 사항 (GLG 비준 후 착수, §8 결합 규칙 준수):**
-- **`run.sh install` 이 node_modules 부재/깨짐을 fail-loud로 잡는다** (Code Principle "Crash, Don't Warn" 정합 —
-  지금은 의존성 깨진 채 settings만 silent 배선하고 끝나서, 죽는 건 한참 뒤 doctor/MCP-connect에서다).
-  `@earendil-works/pi-ai` resolve 실패를 install 진입에서 감지 → "pnpm install 먼저" throw. **검증 게이트 same-commit 결합**
-  (예: `check-install-preflight`)으로 silent red 방지.
-- 분류: rename tail이 아니라 **§10 post-rename 방향(설치 UX/doctor) lane** — S4·릴리즈 정리와 같은 lane. "설치 = `entwurf`
-  한 방, 나머지는 doctor가 감지해서 담아준다"의 첫 가드. **코드 수정이라 §8 선(push/게이트/`--no-verify`) 준수, GLG 비준 후.**
+**→ 수정 완료 (2026-06-23, GLG 비준 + GPT 검수 GO):**
+- ✅ **`run.sh install` preflight (커밋 `0e40c43`)** — `install_local_package` 진입부에서 runtime hard dep 8개
+  (deps 5 + peerDep pi-* 3)를 `fs.accessSync(node_modules/PKG/package.json)`로 검사(pnpm symlink follow + exports-map
+  면역). 부재/깨짐 시 settings write 전 fail-loud + "pnpm install" 안내. `check-install-preflight` 게이트(positive +
+  missing + dangling, settings 미작성·wrong-reason 검증)를 pnpm check에 same-commit 결합(§8). ※ probe는 module import가
+  아닌 manifest access — sdk root / pi-ai package.json subpath가 각각 exports로 막혀 import-resolve가 불가. 더 깊은
+  dist/transitive 손상은 doctor/check-pi-runtime-version 몫(GPT).
+- ✅ **setup 단일 SSOT (같은 커밋)** — `setup_all`이 pnpm install→install→meta-bridge(claude 감지 시)→v2 smoke 단일
+  진입점. pi-only host는 meta-bridge를 깨끗이 skip(§10 "있으면 설정, 없으면 담아준다"). **확실한 명령 하나 = `./run.sh setup .`**.
+- ✅ **rename-tail release-gate green (커밋 `bc63611`)** — repo가 `entwurf`라 cwd slug "entwurf"가 garden-guard
+  substring grep을 false-positive 시켜 release-gate MUST FAIL=3이던 것 해결. `smoke-resident-garden-guard.sh` 2곳을
+  tag-position regex(`__([a-z0-9-]+_)*entwurf(_[a-z0-9-]+)*"`)로 정밀화 — **production `buildGardenSessionName` 무변경**
+  (title slug entwurf는 합법, resume marker는 tag 위치만; parseSessionName 불변식). `smoke-acp-rgg-live`는 같은 스크립트
+  호출이라 동시 해결. + `smoke-acp-session-reuse-live.ts`가 emit 트리에 빠뜨린 `engraving.md`를 copyFileSync.
+  **LIVE release-gate: MUST PASS=17 FAIL=0 SKIP=0** (was 14/3, 2026-06-16 baseline 회복). BEHAVIOR T3
+  (selfEnvelopeSessionIds:[])는 release-gate1에도 있던 pre-existing advisory(model-in-loop 자율 entwurf_self), non-blocker.
+- polish 후보(GPT, 비블로킹): smoke가 Node `parseSessionName`를 직접 호출하면 완전 drift-zero(현재 regex unit 5/5로 충분).
+- **남은 것: push / tag / npm = GLG.** 두 커밋(`0e40c43` + `bc63611`) ahead 2 on origin/entwurf-rename.
