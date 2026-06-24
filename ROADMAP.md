@@ -1,4 +1,4 @@
-# pi-shell-acp ROADMAP — 현재 + 미래 방향
+# entwurf ROADMAP — 현재 + 미래 방향
 
 > 이 문서는 **현재이자 미래방향**이다. `NEXT.md`는 disposable한 다음-한-걸음 나침반,
 > `CHANGELOG.md`는 게시되는 "닫힌 변경" 핵심 로그, 이 `ROADMAP.md`는 게시되지 않는
@@ -7,43 +7,40 @@
 
 ---
 
-## 현재 — `acp-on-v2` / next release candidate: v2 core + ACP plugin
+## 현재 — 0.12.0 release candidate: entwurf-first cutover
 
-이 repo는 **pi-native v2 dispatch substrate (entwurf-core) + meta-bridge + ACP plugin**이다.
-v1 entwurf verbs(`entwurf`/`entwurf_resume`/`entwurf_send`)는 끝났고 사라졌다(v2 core). v2가 척추.
-ACP는 중심이 아니라 v2 core 위에 provider/model로 들어오는 **plugin 하나**(#38) — host
-`--entwurf-control` pi 세션이 *이미* v2 socket-citizen이고, plugin은 socket/peers/citizen 층을
-새로 만들지 않는다.
+이 repo는 **entwurf-core(v2 garden-citizen dispatch) + meta-bridge + pi adapter + ACP plugin**이다.
+`pi-shell-acp`를 예쁘게 rename한 것이 아니라, 프로젝트의 주어를 `entwurf`로 바꾼 hard-cut이다.
+Pi는 네 번째 하네스이자 오늘 가장 깊이 붙은 adapter다. ACP/socket-managed host라는 점에서 특별하지만,
+프로젝트의 본질은 pi가 아니라 **garden id로 호명 가능한 형제 세션 사이의 얇은 dispatch substrate**다.
 
-### Release north-star — operator 실사용 세트 (GLG 결정 2026-06-22)
+v1 entwurf verbs(`entwurf`/`entwurf_resume`/`entwurf_send`)는 끝났고 사라졌다. `entwurf_v2`가 척추다.
+기존 citizen 대상 send/reply/resume → `entwurf_v2`; 무에서 새 형제를 만드는 fresh creation은 deferred lane.
 
-이번 릴리즈 목표는 GLG가 매일 쓰는 **세트 하나**를 단단히 조이는 것이다. 그 밖의 backend는 형제로서
-정직히 deferred로 둔다(제거 아님). 이게 정합성의 기준선 — 모든 문서가 이 세트를 같은 말로 비춘다.
+### Vocabulary guard — 익숙한 말로 되돌리지 않는다
 
-| 세트 | 이 repo에서의 정체 | rail | 근거(AGENTS.md) |
+- **garden id**: 의도적으로 낯선 주소어. session id / worker id / delegate id로 번역하지 않는다.
+- **citizen / sibling**: backend를 pi의 worker로 낮추지 않는다. 각 harness는 자기 transcript/auth/runtime을 가진다.
+- **thin bridge**: auth 우회, transcript hydration, ambient MCP scanning, giant hidden prompt를 하지 않는다.
+- **tool narrowing**: subagent 없음, todo tool 없음, yolo/좁은 tool surface는 기능 부족이 아니라 힣의 드라이버 규율이다.
+
+### 0.12.0 shipped / probe matrix
+
+| Harness / rail | 0.12.0 status | 이 repo에서의 정체 | Evidence |
 |---|---|---|---|
-| **GPT** | pi-native 호스트 그 자체 (pi가 harness, GPT는 pi로 구동) — 이 repo의 backend가 아니라 *그 위에서 도는 곳* | host | L61 "Pi stays the harness" |
-| **Claude Code** (native 세션) | meta-bridge meta-session (SessionStart 훅 → garden id + mailbox + trusted marker, transcript 안 긁음, 2nd harness 아님) | mailbox-citizen (come-and-go) | L63, #87 |
-| **ACP Claude** | ACP plugin backend (provider/model이 claude-agent-acp를 overlay 격리로 구동) | socket-citizen (always live, mailbox 없음) | L65, #102 |
+| **pi** | shipped | control-socket adapter + spawn-bg resume host. ACP plugin도 pi provider/model로 들어온다. | `pnpm check`, v2 matrix/spawn LIVE, release-gate MUST |
+| **Claude Code** | shipped | SessionStart meta-bridge → garden id + mailbox + trusted marker. Transcript를 가져오지 않는다. | meta-session gates, mailbox/deliverability, `doctor-meta-bridge` |
+| **ACP Claude** | shipped | Claude-first ACP plugin backend under local operator auth; socket-citizen rail. | ACP LIVE smokes + release-gate MUST |
+| **Codex** | verified probe | direct/native garden-citizen lane; ACP opt-in probe exists, default is not ACP. | DELIVERY.md raw probe / external MCP evidence |
+| **Antigravity (`agy`)** | verified probe | native/external MCP lane being tightened into adapter docs. | DELIVERY.md raw probe |
+| **Cortex / governed ACP** | deferred | future non-Claude ACP backend candidate. | design lane only |
+| **Gemini CLI** | deprecated path | replaced by Antigravity direction for current Google individual tiers. | README migration note |
 
-세트 밖(deferred, 정직 유지): Codex(직접 주입으로 *이미* garden citizen, ACP backend 아님) · Antigravity
-(릴리즈 후 lane) · Gemini CLI(deprecated→Antigravity) · non-Claude ACP/Cortex(후속) · fresh-mint spawn.
+### ACP plugin boundary
 
-### Rename — `pi-shell-acp` → `entwurf` 확정 (GLG 결정 2026-06-22, 이전 "rename 없음" 뒤집음)
-
-spine이 entwurf-core이고 ACP는 plugin 하나이므로, 이름이 spine을 따르는 게 정직하다. **인플레이스
-rename**(한 몸 유지) — 패키지명 + GitHub repo 이름 둘 다 `entwurf`로. entwurf-core를 별 repo로 *추출*하는
-아키텍처 split(#38, 「큰 방향」)은 *그것과 별개의 더 먼 좌표*로 남는다. 실행은 **체크포인트 2(새 브랜치)**
-— 아래 「다음」의 rename 준비 체크리스트 참조. 이 lock 커밋 시점까지는 패키지명 `pi-shell-acp` 유지
-(README/VERIFY 등 published 표면은 rename 브랜치에서 결합 규칙으로 동시 갱신).
-
-**한 줄:** v2 substrate가 spine, ACP는 그 위 plugin. 기존 citizen 대상 send/reply → `entwurf_v2`
-(무에서 새 형제 만드는 fresh creation은 deferred lane).
-
-### ACP plugin on v2 core — S0~S2f DONE (전부 GPT 적대 검수 GREEN, 2026-06-18~19)
-
-ACP가 0.11.0 fat bridge의 기계적 port가 아니라 v2 core 위 plugin으로 *새로* 구현됨
-(0.11.0 `acp-bridge.ts`는 behavior oracle이지 architecture oracle 아님). Claude-first.
+ACP는 중심이 아니라 v2 core 위에 provider/model로 들어오는 **plugin 하나**(#38)다. Host
+`--entwurf-control` pi 세션이 *이미* v2 socket-citizen이고, plugin은 socket/peers/citizen 층을 새로 만들지
+않는다. Claude-first이며, backend auth는 operator의 로컬 상태에 맡긴다. No OAuth proxy, no subscription bypass.
 
 | 단계 | 능력 | LIVE 증거 |
 |---|---|---|
@@ -51,15 +48,12 @@ ACP가 0.11.0 fat bridge의 기계적 port가 아니라 v2 core 위 plugin으로
 | S1 | turn-free socket citizenship (ACP model이 `entwurf_peers` 1급 시민) | `smoke-acp-socket-citizen-live` |
 | S2a | pinned ACP deps + raw 1턴 (stdio JSON-RPC) | `smoke-acp-raw-turn-live` |
 | S2b | config overlay (격리 + 도구축소 + `hooks:{}`) + tool-surface preflight | `smoke-acp-overlay-live` |
-| S2c | event mapping + `streamSimple` 실 backend (fail-loud stub 제거) | `smoke-acp-provider-live` |
+| S2c | event mapping + `streamSimple` 실 backend | `smoke-acp-provider-live` |
 | S2d | in-memory session reuse + delta-only prompt + carrier(핀1) + first-user augment | `smoke-acp-session-reuse-live` · `smoke-acp-carrier-augment-live` |
-| S2e | RGG — ACP-target garden guard (deterministic 30/0) | `smoke-acp-rgg-live` |
-| S2f | always-on turn-progress visibility (lifecycle notices, display-only marker) | `smoke-acp-provider-live` (L3 marker) |
+| S2e | RGG — ACP-target garden guard | `smoke-acp-rgg-live` |
+| S2g | operator mcpServers/skills + bundled bridge | deterministic split pending for bundled-mcp MUST vs BEHAVIOR |
 
-deterministic 짝(check-acp-overlay/tool-surface/event-mapper/prompt-builder/session-store/session-reuse/
-carrier-augment 등)은 `pnpm check`에, LIVE 짝 7개는 release-gate **MUST** tier(LIVE=1·SKIP=0이 cut 조건).
-
-### v2 substrate 증거 (이전 floor, 그대로 유효)
+### v2 substrate evidence
 
 | 기능 | 증거 |
 |---|---|
@@ -68,39 +62,16 @@ carrier-augment 등)은 `pnpm check`에, LIVE 짝 7개는 release-gate **MUST** 
 | v2 dormant pi → spawn-bg resume (실 `pi --entwurf-control` child + model turn) | `smoke-entwurf-v2-spawn-resume-live` |
 | v2 active Claude Code meta → meta-mailbox enqueue + doorbell | matrix-live C2 |
 | v2 honest reject (false-delivered/`.msg` garbage 0) | matrix-live C3 + deliverability gates |
-| floor 0.79.8 parity (`>=0.79.8 <0.80`) | `pnpm check` + release-gate MUST |
+| pi 0.80.2 fence | `pnpm check` + release-gate MUST |
 
-### 다음 — 체크포인트 (GLG 결정 2026-06-22, 명확히 분리)
+### 0.12.0 close checklist
 
-- **체크포인트 1 (이 브랜치 `acp-on-v2`) — 문서 정합성 lock:** ROADMAP/NEXT를 operator-세트 + rename-확정
-  현실에 정렬(이 lane). 커밋 후 push=GLG. README/VERIFY/CHANGELOG 등 published 표면은 *건드리지 않는다* —
-  rename 브랜치에서 결합 규칙으로 한 번에.
-- **체크포인트 2 (새 브랜치) — rename 실행 + 추가 구현("더 구현할게 있다"):** 아래 rename 준비 체크리스트
-  실행 → `pnpm check` + LIVE release-gate MUST green → 실사용으로 엣지케이스 노출 → 단단히 조인 뒤
-  cut/publish. version bump/tag/publish/repo-rename = GLG. **0.11.0은 이미 cut된 과거 태그**라 이 컷을 다시
-  0.11.0으로 부르지 않는다(CHANGELOG는 Unreleased 유지).
-
-#### rename 준비 (`pi-shell-acp` → `entwurf`, 체크포인트 2 실행 체크리스트)
-
-세 식별자는 *서로 다르며* 따로 바꿀 수 있다 — 호환성 위험도 다르다:
-- **npm 패키지명** `@junghanacs/pi-shell-acp` → `@junghanacs/entwurf` (`package.json` name + `repository.url`). bin 없음.
-- **GitHub repo 이름** `junghan0611/pi-shell-acp` → `junghan0611/entwurf` (GitHub repo rename + git remote URL + README 배지/링크).
-- **런타임 provider id** `pi-shell-acp` (`acp-provider.ts` 등록 키 + Entwurf target `provider=` 라우팅) → `entwurf` —
-  **여기가 호환성 최대 위험**: 기존 `provider=pi-shell-acp` Entwurf target / package-source-routing(#29)이
-  깨진다. 결정: **hard-cut, no permanent runtime alias**. 필요한 보조는 installer/state one-shot migration 또는
-  명시적 breakage 문서화로 처리하고, 숨은 dual-routing은 만들지 않는다.
-
-소스/게이트 — **결합 규칙**(source와 그 게이트를 *같이* 바꿔 `pnpm check`가 silent red 안 되게):
-- 소스: `entwurf-core.ts`(44) · `run.sh`(49) · `model-lock.ts`(23) · `sentinel-runner.sh`(22) ·
-  `meta-bridge-state.py`(9) — `pi-shell-acp` 문자열 90파일 분포 측정.
-- 이름을 assert하는 게이트: `check-package-source-routing.ts`(30) · `check-entwurf-session-identity.ts`(39) ·
-  `check-model-lock.ts`(12) — provider id/패키지명 기대값 동시 갱신.
-- published 문서(결합 동시 갱신): README(48) · VERIFY.md(110) · docs/setup-clean-host.md(110) ·
-  CHANGELOG(90) · demo/README(20) · BASELINE.md(10). AGENTS.md는 rename 브랜치에서 이미 durable
-  정책을 `entwurf` 중심으로 정렬하고, 이후 source rename에 맞춰 잔여 문자열만 함께 갱신한다.
-
-게이트: rename 후 `pnpm check` EXIT0 + `LIVE=1 ./run.sh release-gate` MUST(SKIP=0) 재확인. published
-consumer 호환성(provider id)은 hard-cut 전제로 installer/state one-shot migration 범위만 cut 전 GLG와 확정.
+- README / DELIVERY / BASELINE / VERIFY를 0.12.0 현재 표면으로 재정리한다.
+- 오래된 `pi-shell-acp` / `pi-tools-bridge` / clean-host 중심 문서는 history가 아니면 제거하거나 갱신한다.
+- `smoke-acp-bundled-mcp-live`의 MUST/model-in-loop 불일치를 split한다: deterministic bundled bridge proof는 MUST,
+  모델 자율 tool-call echo는 BEHAVIOR.
+- 데모 gif / hero 이미지를 새 표면에 맞춰 재생성한다.
+- release cut 직전 `pnpm check` + `LIVE=1 ./run.sh release-gate <scratch>` MUST PASS/SKIP=0을 재확인한다.
 
 ### deferred (범위는 보임)
 
@@ -110,14 +81,12 @@ consumer 호환성(provider id)은 hard-cut 전제로 installer/state one-shot m
   형제 만드는 verb는 의도적 부재(능력 구멍을 문서에 못박음, silent regression 아님).
 - **test/release-gate taxonomy (#41)** — 검증 자산을 deterministic / MUST live / BEHAVIOR / utility로 재분류.
 
-### two-tier release-gate 원리 (그대로 유효)
+### two-tier release-gate 원리
 
 release-gate는 MUST(차단·exit code 소유 — transport/provider/backend invariant)와 BEHAVIOR(advisory·
 비차단 — 모델이 MCP entwurf를 *자율 호출*하는가)를 분리한다. model-in-loop tool-selection은 Claude
-Sonnet에서 flaky(Bash/pi-CLI 우회·포기 노출)라 한 번의 flake가 컷을 막으면 안 되기 때문. **S7(Bash
-우회)은 BEHAVIOR lane 안에서도 hard FAIL** — 우회를 PASS로 둔갑시키지 않되 컷은 안 막음. ACP plugin의
-7개 LIVE smoke는 programmatic invariant라 MUST(BEHAVIOR 아님). surface affordance(voscli 사건): garden
-id만으론 pi인지 Claude Code meta인지 모름 → canonical delivery = `entwurf_v2`로 못박음.
+Sonnet에서 flaky라 한 번의 flake가 컷을 막으면 안 된다. 우회/포기는 BEHAVIOR lane 안에서도 hard FAIL로
+기록하되 컷은 막지 않는다. 단, MUST에 model-in-loop가 섞인 gate는 split해야 한다.
 
 ---
 
@@ -147,8 +116,8 @@ id만으론 pi인지 Claude Code meta인지 모름 → canonical delivery = `ent
 
 ## 큰 방향 — entwurf-core / ACP plugin 아키텍처 split (GLG 결정 2026-06-16, 2026-06-22 갱신)
 
-**이번 인플레이스 rename(`pi-shell-acp`→`entwurf`, 「현재」 참조)과는 *별개의 더 먼 좌표*다.** rename은
-이름을 spine에 맞추는 것이고(같은 한 몸), split은 한 몸인 코드를 *물리적으로 쪼개는* 것이다.
+**0.12.0 rename cutover와는 *별개의 더 먼 좌표*다.** rename은 이름을 spine에 맞춘 것이고(같은 한 몸),
+split은 한 몸인 코드를 *물리적으로 쪼개는* 것이다.
 **언젠가 entwurf-core(v2 인터페이스)를 별 repo로 추출**해 ACP plugin과 분리할 수 있다 — 집중을 위해. 단
 이것은 **deferred coordinate**(#38), 이번 lane이 아니다. 지금(그리고 rename 직후에도) 이 repo가 v2
 dispatch substrate + meta-bridge + ACP plugin을 한 몸으로 들고 간다.
@@ -177,9 +146,9 @@ dispatch substrate + meta-bridge + ACP plugin을 한 몸으로 들고 간다.
   저장 안 함 — 매번 계산).** 상태를 저장하면 거짓말이 된다(denote-instinct 함정).
 - **두 레인 둘 다 KEEP:** `pi -p` headless(오케스트레이션, 가벼움) + tmux-live(`--entwurf-control` 소켓,
   도제). resume/send는 세션 type이 아니라 **현재 liveness의 함수** — dormant→resume, live→send.
-- **entwurf = 한 동사(`entwurf_v2`로 통합, 레거시 공존).** `entwurf_peers` = 읽기 전용 fact 표면
+- **entwurf = 한 동사(`entwurf_v2`).** `entwurf_peers` = 읽기 전용 fact 표면
   (liveness/capability/identity/cwd-이력만) — `resumable`/`sendable` 같은 verb-routing을 fact 층에 굽지
-  않는다. 기존 `entwurf`/`_resume`/`_send`는 완전 전환까지 유지.
+  않는다. 기존 `entwurf`/`_resume`/`_send`는 제거 완료.
 - **브레인 ↔ 핸드 분리(둘 다 TS).** 브레인 = TS fact 모듈(disk SSOT meta-record를 읽음, in-memory Map의
   형제-비가시성 대체). 핸드 = 기계적 실행. **최종 형제 선택은 에이전트, 모듈은 근거 제공.** 부가 신호
   (쿼터·시스템 부하)는 substrate가 아니라 에이전트 층 — substrate에 저장하지 않는다.
@@ -207,7 +176,7 @@ parentGardenId:null, isEntwurf:false, createdAt, recordUpdatedAt }`. `model`/`tr
 6. `project_trust` handler `remember` = **false**(prefix policy = SSOT). carve-out: 사람이 명시적으로
    상속-distrust를 덮어쓴 child override는 `remember:true` 저장.
 7. prefix auto-approve roots = **operator policy, NOT package default**(public package 보안 footgun 방지).
-   source = trusted operator surface만(`PI_SHELL_ACP_TRUST_ROOTS` env / user-global / agent-config). match =
+   source = trusted operator surface만(`ENTWURF_PREFIX_ROOTS` env / user-global / agent-config). match =
    canonical path + separator boundary(bare `startsWith` 금지). GLG 기본 = `~/repos/gh`,`~/repos/work`,`~/org`.
 8. **precedence 동결:** `saved false > saved true > prefix match > no-trust-inputs > fail-fast`.
 9. **import surface = public root export만**(`getAgentDir`/`hasProjectTrustInputs`/`ProjectTrustStore`/
@@ -220,8 +189,8 @@ parentGardenId:null, isEntwurf:false, createdAt, recordUpdatedAt }`. `model`/`tr
 
 ## 검증 원장 (measured, 재탐색 불필요)
 
-- **pi 0.79 public export:** `hasProjectTrustInputs`/`ProjectTrustStore`/`getAgentDir`/`VERSION` 모두 index
-  public export → TS 직접 import(재구현 불필요). floor = **0.79.8** (`>=0.79.8 <0.80`, next-minor 상한; 이전 0.11.0 floor=0.79.4).
+- **pi 0.80 public export:** `hasProjectTrustInputs`/`ProjectTrustStore`/`getAgentDir`/`VERSION` 모두 index
+  public export → TS 직접 import(재구현 불필요). floor = **0.80.2** (`>=0.80.2 <0.81`, next-minor 상한).
 - **pi trust(0.79.1+):** `pi -p`는 trust에서 안 멈춤(비대화 미결정→`false` degraded). `--approve`(`-a`)=
   project 파일 로드, `--no-approve`(`-na`)=무시·degraded. `ProjectTrustStore.get`은 nearest-ancestor
   walk-up(조상 cwd 결정을 자식이 상속). `AGENTS.md`/`CLAUDE.md`는 0.79.1에서 trust input에서 제거(항상
@@ -237,15 +206,14 @@ parentGardenId:null, isEntwurf:false, createdAt, recordUpdatedAt }`. `model`/`tr
 
 ---
 
-## Backlog 트랙 (0.11.0 별개, GLG 재오픈 시)
+## Backlog 트랙 (0.12.x 이후, GLG 재오픈 시)
 
 - **Post-0.10 meta-bridge:** #34 잔여(empirical probe 4종 + unread-mailbox heartbeat), Phase 4 GC 자동화
   (`--apply`/TTL/liveness 코드화), step 7 `entwurf_peers(includeMeta)` 발견성.
 - **Carried 0.9:** `/gnew` T3 codex/gemini 확장, `/gnew` empty-session GC(cross-cutting), `entwurf.ts`
   source guard refinement(plain UI send 추가 시 allowlist로 좁히되 equality 안 느슨하게).
-- **Dep bump(별도 트랙):** claude-agent-acp 0.40.0 / sdk 0.24.0. sdk 0.24가 `unstable_setSessionModel`
-  제거 → `session/set_config_option(configId="model")`로 마이그레이션 필요. codex/gemini model-forcing은
-  그 RPC가 유일 경로라 `as any` 캐스트는 silent regress(=`check-sdk-surface`가 막는 anti-pattern).
+- **Dep bump(별도 트랙):** claude-agent-acp / ACP SDK bump는 `check-acp-sdk-surface`와 raw LIVE로 잠근다.
+  0.12.0은 claude-agent-acp 0.50.0 / sdk 0.29.0이며 model forcing은 `session/set_config_option(configId="model")`.
 - **Standing focus — Mitsein over MCP:** plain external(non-replyable) vs garden-native meta-session
   (replyable by garden id) 구분이 agent 발화에 정직히 반영되는가. native Claude meta-session이
   external-mcp로 퇴행하거나 `wants_reply=true`를 비대칭 거절하면 버그.
@@ -271,5 +239,5 @@ parentGardenId:null, isEntwurf:false, createdAt, recordUpdatedAt }`. `model`/`tr
 
 ## Reference paths
 
-- 본체: `~/repos/gh/pi-shell-acp/` · Consumer: `~/repos/gh/agent-config/` · NixOS: `~/repos/gh/nixos-config/`
+- 본체: `~/repos/gh/entwurf/` · Consumer: `~/repos/gh/agent-config/` · NixOS: `~/repos/gh/nixos-config/`
 - 미래 split 대상(#38, rename과 별개): entwurf-core(v2 interface)를 ACP plugin에서 떼어낸 별 repo

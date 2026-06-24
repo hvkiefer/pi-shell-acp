@@ -32,7 +32,7 @@ current branch:
 
 - `docs/assets/entwurf-demo.cast` — raw asciinema recording (gitignored)
 - `docs/assets/entwurf-demo.gif` — tracked, referenced by `package.json#pi.image` and the top-level `README.md`
-- `demo/baseline-debug.log` — `PI_SHELL_ACP_DEBUG=1` stderr (gitignored, stays next to the script)
+- `demo/baseline-debug.log` — `ENTWURF_DEBUG=1` stderr (gitignored, stays next to the script)
 
 ## `demo.sh` — two-pane entwurf flow (regression guard)
 
@@ -57,7 +57,7 @@ naming convention:
 
 - `docs/assets/entwurf-entwurf.cast` — raw asciinema recording (gitignored via global `*.cast`)
 - `docs/assets/entwurf-entwurf.gif` — tracked, referenced by the top-level `README.md` Entwurf section
-- `demo/peer-debug.log` — `PI_SHELL_ACP_DEBUG=1` stderr from the top pane (gitignored, stays next to the script)
+- `demo/peer-debug.log` — `ENTWURF_DEBUG=1` stderr from the top pane (gitignored, stays next to the script)
 - `demo/sender-debug.log` — same from the bottom pane
 
 Watch debug live (separate terminal, before `bash demo.sh`):
@@ -118,7 +118,7 @@ The demo launch lines correspond to your shell aliases:
 | `piat5` | `entwurf/gpt-5.5` | either |
 | `piag` | `entwurf/gemini-3.1-pro-preview` | either |
 
-Each pane runs with `PI_SHELL_ACP_DEBUG=1` baked in — same shape as
+Each pane runs with `ENTWURF_DEBUG=1` baked in — same shape as
 the aliases — so every spawn/model-switch/entwurf trace lands in the
 debug log files (see below).
 
@@ -136,7 +136,7 @@ SCENE_DELAY=30 FINAL_PAUSE=10 bash demo.sh
 
 ## Prerequisites
 
-- `pi` on PATH (currently 0.74.0)
+- `pi` on PATH (current floor 0.80.2)
 - `entwurf` provider configured + auth ready for the selected sender/peer models
 - `asciinema` installed
 - `agg` installed (optional — only for GIF conversion)

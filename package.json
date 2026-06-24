@@ -1,7 +1,7 @@
 {
 	"name": "@junghanacs/entwurf",
 	"version": "0.12.0",
-	"description": "Pi-native garden-citizen dispatch substrate and meta-bridge for entwurf v2 sessions.",
+	"description": "Garden-citizen dispatch substrate and meta-bridge for Claude Code, Codex, Antigravity, and pi harnesses.",
 	"license": "MIT",
 	"author": {
 		"name": "Junghan Kim",
@@ -46,6 +46,10 @@
 		"pi/entwurf-targets.json",
 		"pi/entwurf-capabilities.json",
 		"pi/settings.reference.json",
+		"pi/meta-bridge/.claude-plugin/marketplace.json",
+		"pi/meta-bridge/entwurf-meta-receive/.claude-plugin/plugin.json",
+		"pi/meta-bridge/entwurf-meta-receive/hooks/hooks.json",
+		"pi/meta-bridge/entwurf-meta-receive/scripts/doorbell.sh",
 		"pi/skill-plugin-example/",
 		"run.sh",
 		"AGENTS.md",

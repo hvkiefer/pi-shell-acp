@@ -1686,6 +1686,16 @@ check_pack() {
     "mcp/entwurf-bridge/src/index.ts"
     "scripts/postinstall-chmod.cjs"
     "pi/entwurf-capabilities.json"
+    "pi/entwurf-targets.json"
+    "pi/meta-bridge/.claude-plugin/marketplace.json"
+    "pi/meta-bridge/entwurf-meta-receive/.claude-plugin/plugin.json"
+    "pi/meta-bridge/entwurf-meta-receive/hooks/hooks.json"
+    "pi/meta-bridge/entwurf-meta-receive/scripts/doorbell.sh"
+    "pi-extensions/meta-bridge-hook.ts"
+    "pi-extensions/lib/meta-session.ts"
+    "pi-extensions/lib/session-id.js"
+    "scripts/meta-bridge-install.sh"
+    "scripts/meta-bridge-state.py"
   )
 
   # Patterns that must NOT appear in the tarball. Anchored where the
@@ -1704,6 +1714,7 @@ check_pack() {
     '^node_modules/'
     '\.tmp-verify/'
     '\.agent-(reports|shell)/'
+    'pi/meta-bridge/\.assembled/'
   )
 
   local pass=1 f pat hit
@@ -1804,6 +1815,16 @@ check_pack_install() {
     "mcp/entwurf-bridge/src/index.ts"
     "scripts/postinstall-chmod.cjs"
     "pi/entwurf-capabilities.json"
+    "pi/entwurf-targets.json"
+    "pi/meta-bridge/.claude-plugin/marketplace.json"
+    "pi/meta-bridge/entwurf-meta-receive/.claude-plugin/plugin.json"
+    "pi/meta-bridge/entwurf-meta-receive/hooks/hooks.json"
+    "pi/meta-bridge/entwurf-meta-receive/scripts/doorbell.sh"
+    "pi-extensions/meta-bridge-hook.ts"
+    "pi-extensions/lib/meta-session.ts"
+    "pi-extensions/lib/session-id.js"
+    "scripts/meta-bridge-install.sh"
+    "scripts/meta-bridge-state.py"
   )
   for f in "${tar_required[@]}"; do
     if ! grep -qxF "$f" <<<"$tar_files"; then
@@ -1818,6 +1839,7 @@ check_pack_install() {
     '^pnpm-(lock\.yaml|workspace\.yaml)$' '^NEXT\.md$'
     '^plugins/' '^node_modules/'
     '\.tmp-verify/' '\.agent-(reports|shell)/'
+    'pi/meta-bridge/\.assembled/'
   )
   for pat in "${tar_forbidden[@]}"; do
     local hit
