@@ -216,7 +216,7 @@ Code-level invariants pinned at the same time:
 ## Runtime Dependencies
 
 - `@modelcontextprotocol/sdk`, `zod` — the only runtime deps right now. The Claude ACP package (`@agentclientprotocol/claude-agent-acp`) returns as a pinned dep when the ACP plugin lands; the Codex/Gemini ACP packages stay out of scope (native already reaches Codex; Gemini/major tools use native).
-- `pi` (`@earendil-works/pi-ai`) on PATH at the pinned range (`>= 0.79.8 < 0.80` — devDep exact `0.79.8` + next-minor ceiling). Mismatches are caught by `check-dep-versions` / `check-pi-runtime-version`.
+- `pi` (`@earendil-works/pi-ai`) on PATH at the pinned range (`>= 0.80.2 < 0.81` — devDep exact `0.80.2` + next-minor ceiling). Mismatches are caught by `check-dep-versions` / `check-pi-runtime-version`. 0.80 moved the standalone root `getModels()` to the deprecated `@earendil-works/pi-ai/compat` entrypoint; the curated Claude surface (`pi-extensions/lib/acp/models.ts`) imports `getModels` from `/compat` — the single subpath allowlisted in `check-pi-import-surface`. NOT the 0.80 provider-factory `providers/anthropic` subpath: although it typechecks, pi's extension loader (jiti alias map in pi-coding-agent `core/extensions/loader.ts`) resolves only the bare root, `/compat`, and `/oauth` for extensions — a `providers/*` import resolves to the unresolvable `dist/compat.js/providers/…` and crashes extension load (caught live by `smoke-resident-garden-guard`, not by static typecheck). This `/compat` use is an **extension-loader compatibility shim** chosen by loader constraint, not a preference for a deprecated API — the `<0.81` ceiling guards it; when 0.81 changes `compat` or the loader alias map, re-evaluate against whatever root/loader surface 0.81 then exposes.
 
 ## Working Style
 

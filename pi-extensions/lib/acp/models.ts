@@ -11,7 +11,25 @@
 // this lane. A second governed backend (e.g. Cortex) would EXTEND this set — it
 // does not change the pattern.
 
-import { getModels } from "@earendil-works/pi-ai";
+// pi 0.80 migration: the standalone root `getModels()` moved to the deprecated
+// `@earendil-works/pi-ai/compat` entrypoint (the global-API churn). We import it
+// from `/compat` directly.
+//
+// Why `/compat` and NOT the 0.80 provider-factory subpath (the pi-ai
+// providers/anthropic subpath): this file is loaded by pi's
+// EXTENSION loader (pi-coding-agent `core/extensions/loader.ts`), whose jiti
+// alias map resolves ONLY three pi-ai specifiers for extensions — the bare root,
+// `/compat`, and `/oauth` — all to `ai/dist/compat.js`. A `providers/*` subpath
+// is NOT in that map: jiti prefix-matches the bare `@earendil-works/pi-ai` alias
+// and appends the remainder, yielding the unresolvable
+// `…/dist/compat.js/providers/anthropic` (verified live: extension load crash,
+// invisible to static typecheck which resolves against node_modules `exports`).
+// So `/compat` is the SINGLE sanctioned extension entrypoint for the old global
+// model-catalog API, and the SINGLE allowlisted exception in
+// `run.sh check-pi-import-surface`. `getModels` here is compat's deprecated
+// re-export of `getBuiltinModels`. When pi removes compat we migrate to whatever
+// the loader then exposes.
+import { getModels } from "@earendil-works/pi-ai/compat";
 
 /** Provider id — current pre-rename surface; S1 renames this load-bearing id to `entwurf`. */
 export const PROVIDER_ID = "entwurf";
@@ -43,6 +61,9 @@ export const CURATED_ANCHOR_MODEL_ID = "claude-opus-4-8";
 const CLAUDE_CONTEXT_DEFAULT = 1_000_000;
 const CLAUDE_SONNET_DEFAULT = 200_000;
 
+// `getModels("anthropic")` reads the static builtin model catalog only — no env
+// read, no credential access, no network — preserving the #26 auth-boundary
+// invariant: the curated surface consumes no key.
 const ANTHROPIC_MODELS_ALL = getModels("anthropic");
 type RegistryModel = (typeof ANTHROPIC_MODELS_ALL)[number];
 

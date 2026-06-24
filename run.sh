@@ -97,7 +97,7 @@ Usage:
   ./run.sh check-keyset-overlap <fragment.json...>  # 0.10.0 meta-bridge: PREVENTIVE keyset guard — fail if a consumer fragment collides with any pi-owned key (cross-repo; not in pnpm check)
   ./run.sh check-dep-versions         # local deterministic check that version pins (package.json/run.sh/README.md + pi devDeps/peer pins) agree
   ./run.sh check-pack                 # publish gate (dry-run): npm pack --dry-run + tarball invariants (runtime-critical present, dev residue absent)
-  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.79.x peers
+  ./run.sh check-pack-install         # heavy publish gate (prepublishOnly): actual npm pack + tar -tf + fresh-temp install smoke with 0.80.x peers
   ./run.sh sync-auth                  # copy ~/.pi/agent/auth.json anthropic OAuth credentials to entwurf alias
   ./run.sh install [project-dir]      # install this local package into project .pi/settings.json
   ./run.sh setup:links [--force]      # repair ~/.pi/agent/entwurf-targets.json link (use --force to replace a stale operator file or wrong symlink; a .bak is taken)
@@ -1239,12 +1239,13 @@ assert.equal(peerTui, piAi,
 
 // peerDependencies must be a CLOSED range (0.11 Stage 0, drift-proofing): the
 // floor tracks the devDep pin so a consumer can't install against a pi lacking
-// the 0.79 public trust exports the bridge imports, AND an upper bound at the
-// next minor stops a fresh install from silently pulling a future pi (0.80+)
+// the 0.80 public trust exports the bridge imports, AND an upper bound at the
+// next minor stops a fresh install from silently pulling a future pi (0.81+)
 // whose internal export surface has drifted from the one we typecheck against.
-// pi moves its public surface every minor (the 0.79.x export churn), so an open
-// `>=` floor is exactly how the next installer re-acquires the drift. Expected
-// shape: `>=<devDep> <0.<minor+1>` (e.g. `>=0.79.8 <0.80`).
+// pi moves its public surface every minor (the 0.79→0.80 getModels→provider-
+// factory churn is exactly this), so an open `>=` floor is exactly how the next
+// installer re-acquires the drift. Expected
+// shape: `>=<devDep> <0.<minor+1>` (e.g. `>=0.80.2 <0.81`).
 const [piMaj, piMin] = piAi.split('.').map(Number);
 assert.equal(piMaj, 0,
   `pi pin major must stay 0 for the next-minor ceiling rule (got ${piAi}); revisit check-dep-versions when pi reaches 1.x`);
@@ -1276,10 +1277,30 @@ check_pi_import_surface() {
   # Scans EVERY tracked .ts/.js/.mjs/.cjs source (git ls-files), not a hardcoded
   # file list — a new root file (acp-bridge.ts, event-mapper.ts, engraving.ts,
   # pi-context-augment.ts, protocol.js, …) can never silently escape the gate.
+  #
+  # pi 0.80 EXCEPTION — exactly ONE allowlisted subpath:
+  #   @earendil-works/pi-ai/compat
+  # 0.80 moved the standalone root `getModels()` to the deprecated `/compat`
+  # entrypoint. This repo's pi-extensions/** are loaded by pi's EXTENSION loader
+  # (pi-coding-agent `core/extensions/loader.ts`), whose jiti alias map resolves
+  # ONLY three pi-ai specifiers for extensions — the bare root, `/compat`, and
+  # `/oauth` — all to `ai/dist/compat.js`. A `providers/*` subpath is NOT in that
+  # map: jiti prefix-matches the bare `@earendil-works/pi-ai` alias and appends
+  # the remainder, producing the unresolvable `…/dist/compat.js/providers/
+  # anthropic` (verified live: extension load crash — invisible to static
+  # typecheck, which resolves against node_modules `exports`). So `/compat` is the
+  # sanctioned extension entrypoint for the old global model-catalog API
+  # (lib/acp/models.ts: `getModels`), and the ONLY allowlisted exception. The
+  # allow-pattern is closing-quote-anchored (`@earendil-works/pi-ai/compat["'\`]`)
+  # so it permits ONLY that exact specifier: `/compat-foo`, `/oauth`, every
+  # `/providers/*`, and any deeper path stay FORBIDDEN (we use only `/compat`).
+  # Do NOT widen this to a `providers/*` subpath — it typechecks but CANNOT
+  # resolve under the extension loader.
   local hits
   hits=$(cd "$REPO_DIR" && git ls-files '*.ts' '*.js' '*.mjs' '*.cjs' \
     | grep -vE '^(node_modules|dist)/' \
-    | xargs -r grep -HnE "[\"'\`]@earendil-works/pi-(ai|coding-agent|tui)/" 2>/dev/null || true)
+    | xargs -r grep -HnE "[\"'\`]@earendil-works/pi-(ai|coding-agent|tui)/" 2>/dev/null \
+    | grep -vE "[\"'\`]@earendil-works/pi-ai/compat[\"'\`]" 2>/dev/null || true)
   if [ -n "$hits" ]; then
     echo "[check-pi-import-surface] FAIL: pi private subpath reference(s) — import @earendil-works/pi-* by the package ROOT only:"
     echo "$hits"
@@ -1312,13 +1333,14 @@ check_env_namespace() {
 }
 
 check_pi_runtime_version() {
-  # 0.11 Stage 0 (동결결정 9, runtime half): tsc catches a missing 0.79 export
+  # 0.11 Stage 0 (동결결정 9, runtime half): tsc catches a missing 0.80 export
   # at dev time, but an installed environment can still resolve an older pi at
-  # runtime where the named trust exports do not exist. Verify VERSION >= floor
-  # via a DYNAMIC import of the package root only — never statically import a
-  # 0.79-only symbol here, or this guard would crash before it can fail loud.
+  # runtime where the named trust exports / 0.80 provider-factory surface do not
+  # exist. Verify VERSION >= floor via a DYNAMIC import of the package root only —
+  # never statically import a floor-only symbol here, or this guard would crash
+  # before it can fail loud.
   (cd "$REPO_DIR" && node --input-type=module <<'EOF'
-const FLOOR = '0.79.8';
+const FLOOR = '0.80.2';
 const cmp = (a, b) => {
   const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
@@ -1336,7 +1358,7 @@ if (typeof VERSION !== 'string') {
   process.exit(1);
 }
 if (cmp(VERSION, FLOOR) < 0) {
-  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge is built and tested against the 0.79.8 public/runtime surface (trust exports hasTrustRequiringProjectResources + ProjectTrustStore nearest-ancestor get, provider registration surface, compaction semantics) that older pi lacks or behaves differently on. Bump @earendil-works/pi-*.`);
+  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge is built and tested against the 0.80.2 public/runtime surface (trust exports hasTrustRequiringProjectResources + ProjectTrustStore nearest-ancestor get, the 0.80 model-catalog API getModels reached via the deprecated /compat entrypoint — 0.80 moved the standalone root getModels there, and the extension loader resolves only /compat, NOT the providers/* factory subpath — provider registration surface, compaction semantics) that older pi lacks or behaves differently on. Bump @earendil-works/pi-*.`);
   process.exit(1);
 }
 console.log(`[check-pi-runtime-version] ok — pi VERSION ${VERSION} >= ${FLOOR}`);
@@ -1818,7 +1840,7 @@ check_pack_install() {
   # repo packages with; --ignore-workspace stops it from re-attaching
   # to our pnpm-workspace.yaml; --ignore-scripts blocks the husky
   # prepare hook (and any future install scripts) from running inside
-  # the consumer project. Peer deps are pinned to the 0.79.x release
+  # the consumer project. Peer deps are pinned to the 0.80.x release
   # baseline so the smoke matches the same shape an external pi user
   # would have after `pi install`.
   local tmp
@@ -1827,13 +1849,13 @@ check_pack_install() {
 
   printf '%s\n' '{ "name": "entwurf-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
 
-  echo "[check-pack-install] pnpm add into $tmp (with 0.79.x peers + typebox)"
+  echo "[check-pack-install] pnpm add into $tmp (with 0.80.x peers + typebox)"
   local install_log
   install_log=$(cd "$tmp" && pnpm add \
     "$tgz_path" \
-    "@earendil-works/pi-ai@0.79.8" \
-    "@earendil-works/pi-coding-agent@0.79.8" \
-    "@earendil-works/pi-tui@0.79.8" \
+    "@earendil-works/pi-ai@0.80.2" \
+    "@earendil-works/pi-coding-agent@0.80.2" \
+    "@earendil-works/pi-tui@0.80.2" \
     "typebox@latest" \
     --ignore-workspace --ignore-scripts 2>&1) || {
     fail "[check-pack-install] pnpm add failed:"
