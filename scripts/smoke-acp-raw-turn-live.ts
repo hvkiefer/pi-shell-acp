@@ -203,13 +203,17 @@ async function main(): Promise<void> {
 		// 3) force the requested model — REQUIRED. If the adapter cannot honor
 		//    the switch, the "sonnet" claim would be a lie; fail loudly instead
 		//    of silently running the session default.
-		const setModel = (connection as any).unstable_setSessionModel;
-		if (typeof setModel !== "function") {
+		const setConfig = (connection as any).setSessionConfigOption;
+		if (typeof setConfig !== "function") {
 			throw new Error(
-				`unstable_setSessionModel unsupported — cannot enforce ${REQUESTED_MODEL_ID}; S2a requires honest model enforcement`,
+				`setSessionConfigOption unsupported — cannot enforce ${REQUESTED_MODEL_ID}; S2a requires honest model enforcement`,
 			);
 		}
-		await withTimeout("setSessionModel", setModel.call(connection, { sessionId, modelId: REQUESTED_MODEL_ID }), 30_000);
+		await withTimeout(
+			"setSessionConfigOption",
+			setConfig.call(connection, { sessionId, configId: "model", value: REQUESTED_MODEL_ID }),
+			30_000,
+		);
 		console.error(`[smoke-acp-raw-turn-live] model set -> ${REQUESTED_MODEL_ID}`);
 
 		// 4) prompt — one tiny turn, no carrier.

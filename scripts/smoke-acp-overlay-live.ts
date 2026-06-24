@@ -254,11 +254,15 @@ async function main(): Promise<void> {
 		);
 
 		// 3) force the requested model — honesty, same as S2a.
-		const setModel = (connection as any).unstable_setSessionModel;
-		if (typeof setModel !== "function") {
-			throw new Error(`unstable_setSessionModel unsupported — cannot enforce ${REQUESTED_MODEL_ID}`);
+		const setConfig = (connection as any).setSessionConfigOption;
+		if (typeof setConfig !== "function") {
+			throw new Error(`setSessionConfigOption unsupported — cannot enforce ${REQUESTED_MODEL_ID}`);
 		}
-		await withTimeout("setSessionModel", setModel.call(connection, { sessionId, modelId: REQUESTED_MODEL_ID }), 30_000);
+		await withTimeout(
+			"setSessionConfigOption",
+			setConfig.call(connection, { sessionId, configId: "model", value: REQUESTED_MODEL_ID }),
+			30_000,
+		);
 		console.error(`[smoke-acp-overlay-live] model set -> ${REQUESTED_MODEL_ID}`);
 
 		// 4) one tiny turn.

@@ -140,7 +140,7 @@ function makeHarness(recordDir: string, config: any = DEFAULT_RESOLVED_CONFIG, e
 			newSessionSeq++;
 			return { sessionId: `ACP-${newSessionSeq}` };
 		},
-		unstable_setSessionModel: async () => ({}),
+		setSessionConfigOption: async () => ({}),
 		// biome-ignore lint/suspicious/noExplicitAny: fake seam objects
 		prompt: async ({ sessionId, prompt }: any) => {
 			promptCalls.push({ sessionId, text: prompt.map((b: { text: string }) => b.text).join("\n") });

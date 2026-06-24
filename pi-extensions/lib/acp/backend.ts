@@ -111,7 +111,7 @@ export interface AcpConnectionLike {
 	initialize(params: unknown): Promise<unknown>;
 	newSession(params: unknown): Promise<{ sessionId?: string }>;
 	prompt(params: { sessionId: string; prompt: AcpTextBlock[] }): Promise<{ stopReason?: string }>;
-	unstable_setSessionModel?(params: unknown): Promise<unknown>;
+	setSessionConfigOption?(params: unknown): Promise<unknown>;
 }
 
 /** The ACP client-side callbacks. They delegate to the session's mutable handler. */
@@ -626,7 +626,7 @@ export function streamAcpTurn(
 		}
 	});
 
-	// --- new session: spawn → initialize → newSession → setModel → full transcript
+	// --- new session: spawn → initialize → newSession → setSessionConfigOption(model) → full transcript
 	async function runNewTurn(
 		params: BootstrapParams,
 		ctxSigs: string[],
@@ -747,14 +747,17 @@ export function streamAcpTurn(
 			session.acpSessionId = acpSessionId;
 
 			// Enforce the requested model — a silent default would lie about which
-			// model answered.
-			const setModel = connection.unstable_setSessionModel;
-			if (typeof setModel !== "function") {
-				throw new Error(`unstable_setSessionModel unsupported — cannot enforce model ${model.id}`);
+			// model answered. pi 0.50/sdk 0.29: model selection moved from the removed
+			// unstable_setSessionModel to setSessionConfigOption({configId:"model"}).
+			// The agent resolves the value (full id or alias) to a canonical model id
+			// and routes it through query.setModel.
+			const setConfig = connection.setSessionConfigOption;
+			if (typeof setConfig !== "function") {
+				throw new Error(`setSessionConfigOption unsupported — cannot enforce model ${model.id}`);
 			}
 			await withTimeout(
-				"setSessionModel",
-				setModel.call(connection, { sessionId: acpSessionId, modelId: model.id }),
+				"setSessionConfigOption",
+				setConfig.call(connection, { sessionId: acpSessionId, configId: "model", value: model.id }),
 				SET_MODEL_TIMEOUT_MS,
 			);
 
