@@ -21,6 +21,7 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { AcpAdapterSettingsParams, AcpBackendAdapter } from "../pi-extensions/lib/acp/backend-adapter.ts";
 import {
 	type AcpMcpServer,
 	enrichMcpServersWithEnvelope,
@@ -35,6 +36,15 @@ import {
 	DEFAULT_CLAUDE_TOOLS,
 } from "../pi-extensions/lib/acp/tool-surface.ts";
 
+// A minimal fake adapter — config.ts only ever calls `resolveAdapterSettings`, so the
+// other methods are never exercised here (cast through unknown). Keeps this gate from
+// loading the real backend-adapter.js (and its .js sibling value imports) at runtime;
+// the type import above is erased by strip-types.
+function fakeAdapter(resolveAdapterSettings: (p: AcpAdapterSettingsParams) => unknown): AcpBackendAdapter {
+	return { backend: "fake", resolveAdapterSettings } as unknown as AcpBackendAdapter;
+}
+const claudeLikeFake = fakeAdapter(() => undefined);
+
 const root = mkdtempSync(resolve(tmpdir(), "acp-config-gate-"));
 const NONE = join(root, "__absent__.json");
 
@@ -45,10 +55,11 @@ function settings(name: string, block: unknown): string {
 	return p;
 }
 
-function resolveWith(globalPath: string, projectPath: string) {
+function resolveWith(globalPath: string, projectPath: string, adapter: AcpBackendAdapter = claudeLikeFake) {
 	return resolveProviderConfig({
 		cwd: root,
 		modelId: "claude-sonnet-4-6",
+		adapter,
 		globalSettingsPath: globalPath,
 		projectSettingsPath: projectPath,
 	});
@@ -195,6 +206,54 @@ try {
 		"strictMcpConfig:false rejected (Hard Rule #4: no ambient MCP)",
 	);
 	assert.doesNotThrow(() => resolveWith(NONE, settings("p7b.json", { strictMcpConfig: true })), "true is allowed");
+
+	// backend is a DIAGNOSTIC field, parsed SYNTACTICALLY only — config does NOT
+	// whitelist values (the adapter registry owns valid backends; the model-id
+	// prefix is the routing authority). The declared-vs-routed mismatch guard lives
+	// in backend.ts, NOT here. So config accepts ANY backend string and surfaces it.
+	{
+		const claudeBackend = resolveWith(NONE, settings("p7c.json", { backend: "claude" }));
+		assert.equal(claudeBackend.backend, "claude", "backend string is parsed and surfaced");
+		// A fictional, unregistered backend name — config must accept ANY string (the
+		// registry, not config, owns the valid set). NOT a real backend: this gate never
+		// implements one; a real backend brings its own adapter PR + gates.
+		const future = resolveWith(NONE, settings("p7d.json", { backend: "demobackend" }));
+		assert.equal(future.backend, "demobackend", "config does NOT whitelist backend values (no claude-only gate)");
+		const absent = resolveWith(NONE, settings("p7e.json", {}));
+		assert.equal(absent.backend, undefined, "absent backend → undefined");
+		assert.throws(
+			() => resolveWith(NONE, settings("p7f.json", { backend: 123 })),
+			/backend must be a string/,
+			"non-string backend rejected (syntactic guard)",
+		);
+	}
+
+	// adapterSettings seam (generic plumbing — uses a FICTIONAL backend key, implements
+	// NO real backend): the routed adapter's resolveAdapterSettings receives the RAW
+	// blocks, and its opaque return lands on config.adapterSettings. A backend-specific
+	// key (`demoSetting` here) rides the raw block to the hook but NEVER appears on the
+	// common ResolvedAcpConfig. Real backends bring their own adapter PR + gates; this
+	// gate only proves the rail carries arbitrary backend settings without polluting common.
+	{
+		const sentinel = { ok: true };
+		let captured: AcpAdapterSettingsParams | undefined;
+		const recording = fakeAdapter((p) => {
+			captured = p;
+			return sentinel;
+		});
+		const block = { backend: "demobackend", demoSetting: "demo-val", tools: ["Read"] };
+		const cfg = resolveWith(NONE, settings("p7g.json", block), recording);
+		assert.equal(cfg.adapterSettings, sentinel, "adapterSettings = the opaque value the adapter returned");
+		assert.ok(captured, "resolveAdapterSettings was called");
+		assert.equal(captured?.mergedBlock.demoSetting, "demo-val", "raw mergedBlock carries backend keys to the hook");
+		assert.equal(captured?.projectBlock.demoSetting, "demo-val", "raw projectBlock passed for error attribution");
+		assert.ok(
+			!Object.hasOwn(cfg as object, "demoSetting"),
+			"backend-specific key NEVER lands on the common ResolvedAcpConfig (no fat-bridge regression)",
+		);
+		const claudeLike = resolveWith(NONE, settings("p7h.json", {}));
+		assert.equal(claudeLike.adapterSettings, undefined, "a backend with no own settings → adapterSettings undefined");
+	}
 
 	// ----------------------------------------------------------------------
 	// 8) hash determinism + sensitivity; envelope enrich semantics

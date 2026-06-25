@@ -8,8 +8,8 @@
 //
 // Claude-first scope (NEXT §스코프): Codex is already a native garden citizen
 // and Gemini / major tools use native, so the curated surface is Claude-only on
-// this lane. A second governed backend (e.g. Cortex) would EXTEND this set — it
-// does not change the pattern.
+// this lane. A second governed backend would EXTEND this set — it does not change
+// the pattern.
 
 // pi 0.80 migration: the standalone root `getModels()` moved to the deprecated
 // `@earendil-works/pi-ai/compat` entrypoint (the global-API churn). We import it

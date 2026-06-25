@@ -38,6 +38,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
+import type { AcpBackendAdapter } from "./backend-adapter.js";
+
 /** A normalized key/value pair (env var or HTTP header) — ACP wire shape. */
 export interface AcpKeyValue {
 	name: string;
@@ -54,6 +56,10 @@ export type ClaudeSettingSource = "user" | "project" | "local";
 
 /** The raw, parsed `entwurfProvider` block (every field optional). */
 export interface ProviderSettings {
+	/** Operator-declared backend — a DIAGNOSTIC guard, not the routing authority.
+	 *  The curated model-id prefix routes (backend-adapter.ts); this is only
+	 *  cross-checked against the routed adapter in backend.ts. */
+	backend?: string;
 	appendSystemPrompt?: boolean;
 	settingSources?: ClaudeSettingSource[];
 	strictMcpConfig?: boolean;
@@ -67,6 +73,9 @@ export interface ProviderSettings {
 
 /** The fully-resolved Claude provider config the backend hands to newSession. */
 export interface ResolvedAcpConfig {
+	/** Operator-declared backend (diagnostic guard only — see ProviderSettings.backend).
+	 *  backend.ts asserts this matches the adapter the model id routes to. */
+	backend?: string;
 	settingSources: ClaudeSettingSource[];
 	strictMcpConfig: boolean;
 	showToolNotifications: boolean;
@@ -78,6 +87,12 @@ export interface ResolvedAcpConfig {
 	skillPlugins: string[];
 	permissionAllow: string[];
 	disallowedTools: string[];
+	/** Opaque, backend-OWNED settings produced by `adapter.resolveAdapterSettings`.
+	 *  backend.ts NEVER inspects this; only the routed adapter's methods read it
+	 *  (casting their own type). This is the ONE seam that keeps backend-specific
+	 *  keys (e.g. a connection id) OFF the common config. `undefined` for a backend
+	 *  with no own settings (e.g. claude). */
+	adapterSettings: unknown;
 }
 
 // Defaults are mirrored as local constants (NOT imported from tool-surface.ts):
@@ -346,12 +361,17 @@ export function validateSkillPluginPaths(paths: readonly string[], filePath: str
 }
 
 /**
- * Read + validate the `entwurfProvider` block of one settings file. Missing
- * file or absent block → {} (all defaults). Malformed JSON / wrong shapes throw
- * a settingsConfigError naming the file and field.
+ * Read + validate the `entwurfProvider` block of one settings file. Returns BOTH
+ * the typed (common) `settings` and the `raw` untyped block — the raw block feeds
+ * `adapter.resolveAdapterSettings` so a backend can read its OWN keys (which the
+ * typed ProviderSettings deliberately drops). Missing file or absent block → empty
+ * both. Malformed JSON / wrong shapes throw a settingsConfigError naming the file.
  */
-export function readProviderSettingsFile(filePath: string): ProviderSettings {
-	if (!existsSync(filePath)) return {};
+export function readProviderSettingsFile(filePath: string): {
+	settings: ProviderSettings;
+	raw: Record<string, unknown>;
+} {
+	if (!existsSync(filePath)) return { settings: {}, raw: {} };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(readFileSync(filePath, "utf8"));
@@ -362,17 +382,23 @@ export function readProviderSettingsFile(filePath: string): ProviderSettings {
 		throw settingsConfigError(filePath, "settings file root must be an object");
 	}
 	const block = (parsed as Record<string, unknown>).entwurfProvider;
-	if (block === undefined) return {};
+	if (block === undefined) return { settings: {}, raw: {} };
 	if (!block || typeof block !== "object" || Array.isArray(block)) {
 		throw settingsConfigError(filePath, "entwurfProvider must be an object");
 	}
 	const settings = block as Record<string, unknown>;
 
-	// Claude-only this lane: a non-claude backend is a config the bridge cannot
-	// honor here — fail loud rather than silently treat it as claude.
-	const backend = settings.backend;
-	if (backend !== undefined && backend !== "claude") {
-		throw settingsConfigError(filePath, `backend ${JSON.stringify(backend)} unsupported on acp-on-v2 (claude only)`);
+	// `backend` is the operator's DECLARED backend — a diagnostic guard, NOT the
+	// routing authority (the curated model-id prefix is; see backend-adapter.ts).
+	// config.ts validates only that it is a string and does NOT whitelist values:
+	// the adapter registry owns the set of valid backends, so a new backend never
+	// needs a config.ts edit. The semantic cross-check (declared backend must match
+	// the adapter the model id routes to) lives at the routing site in backend.ts —
+	// keeping config a pure syntactic parser and the model id the SINGLE routing
+	// authority (no duplicate authority).
+	const backendRaw = settings.backend;
+	if (backendRaw !== undefined && typeof backendRaw !== "string") {
+		throw settingsConfigError(filePath, "backend must be a string");
 	}
 
 	const settingSourcesRaw = settings.settingSources;
@@ -398,15 +424,19 @@ export function readProviderSettingsFile(filePath: string): ProviderSettings {
 	if (skillPlugins) validateSkillPluginPaths(skillPlugins, filePath);
 
 	return {
-		appendSystemPrompt: assertOptionalBoolean(settings, "appendSystemPrompt", filePath),
-		settingSources,
-		strictMcpConfig: assertOptionalBoolean(settings, "strictMcpConfig", filePath),
-		showToolNotifications: assertOptionalBoolean(settings, "showToolNotifications", filePath),
-		mcpServers,
-		tools: parseStringArray(settings, "tools", filePath),
-		skillPlugins,
-		permissionAllow: parseStringArray(settings, "permissionAllow", filePath),
-		disallowedTools: parseStringArray(settings, "disallowedTools", filePath),
+		settings: {
+			backend: backendRaw?.trim() || undefined,
+			appendSystemPrompt: assertOptionalBoolean(settings, "appendSystemPrompt", filePath),
+			settingSources,
+			strictMcpConfig: assertOptionalBoolean(settings, "strictMcpConfig", filePath),
+			showToolNotifications: assertOptionalBoolean(settings, "showToolNotifications", filePath),
+			mcpServers,
+			tools: parseStringArray(settings, "tools", filePath),
+			skillPlugins,
+			permissionAllow: parseStringArray(settings, "permissionAllow", filePath),
+			disallowedTools: parseStringArray(settings, "disallowedTools", filePath),
+		},
+		raw: settings,
 	};
 }
 
@@ -417,6 +447,10 @@ export function readProviderSettingsFile(filePath: string): ProviderSettings {
 export interface ResolveProviderConfigParams {
 	cwd: string;
 	modelId: string;
+	/** The adapter the model id already routed to (resolved ONCE at turn entry in
+	 *  backend.ts and threaded here — config.ts never re-routes, so the model id stays
+	 *  the single routing authority). Used only to parse this backend's own settings. */
+	adapter: AcpBackendAdapter;
 	/** Override the global settings path (tests). Defaults to ~/.pi/agent/settings.json. */
 	globalSettingsPath?: string;
 	/** Override the project settings path (tests). Defaults to <cwd>/.pi/settings.json. */
@@ -437,8 +471,8 @@ export interface ResolveProviderConfigParams {
 export function resolveProviderConfig(params: ResolveProviderConfigParams): ResolvedAcpConfig {
 	const globalPath = params.globalSettingsPath ?? GLOBAL_SETTINGS_PATH;
 	const projectPath = params.projectSettingsPath ?? join(params.cwd, ".pi", "settings.json");
-	const globalSettings = readProviderSettingsFile(globalPath);
-	const projectSettings = readProviderSettingsFile(projectPath);
+	const { settings: globalSettings, raw: globalRaw } = readProviderSettingsFile(globalPath);
+	const { settings: projectSettings, raw: projectRaw } = readProviderSettingsFile(projectPath);
 
 	// Project overrides global only for keys it actually defines (undefined =
 	// "unset", which JS spread would otherwise treat as an override).
@@ -486,7 +520,19 @@ export function resolveProviderConfig(params: ResolveProviderConfigParams): Reso
 	};
 	const { servers: mcpServers, hash: mcpServersHash } = normalizeMcpServers(mergedMcpServersRaw);
 
+	// Backend-OWNED settings seam: the routed adapter parses its own keys off the RAW
+	// blocks (project-over-global merge). The result is opaque to config.ts and backend.ts
+	// — only the adapter's own methods read it. claude returns undefined (no own settings).
+	const adapterSettings = params.adapter.resolveAdapterSettings({
+		globalBlock: globalRaw,
+		projectBlock: projectRaw,
+		mergedBlock: { ...globalRaw, ...projectRaw },
+		globalPath,
+		projectPath,
+	});
+
 	return {
+		backend: merged.backend,
 		settingSources,
 		strictMcpConfig,
 		showToolNotifications,
@@ -496,6 +542,7 @@ export function resolveProviderConfig(params: ResolveProviderConfigParams): Reso
 		skillPlugins,
 		permissionAllow,
 		disallowedTools,
+		adapterSettings,
 	};
 }
 

@@ -1,5 +1,5 @@
 // ACP backend adapter rail — the PRODUCT seam by which a curated model id selects
-// which ACP backend (claude / cortex / …) drives a turn. See docs/acp-backend-rail.md §9.
+// which ACP backend (claude / future backend / …) drives a turn. See docs/acp-backend-rail.md §9.
 //
 // This seam is DISTINCT from `AcpTurnDeps` (backend.ts), which is the test/runtime
 // seam (fake spawn/connection/clock for the gates). The two are kept apart on
@@ -53,9 +53,23 @@ export interface AcpLaunchParams {
 	config: ResolvedAcpConfig;
 }
 
-/** loadCarrier input — enough to render the (optional) operator engraving carrier. */
+/** loadCarrier input — the mcp server names plus the resolved config (so a backend
+ *  whose carrier depends on its own `config.adapterSettings` can read it). backend.ts
+ *  still never inspects config — it just passes it through. */
 export interface AcpCarrierParams {
 	mcpServerNames: string[];
+	config: ResolvedAcpConfig;
+}
+
+/** ensureOverlay input — cwd + (native) model id + the resolved config. A backend
+ *  whose overlay/env depends on its OWN settings reads them off `config.adapterSettings`
+ *  here; backend.ts never inspects config. Same shape as AcpLaunchParams (overlay and
+ *  launch are distinct phases, so they keep distinct names). */
+export interface AcpOverlayParams {
+	cwd: string;
+	modelId: string;
+	nativeModelId: string;
+	config: ResolvedAcpConfig;
 }
 
 /** buildSessionMeta input — mirrors the newSession `_meta` inputs. */
@@ -78,6 +92,21 @@ export interface AcpOverlayResult {
 	envOverrides: Record<string, string>;
 }
 
+/** resolveAdapterSettings input — the RAW (untyped) `entwurfProvider` blocks plus
+ *  their file paths. This is the ONE seam by which a backend reads its OWN settings
+ *  (e.g. a connection id, a profile/tenant, a state-home path) WITHOUT those
+ *  backend-specific keys ever touching the common ResolvedAcpConfig (fat-bridge
+ *  regression). `mergedBlock` is
+ *  the project-over-global merge (project keys win); the per-file blocks + paths are
+ *  for error attribution. A backend with no own settings returns `undefined`. */
+export interface AcpAdapterSettingsParams {
+	globalBlock: Record<string, unknown>;
+	projectBlock: Record<string, unknown>;
+	mergedBlock: Record<string, unknown>;
+	globalPath: string;
+	projectPath: string;
+}
+
 // ---------------------------------------------------------------------------
 // The adapter interface
 // ---------------------------------------------------------------------------
@@ -96,6 +125,13 @@ export interface AcpBackendAdapter {
 	/** Curated model rows this backend contributes to the single `entwurf` provider. */
 	curatedModels(): AcpModelRow[];
 
+	/** Parse this backend's OWN settings from the raw entwurfProvider blocks, returning
+	 *  an opaque value config.ts stores on `ResolvedAcpConfig.adapterSettings`. backend.ts
+	 *  NEVER inspects the result; only this adapter's other methods read it (casting their
+	 *  own type back). A backend with no own settings returns `undefined`. This keeps the
+	 *  common config free of backend-named fields (see AcpAdapterSettingsParams). */
+	resolveAdapterSettings(params: AcpAdapterSettingsParams): unknown;
+
 	/** Resolve the ACP server launch (command + args), honoring an env override. */
 	resolveLaunch(params: AcpLaunchParams): AcpLaunchSpec;
 
@@ -103,14 +139,17 @@ export interface AcpBackendAdapter {
 	launchEnvDefaults(): Record<string, string>;
 
 	/** Materialize the config overlay (auth passthrough + state hiding) and return
-	 *  the env overrides to merge at spawn. A no-op backend returns { envOverrides: {} }. */
-	ensureOverlay(): AcpOverlayResult;
+	 *  the env overrides to merge at spawn. A no-op backend returns { envOverrides: {} }.
+	 *  Receives the resolved config so a settings-dependent overlay can read its own
+	 *  `config.adapterSettings`; settings-derived spawn env rides the returned
+	 *  `envOverrides` (launchEnvDefaults stays static). */
+	ensureOverlay(params: AcpOverlayParams): AcpOverlayResult;
 
 	/** Render the optional short operator carrier (engraving). Kept SEPARATE from
 	 *  buildSessionMeta so backend.ts can load it ONCE and fold the same value into
 	 *  both the config signature and the session meta (they must agree). A carrier-
-	 *  less backend (e.g. cortex) returns null WITHOUT calling loadEngraving, so it
-	 *  never trips the shipped-engraving / appendSystemPrompt signature. */
+	 *  less backend returns null WITHOUT calling loadEngraving, so it never trips the
+	 *  shipped-engraving / appendSystemPrompt signature. */
 	loadCarrier(params: AcpCarrierParams): string | null;
 
 	/** Build the `_meta` handed to newSession. `undefined` → backend.ts omits the
@@ -119,14 +158,17 @@ export interface AcpBackendAdapter {
 	buildSessionMeta(params: AcpSessionMetaParams, carrier: string | null): Record<string, unknown> | undefined;
 
 	/** Enforce the requested model on the live ACP session. Single method absorbs
-	 *  the per-backend difference (claude: session/set_config_option; cortex:
-	 *  launch-time `-m` pin → no-op here). backend.ts wraps the call in withTimeout. */
+	 *  the per-backend difference (claude: per-turn session/set_config_option; a
+	 *  launch-pinned backend: no-op here). backend.ts wraps the call in withTimeout. */
 	enforceModel(params: AcpEnforceModelParams): Promise<void>;
 
 	/** Backend-specific fields folded into bridgeConfigSignature (reuse invalidation):
 	 *  connection/profile/env-derived STABLE ids only — never raw env values / secrets.
-	 *  `backend` + `nativeModelId` are added by backend.ts, not here. */
-	configSignatureFields(config: ResolvedAcpConfig): Record<string, unknown>;
+	 *  Reads ONLY this backend's opaque `adapterSettings` (NOT the whole config), so the
+	 *  signature contract can never accidentally fold a common field. MUST be a flat,
+	 *  sorted-stable primitive map (JSON.stringify determinism — no nested objects /
+	 *  non-deterministic order). `backend` + `nativeModelId` are added by backend.ts. */
+	configSignatureFields(adapterSettings: unknown): Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +203,13 @@ export const claudeAdapter: AcpBackendAdapter = {
 		return curatedClaudeModels();
 	},
 
+	// Claude carries no backend-specific settings — its entire surface is common
+	// config (tools/permissions/settingSources/…). undefined → config.adapterSettings
+	// is undefined and no claude method reads it.
+	resolveAdapterSettings() {
+		return undefined;
+	},
+
 	resolveLaunch() {
 		return resolveClaudeLaunch();
 	},
@@ -170,6 +219,7 @@ export const claudeAdapter: AcpBackendAdapter = {
 	},
 
 	ensureOverlay() {
+		// Claude's overlay is constant (no settings dependence), so it ignores params.
 		ensureClaudeConfigOverlay();
 		// CLAUDE_CONFIG_DIR rides launchEnvDefaults(); the overlay materialization
 		// itself contributes no extra spawn env.
@@ -177,6 +227,7 @@ export const claudeAdapter: AcpBackendAdapter = {
 	},
 
 	loadCarrier({ mcpServerNames }) {
+		// Claude's carrier is the shipped engraving — it does not read config.
 		return loadEngraving({ backend: "claude", mcpServerNames });
 	},
 
@@ -205,9 +256,10 @@ export const claudeAdapter: AcpBackendAdapter = {
 		await setConfig.call(connection, { sessionId: acpSessionId, configId: "model", value: nativeModelId });
 	},
 
-	configSignatureFields() {
+	configSignatureFields(_adapterSettings) {
 		// Claude folds no extra backend-specific fields beyond backend + nativeModelId
-		// (which backend.ts adds). A future backend (cortex) returns its connection id here.
+		// (which backend.ts adds). A future backend reads its own stable id off
+		// `_adapterSettings` here.
 		return {};
 	},
 };
@@ -217,8 +269,8 @@ export const claudeAdapter: AcpBackendAdapter = {
 // ---------------------------------------------------------------------------
 
 /** Registered adapters. Order carries NO routing authority — routeModel decides.
- *  Step A: claude only. A second backend (cortex) appends here with a reserved
- *  `cortex-*` prefix, and the fail-fast below proves no two adapters claim one id. */
+ *  Step A: claude only. A second backend appends here with its reserved prefix
+ *  (e.g. `<backend>-*`), and the fail-fast below proves no two adapters claim one id. */
 const ADAPTERS: readonly AcpBackendAdapter[] = [claudeAdapter];
 
 /**

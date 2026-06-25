@@ -113,8 +113,11 @@ export interface AcpTurnDeps {
 	spawnChild(launch: { command: string; args: string[] }, cwd: string, extraEnv: Record<string, string>): AcpChildLike;
 	createConnection(child: AcpChildLike, handlers: AcpClientHandlers): AcpConnectionLike;
 	lifecyclePolicy(): LifecyclePolicy;
-	/** Resolve operator provider config (S2g). Real impl reads global+project settings. */
-	loadConfig(cwd: string, modelId: string): ResolvedAcpConfig;
+	/** Resolve operator provider config (S2g). Real impl reads global+project settings.
+	 *  Takes the already-routed `adapter` (resolved once at turn entry) so the backend
+	 *  can parse its OWN settings without config.ts re-routing — the model id stays the
+	 *  single routing authority. */
+	loadConfig(cwd: string, modelId: string, adapter: AcpBackendAdapter): ResolvedAcpConfig;
 	now(): string;
 	/** Record dir override (tests). Defaults to the real session cache dir. */
 	sessionDir?: string;
@@ -307,7 +310,7 @@ function defaultDeps(): AcpTurnDeps {
 			return connectAcpClient(transport as unknown as Parameters<typeof connectAcpClient>[0], handlers);
 		},
 		lifecyclePolicy: () => resolveLifecyclePolicy(),
-		loadConfig: (cwd, modelId) => resolveProviderConfig({ cwd, modelId }),
+		loadConfig: (cwd, modelId, adapter) => resolveProviderConfig({ cwd, modelId, adapter }),
 		now: () => new Date().toISOString(),
 	};
 }
@@ -469,9 +472,24 @@ export function streamAcpTurn(
 		}
 		let config: ResolvedAcpConfig;
 		try {
-			config = deps.loadConfig(cwd, model.id);
+			config = deps.loadConfig(cwd, model.id, adapter);
 		} catch (err) {
 			finishError(err, false);
+			return;
+		}
+		// settings.backend is a DIAGNOSTIC guard, never a router. The model id already
+		// chose the adapter (above); if the operator ALSO declared a backend it must
+		// agree, else fail loud — a mismatch means the settings and the requested model
+		// disagree about which backend runs, and silently trusting the model id would
+		// hide an operator typo. Routing authority stays single (the model id).
+		if (config.backend !== undefined && config.backend !== adapter.backend) {
+			finishError(
+				new Error(
+					`entwurf: entwurfProvider.backend "${config.backend}" does not match the backend that owns model ` +
+						`"${model.id}" (${adapter.backend}) — the model id is the routing authority; fix or remove the backend field`,
+				),
+				false,
+			);
 			return;
 		}
 		const serverNames = mcpServerNames(config);
@@ -511,7 +529,7 @@ export function streamAcpTurn(
 		// stream error instead of an unhandled microtask failure.
 		let engraving: string | null;
 		try {
-			engraving = adapter.loadCarrier({ mcpServerNames: serverNames });
+			engraving = adapter.loadCarrier({ mcpServerNames: serverNames, config });
 		} catch (err) {
 			finishError(err, false);
 			return;
@@ -531,7 +549,7 @@ export function streamAcpTurn(
 			skillPlugins: [...config.skillPlugins],
 			permissionAllow: [...config.permissionAllow],
 			disallowedTools: [...config.disallowedTools],
-			extra: adapter.configSignatureFields(config),
+			extra: adapter.configSignatureFields(config.adapterSettings),
 		});
 		const ctxSigs = contextMessageSignatures(context);
 		const params: BootstrapParams = {
@@ -626,7 +644,7 @@ export function streamAcpTurn(
 			pushAcpLifecycleNotice(state, `preparing ${adapter.backend} session`);
 			// GPT §9-5: materialize the overlay first, then spawn with launchEnvDefaults
 			// + overlay.envOverrides merged over process.env (defaultDeps spawnChild).
-			const overlay = adapter.ensureOverlay();
+			const overlay = adapter.ensureOverlay({ cwd, modelId: model.id, nativeModelId, config });
 			const launch = adapter.resolveLaunch({ cwd, modelId: model.id, nativeModelId, config });
 			child = deps.spawnChild(launch, cwd, { ...adapter.launchEnvDefaults(), ...overlay.envOverrides });
 			const spawned = child;

@@ -85,7 +85,7 @@ export interface BridgeConfigInput {
 	/** Backend-native model id (curation prefix stripped); claude: equals modelId. */
 	nativeModelId: string;
 	appendSystemPrompt: string;
-	/** Backend-specific stable signature fields (e.g. cortex connection). Never secrets. */
+	/** Backend-specific stable signature fields (e.g. a backend connection/profile id). Never secrets. */
 	extra?: Record<string, unknown>;
 	mcpServersHash: string;
 	settingSources: string[];

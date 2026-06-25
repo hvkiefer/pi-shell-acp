@@ -280,6 +280,9 @@ try {
 	const configUrl = pathToFileURL(resolve(TMP_EMIT, "pi-extensions/lib/acp/config.js")).href;
 	// biome-ignore lint/suspicious/noExplicitAny: compiled module imported by URL
 	const configMod = (await import(configUrl)) as any;
+	const adapterUrl = pathToFileURL(resolve(TMP_EMIT, "pi-extensions/lib/acp/backend-adapter.js")).href;
+	// biome-ignore lint/suspicious/noExplicitAny: compiled module imported by URL
+	const adapterMod = (await import(adapterUrl)) as any;
 
 	// ----------------------------------------------------------------------
 	// Section A — capture: new=full transcript, reuse=delta-only, no respawn,
@@ -627,6 +630,7 @@ try {
 		const richConfig = configMod.resolveProviderConfig({
 			cwd: cfgDir,
 			modelId: sonnet.id,
+			adapter: adapterMod.claudeAdapter,
 			globalSettingsPath: NONE,
 			projectSettingsPath: projectSettings,
 		});
