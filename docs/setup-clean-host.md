@@ -33,7 +33,7 @@ walk-through and onto your own integration.
 | Node | **24** (LTS line) | `engines.node` is `>=22.6.0` (minimum, for TypeScript strip-types); verification axis is **24** |
 | pnpm | **10.33.0** (via corepack) | matches the version entwurf's `pnpm check` chain runs under |
 | pi binary | **`@earendil-works/pi-coding-agent` 0.80.2 or newer** | npm registry; binary name `pi`; garden-native session identity needs `--session-id` / `--name` |
-| entwurf install path | `npm:@junghanacs/entwurf` or `git:github.com/junghan0611/entwurf` | npm is the published release path; git path stays valid for source installs |
+| entwurf install path | `git:github.com/junghan0611/entwurf` now; `npm:@junghanacs/entwurf` after publish | git path is the current pre-publish walk-through; npm becomes the release path after GLG publishes |
 
 ## Stage 0 — Node 24 + pnpm via nvm
 

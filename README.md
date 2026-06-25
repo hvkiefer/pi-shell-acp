@@ -68,7 +68,7 @@ A few words that look unusual for a coding tool.
 
 ## Install
 
-`entwurf` is a thin ACP bridge — it connects pi to a locally authenticated **Claude** backend (the shipped default ACP path). **Codex** runs as a direct pi-native provider by default, with a tested `ENTWURF_ACP_FOR_CODEX=1` opt-in that routes it through the ACP bridge too. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` already trusts is what entwurf uses.
+`entwurf` is a thin garden-citizen bridge with a **Claude-first ACP plugin**. Pi is the host adapter for that ACP plugin today; Codex runs as a direct pi-native provider by default, with a tested `ENTWURF_ACP_FOR_CODEX=1` opt-in that routes it through the ACP bridge too. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` already trusts is what entwurf uses.
 
 `pi` installs the bridge from a `git:` source in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope, plus a local clone for hacking on the bridge. An `npm:` source is **coming soon** — the `@junghanacs/entwurf` package is not yet published.
 

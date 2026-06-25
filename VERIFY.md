@@ -22,9 +22,9 @@ VERIFY.md is the **agent-driven** verification surface; BASELINE.md is the opera
 These supersede the per-section rules they touch — the original sections are kept for context, but the rules below are what must hold:
 
 - **§1A.4 Layer 3 pass criterion** is **8 turns / 3+ early facts / one verbatim string injected before turn 5**, not 5 turns. Real bridge runs at 9-turn / 4-fact / 100% recall with the current code; lowering the bar to 5 turns hides regressions.
-- **§10.3 process-count formula** counts **distinct alive `(sessionKey, backend, modelId, bridgeConfigSignature)` tuples**, not entwurf sessionIds. A single `entwurf` + N `entwurf_resume` calls on the same target reuse one child (`acp-bridge.ts` — `bridgeSessions.get(sessionKey)` + `isSessionCompatible`). Delta=0 against a verifier already holding the bridge session is the **expected** state, not an under-count.
+- **§10.3 process-count formula** counts **distinct alive `(sessionKey, backend, modelId, bridgeConfigSignature)` tuples**, not entwurf sessionIds. A single process-scoped ACP session can serve multiple turns for the same `(sessionKey, backend, modelId, bridgeConfigSignature)` tuple (`pi-extensions/lib/acp/session-store.ts` + `backend.ts` retained connection). Delta=0 against a verifier already holding that live bridge session is the **expected** state, not an under-count.
 - **§1A.5 Layer 4 prerequisite**: a verifier already running through `entwurf` cannot dispatch to direct Claude Code via standard MCP tools — it can only call its sibling via entwurf. Layer 4 requires either a human in the loop or a verifier that holds both transport handles.
-- **§12.1 `PI_ENTWURF_CHILD_STDERR_LOG` self-spawn limit**: `export` from a shell already bound to a running bridge process does **not** propagate into that bridge — the env must be present at bridge-process spawn time. Restart the parent session with the env exported, or run VERIFY.md from a plain shell that has not yet bound the bridge.
+- **§12.1 `ENTWURF_CHILD_STDERR_LOG` self-spawn limit**: `export` from a shell already bound to a running bridge process does **not** propagate into that bridge — the env must be present at bridge-process spawn time. Restart the parent session with the env exported, or run VERIFY.md from a plain shell that has not yet bound the bridge.
 
 ## Evidence Levels
 
@@ -51,11 +51,12 @@ The verification in this document is not a benchmark. In production, we continuo
 
 This document records only **verification intent (what we're looking at) and pass criteria (how to judge)**. The execution shape is determined by the agent using the most reasonable tools in its environment. The same intent can be verified in different ways — as long as the pass criteria are met.
 
-### Default Execution Shape — entwurf orchestration
+### Default Execution Shape — current v2 orchestration
 
-- Single-turn verification: one `entwurf(provider="entwurf", model="<M>", mode="sync")` call.
-- Multi-turn verification: first turn via `entwurf(mode="sync")`, subsequent turns via `entwurf_resume(mode="sync", sessionId=...)`. Both surfaces default to `async`; pass `mode="sync"` explicitly for verification turns because the operator needs inline answers, not detached followUp delivery.
-- Different backend verification: same pattern with only provider/model changed (e.g., `entwurf/codex-...`).
+- Deterministic floor: run `pnpm check` and inspect the named `check-*` gates.
+- Live floor: run `LIVE=1 ./run.sh release-gate <scratch-project-dir>` and judge only the MUST tier for cut readiness.
+- Garden-id delivery verification: discover a target with `entwurf_peers`, then use `entwurf_v2` with the correct intent (`fire-and-forget` for a live/replyable target, `owned-outcome` only for a dormant record-backed pi citizen). The old v1 `entwurf` / `entwurf_resume` surfaces are gone.
+- ACP continuity verification: use the `smoke-acp-*-live` gates or a direct `pi --provider entwurf --model <claude-model>` turn; multi-turn reuse is proven by `smoke-acp-session-reuse-live` rather than by v1 resume tools.
 
 ### Live gates — the current release floor
 
@@ -529,11 +530,11 @@ Pass: user/assistant turns accumulate normally in the pi session; the transcript
 
 Documented but observability/automation is still insufficient:
 
-1. Making the actual bootstrap path (`resume` / `load` / `new`) immediately visible externally. Currently only verifiable via stderr `[entwurf:bootstrap]` lines, which the entwurf orchestration path does not surface to the front end. **Reinforcement:** the `PI_ENTWURF_CHILD_STDERR_LOG` opt-in env mirrors child stderr to a file:
+1. Making the actual bootstrap path (`resume` / `load` / `new`) immediately visible externally. Currently only verifiable via stderr `[entwurf:bootstrap]` lines, which the entwurf orchestration path does not surface to the front end. **Reinforcement:** the `ENTWURF_CHILD_STDERR_LOG` opt-in env mirrors child stderr to a file:
    ```bash
-   export PI_ENTWURF_CHILD_STDERR_LOG=/tmp/entwurf-verify-stderr.log
+   export ENTWURF_CHILD_STDERR_LOG=/tmp/entwurf-verify-stderr.log
    # ... run §3 / §4 / §5 entwurf calls ...
-   grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' "$PI_ENTWURF_CHILD_STDERR_LOG"
+   grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' "$ENTWURF_CHILD_STDERR_LOG"
    ```
    This env must be present at bridge-process startup (see the §12.1 self-spawn limit in the strengthened rules). Without it, §5/§7 can only judge semantic continuity.
 2. Surfacing persisted-session incompatibility reasons quickly — partially covered for the transcript-poison class via `[entwurf:prompt-error] reason=transcript_poison` (§12.6); the general incompatibility-reason gap remains.
@@ -555,8 +556,8 @@ These flow `key=value` diagnostic lines to stderr; the smokes are fail-fast.
 pgrep -af 'claude-agent-acp|codex-acp|gemini .*--acp|gemini --acp' || true
 find "$CACHE_DIR" -maxdepth 1 -type f | sort
 ls ~/.pi/agent/sessions/--*--/*_${SESSION_ID}.jsonl 2>/dev/null
-[ -n "$PI_ENTWURF_CHILD_STDERR_LOG" ] && \
-  grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' "$PI_ENTWURF_CHILD_STDERR_LOG"
+[ -n "$ENTWURF_CHILD_STDERR_LOG" ] && \
+  grep -E '\[entwurf:(bootstrap|model-switch|cancel|shutdown)\]' "$ENTWURF_CHILD_STDERR_LOG"
 ```
 
 Also preserve: exact calls used (provider/model/mode + resume sessionId), full stdout/stderr, the child pi session file path, cache directory changes, and the difference between expected and actual results.

@@ -66,12 +66,12 @@ ACP는 중심이 아니라 v2 core 위에 provider/model로 들어오는 **plugi
 
 ### 0.12.0 close checklist
 
-- README / DELIVERY / BASELINE / VERIFY를 0.12.0 현재 표면으로 재정리한다.
-- 오래된 `pi-shell-acp` / `pi-tools-bridge` / clean-host 중심 문서는 history가 아니면 제거하거나 갱신한다.
+- ✅ README / DELIVERY / BASELINE / VERIFY / CHANGELOG를 0.12.0 현재 표면으로 재정리했다.
+- ✅ 오래된 `pi-shell-acp` / `pi-tools-bridge` / clean-host 중심 문서는 live-instruction 표면에서 제거하거나 history/cutover 문맥으로 한정했다.
+- ✅ release cut 직전 `pnpm check` + `check-pack` + `check-pack-install` + `LIVE=1 ./run.sh release-gate <scratch>`를 재확인했다: 2026-06-25 MUST `PASS=17 FAIL=0 SKIP=0`; BEHAVIOR `/gnew` T3 `entwurf_self` flake 1건은 advisory.
 - `smoke-acp-bundled-mcp-live`의 MUST/model-in-loop 불일치를 split한다: deterministic bundled bridge proof는 MUST,
-  모델 자율 tool-call echo는 BEHAVIOR.
+  모델 자율 tool-call echo는 BEHAVIOR. 이번 cut에서는 PASS였지만 taxonomy hardening으로 남긴다.
 - 데모 gif / hero 이미지를 새 표면에 맞춰 재생성한다.
-- release cut 직전 `pnpm check` + `LIVE=1 ./run.sh release-gate <scratch>` MUST PASS/SKIP=0을 재확인한다.
 
 ### deferred (범위는 보임)
 

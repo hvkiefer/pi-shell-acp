@@ -16,6 +16,12 @@
 > - **다음 리뷰(릴리즈 컷 전 필수):** ① full docs diff를 한 번 더 읽어 0.12.0 현재 표면/문장 충돌 확인 ② `LIVE=1 ./run.sh release-gate <scratch>` 재실행(MUST PASS/SKIP=0) ③ `smoke-acp-bundled-mcp-live` MUST/model-in-loop split ④ docs/assets 데모/hero 재생성 ⑤ 보류된 runtime cleanup(`PI_SHELL_ACP` env/code, phantom/compaction 용어)은 GLG 별도 승인 전 건드리지 않음 ⑥ branch NEXT 파일은 main merge 직전 삭제.
 > - **아직 릴리즈 컷 아님:** tag/npm publish/old package deprecate는 GLG가 별도 지시할 때만.
 
+> **▶▶ 2026-06-25 릴리즈 전 문서/CHANGELOG 재검토:**
+> - 완료: issue #44 기준으로 `CHANGELOG.md` Unreleased를 0.12.0 entwurf-first cutover 현상으로 재작성. stale 문구("package name pi-shell-acp kept / no rename", old ACP deps 0.39/0.22)를 제거하고, 2026-06-25 release-gate MUST `17/0/0` + BEHAVIOR `/gnew` T3 advisory flake를 기록.
+> - 완료: README install 첫 문장을 `thin ACP bridge`에서 `thin garden-citizen bridge with Claude-first ACP plugin`으로 정정. `docs/setup-clean-host.md`는 npm을 publish 후 경로로 한정. `VERIFY.md`는 v1 `entwurf`/`entwurf_resume` 실행 shape와 `PI_ENTWURF_CHILD_STDERR_LOG` 잔재를 현재 v2/`ENTWURF_CHILD_STDERR_LOG`로 교정. `ROADMAP.md` close checklist에 재검증 결과 반영.
+> - 검증: `pnpm check` ✅, `./run.sh check-pack` ✅, `pnpm run check-pack-install` ✅, `LIVE=1 ./run.sh release-gate <scratch>` MUST `PASS=17 FAIL=0 SKIP=0`, BEHAVIOR `FAIL=1`(advisory model-in-loop `entwurf_self` flake, cut blocker 아님).
+> - 남은 릴리즈 전 꼬리: demo gif / hero 재생성, bundled-mcp deterministic split은 taxonomy hardening follow-up(이번 cut에서는 MUST pass), GLG push/tag/npm/old-package deprecate.
+>
 > **▶▶ 2026-06-25 설치면 담금질 + pi 런타임 버전 통제 [별개 lane, 같은 브랜치]:**
 > - **배경:** oracle 작업분을 thinkpad로 가져와 현재 버전(0.12.0) 재설치. `pnpm install`로 의존성 갱신 — `@agentclientprotocol/claude-agent-acp` 0.39.0→**0.50.0**, `@agentclientprotocol/sdk` 0.22.1→**0.29.0**, `@earendil-works/pi-*`(dev) 0.79.8→**0.80.2**. `run.sh check-bridge` ✅, `check-dep-versions` 11 ok.
 > - **글로벌 pi 런타임 0.79.6→0.80.2로 끌어올림 (드리프트 발견):** 글로벌 pnpm 스토어가 두 개로 갈라져 있었음 — bin shim `~/.local/share/pnpm/bin/pi`가 **stale v11/e4a19 (0.79.6)** 을 가리켜 `pi update self`도 "managed 아님"으로 거부. 정규 위치는 **global/5**. 조치 = `pnpm add -g @earendil-works/pi-coding-agent@0.80.2`(global/5 갱신) + stale `bin/pi` shim 제거 → pnpm이 `~/.local/share/pnpm/pi`에 0.80.2 가리키는 shim 재생성. `pi --version`→**0.80.2**, `pi list` 정상, `run.sh check-pi-runtime-version`→`ok 0.80.2 >= FLOOR 0.80.2`.
