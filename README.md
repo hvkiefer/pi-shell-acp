@@ -4,13 +4,18 @@
 
 ![entwurf — a forged screwdriver for garden-citizen dispatch](docs/assets/entwurf-hero.jpg)
 
-[![npm](https://img.shields.io/npm/v/@junghanacs/entwurf.svg?logo=npm&label=%40junghanacs%2Fentwurf)](https://www.npmjs.com/package/@junghanacs/entwurf) · maintained by [junghanacs.com](https://junghanacs.com/)
+![npm — coming soon](https://img.shields.io/badge/npm-coming%20soon-lightgrey?logo=npm) · maintained by [junghanacs.com](https://junghanacs.com/)
 
 > **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
 
 > **Current state for 0.12.0.** This repo is **entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + an ACP plugin**. Pi is one supported harness adapter — important because it supplies control sockets and hosts the ACP plugin today — but it is not the project subject. Claude Code is shipped through the meta-bridge; pi is shipped through the control-socket adapter; Codex and Antigravity (`agy`) have verified delivery probes and are being tightened into documented adapter lanes. The ACP plugin is Claude-first; Cortex/vendor-governed ACP backends are future lanes.
 
+<details>
+<summary>Watch demo (2131×1142 GIF, click to expand)</summary>
+
 ![entwurf demo](docs/assets/entwurf-demo.gif)
+
+</details>
 
 ```text
 Claude Code / Codex / agy / pi
@@ -65,27 +70,13 @@ A few words that look unusual for a coding tool.
 
 `entwurf` is a thin ACP bridge — it connects pi to a locally authenticated **Claude** backend (the shipped default ACP path). **Codex** runs as a direct pi-native provider by default, with a tested `ENTWURF_ACP_FOR_CODEX=1` opt-in that routes it through the ACP bridge too. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` already trusts is what entwurf uses.
 
-`pi` accepts four install sources for the bridge — `npm:` or `git:`, each in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A fifth path is a local clone for hacking on the bridge.
+`pi` installs the bridge from a `git:` source in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope, plus a local clone for hacking on the bridge. An `npm:` source is **coming soon** — the `@junghanacs/entwurf` package is not yet published.
 
 After installing the package, run `run.sh install .` in your target project. The script writes the `entwurfProvider` block into `.pi/settings.json` with the correct absolute path for `entwurf-bridge/start.sh` — no hand-editing required. The exact location of `run.sh` depends on which install path was used (each section below shows it). For manual configuration, [`pi/settings.reference.json`](./pi/settings.reference.json) is the reference shape — see [Settings](#settings) below.
 
-### From npm — global
+### From npm — coming soon
 
-```bash
-pi install npm:@junghanacs/entwurf
-cd /path/to/your-project
-"$(npm root -g)/@junghanacs/entwurf/run.sh" install .
-"$(npm root -g)/@junghanacs/entwurf/run.sh" check-bridge
-```
-
-### From npm — project (`-l` flag)
-
-```bash
-cd /path/to/your-project
-pi install -l npm:@junghanacs/entwurf
-./.pi/npm/node_modules/@junghanacs/entwurf/run.sh install .
-./.pi/npm/node_modules/@junghanacs/entwurf/run.sh check-bridge
-```
+The `@junghanacs/entwurf` package is **not yet published to npm**. Until it is, use the `git:` or local-clone paths below.
 
 ### From source via pi — global (alternative)
 
@@ -120,8 +111,6 @@ pi install ./
 
 > **Post-install checks.** `run.sh check-bridge` proves the `entwurf-bridge` MCP surface loads (provider registration + protocol/negative-path), with no backend auth needed. To prove the **ACP backend actually answers** — the bridge spawns Claude through the provider path and a real turn comes back — run `LIVE=1 run.sh smoke-acp-provider-live` (it needs the operator's local Claude auth/credit). Package-source routing — so that a `provider=entwurf` Entwurf target from a `git:` / `npm:` install resolves and does not die with `Unknown provider "entwurf"` (#29) — is pinned deterministically by `run.sh check-package-source-routing`, which runs inside `pnpm check` and the release gate.
 
-> The old OpenClaw adapter package is **deprecated and unmaintained** as of 2026-06-10. It is not part of the root `entwurf` install above — see [Host adapters](#host-adapters).
-
 > **Extension set — do not filter.** `entwurf` ships three `pi.extensions` entries as a single set: the ACP provider extension (`pi-extensions/acp-provider.ts`) plus `pi-extensions/entwurf-control.ts` and `pi-extensions/model-lock.ts`. Filtering some out via pi's object-form package configuration can leave the model lock or entwurf-control surface in a broken state. Disable the entire package or none of it unless you know precisely which boundary you are turning off.
 
 ### Backend prerequisites
@@ -134,15 +123,16 @@ The ACP plugin is **Claude-first**. The Claude ACP server package (`@agentclient
 
 The curated model registry exposes Claude models only, so the ACP backend is Claude. Codex is *not* an ACP backend here — a native Codex session is already a first-class garden citizen via direct injection, so it needs no ACP plugin (see [AGENTS.md](./AGENTS.md)). Vendor / governed CLIs (e.g. Cortex) are a later ACP backend lane.
 
-### Host adapters
-
-No host-adapter plugin is shipped from this repo now. Historical note: the old OpenClaw plugin was published on npm as [`@junghan0611/openclaw-pi-shell-acp`](https://www.npmjs.com/package/@junghan0611/openclaw-pi-shell-acp) (`0.0.1`) and is **deprecated and unmaintained** as of 2026-06-10. It is not part of the root `entwurf` package.
-
 ### Emacs frontends
 
 Works from terminals and from Emacs frontends that launch [pi-coding-agent](https://github.com/dnouri/pi-coding-agent).
 
+<details>
+<summary>Watch entwurf in Doom Emacs (1104×627 GIF, click to expand)</summary>
+
 ![entwurf in Doom Emacs](docs/assets/entwurf-doomemacs.gif)
+
+</details>
 
 For a dedicated agent socket, pass the socket name:
 
@@ -374,7 +364,7 @@ A sibling has its own runtime boundary and its own provider/model identity — n
 A two-pane recording covers the surface end-to-end — sibling resume, cross-process MCP dispatch across a different cwd, and a live peer greeting:
 
 <details>
-<summary>Watch (518×1030 GIF, click to expand)</summary>
+<summary>Watch (2131×1142 GIF, click to expand)</summary>
 
 ![entwurf demo](./docs/assets/entwurf-entwurf.gif)
 
