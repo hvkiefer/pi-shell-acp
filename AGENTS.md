@@ -31,6 +31,7 @@ For agents that own this repo: invariant principles + reproducible verification,
 - **표면은 달라도 능력의 존엄은 낮추지 않는다.** 어떤 backend에서 `mcp__...`가 직접 보이지 않는다고 해서, 곧바로 그 backend를 "못하는 존재"로 취급하지 마라. 먼저 capability를 보고, 그 capability가 어떤 surface로 열리는지 확인하라.
 - **substrate는 결정적 dispatch만 맡는다.** target liveness를 fact로 읽고, intent와 곱해 transport를 고른다. 그 이상 마술을 부리면 안 된다.
 - **명시는 주변기류보다 강하다.** 숨겨진 transcript hydration, ambient MCP scanning, invisible tool claims, giant magical system prompt, 근거 없는 서사를 만들지 마라.
+- **하네스의 도구 표면을 좁히는 것은 결핍이 아니라 규율이다.** entwurf가 backend를 몰 때(ACP Claude · pi-native 분신) 서브에이전트도 투두 도구도 없이 좁은 tool surface를 yolo로 돈다(ACP backend는 격리된 overlay 안에서) — pi에서 배운 **힣의 드라이버**다. backend가 못해서가 아니라, 한 자루 드라이버가 두 번째 오케스트레이터로 번지지 않게 하는 강제다. 이걸 강제해야 "힣의 드라이버를 쓴다"고 말할 수 있다. (backlog 형태는 `ROADMAP.md` tool narrowing.)
 - **entwurf는 부속품이 아니라 분신을 연다.** spawn-bg resume된 세션은 runtime-isolated peer다. worker처럼 다루거나 권한 경계를 흐리지 마라.
 - **증거가 말을 훈육한다.** README / AGENTS / CHANGELOG / VERIFY / BASELINE / runtime smoke가 받쳐주지 않으면, 작업을 중지하고 사용자에게 질문하라!
 

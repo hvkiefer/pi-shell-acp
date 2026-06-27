@@ -8,7 +8,7 @@
 
 > **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
 
-> **Current state for 0.12.0.** This repo is **entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + an ACP plugin**. Pi is one supported harness adapter — important because it supplies control sockets and hosts the ACP plugin today — but it is not the project subject. Claude Code is shipped through the meta-bridge; pi is shipped through the control-socket adapter; Codex and Antigravity (`agy`) have verified delivery probes and are being tightened into documented adapter lanes. The ACP plugin is Claude-first; Cortex/vendor-governed ACP backends are future lanes.
+> **Current state for 0.12.0.** This repo is **entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + an ACP plugin**. Pi is one supported harness adapter — important because it supplies control sockets and hosts the ACP plugin today — but it is not the project subject. Claude Code is shipped through the meta-bridge; pi is shipped through the control-socket adapter; Codex and Antigravity (`agy`) reach the garden with verified delivery probes, documented per launch mode in [DELIVERY.md](./DELIVERY.md), with shipped adapter/install lanes landing after the 0.12.0 doc cut. The ACP plugin is Claude-first; Cortex/vendor-governed ACP backends are future lanes.
 
 <details>
 <summary>Watch demo (2131×1142 GIF, click to expand)</summary>
@@ -27,6 +27,8 @@ Claude Code / Codex / agy / pi
 [`entwurf_v2`](#entwurf_v2--canonical-dispatch-verb) is the canonical dispatch surface over *existing* garden citizens — live control-socket send (including record-less socket-only pi sessions), spawn-bg resume, and meta-mailbox enqueue. The v1 entwurf verbs are gone. Fresh sibling minting and non-Claude ACP backends are deferred lanes.
 
 **Garden id is deliberate vocabulary.** It is not a decorative synonym for session id, worker, delegate, or subagent. The unfamiliar word is a guard: each harness keeps its own identity and transcript, while `entwurf` supplies a narrow addressable surface between siblings.
+
+**A narrow harness tool surface is discipline, not a missing feature.** When entwurf drives a backend the way pi taught — the ACP Claude session, a pi-native sibling — it runs without a sub-agent tool or a todo tool, on a narrow tool surface in auto-approve (`yolo`) mode (the ACP backend yolo-runs inside its isolated overlay). That restraint is the point: it keeps the one forged screwdriver from drifting into a second orchestrator, and keeps the operator's own driver — not a hidden agent swarm — the thing actually steering. See [AGENTS.md](./AGENTS.md) North Star.
 
 **The ACP plugin is one ingress, not the boundary.** It re-enters as a pi provider/model on a host `--entwurf-control` session that is *already* a v2 socket-citizen; it does not mint its own socket / peers / citizen layer (see [AGENTS.md](./AGENTS.md) §ACP Plugin Boundary). No OAuth proxy, no subscription bypass, no CLI transcript scraping, no Claude Code emulation.
 
