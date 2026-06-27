@@ -159,7 +159,7 @@ function main(): void {
 	}
 
 	// Sender marker, keyed by the shared Claude Code parent pid: the user-scope
-	// MCP child (same parent) reads it at entwurf_send time to promote this
+	// MCP child (same parent) reads it at entwurf_v2 send time to promote this
 	// session from anonymous external-mcp to a REPLYABLE meta-session sender —
 	// process ancestry, not cwd inference (same repo + multiple sessions would be
 	// ambiguous). Best-effort: a failed marker only costs reply-addressability

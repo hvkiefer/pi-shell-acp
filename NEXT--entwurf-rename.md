@@ -121,12 +121,18 @@
 | `.tmp-verify/` | gitignored local artifact, 무시(ship 안 됨). |
 
 ### 기타 꼬리
-- **entwurf_send 주석 sweep (별도 follow-up, 새 GPT 검수 #3):** user-facing 런타임 문자열은 고침
-  (`meta-mailbox-body.ts` "reply with entwurf_send"→"reply via entwurf_v2 …intent=fire-and-forget",
-  `check-entwurf-v2-mailbox`에 v2-not-v1 assert 추가, `fbcbdbc` 후속). 남은 `entwurf_send` 언급은
-  **주석뿐**이고 다수가 "gone/legacy임을 설명" 또는 게이트가 *제거됨을 assert*(check-entwurf-mailbox-guard/
-  bridge-boot/test.sh)라 정상 — 일괄 치환 금지(정상 assert 깨짐). `entwurf-control.ts`/`entwurf-mailbox-guard.ts`/
-  `check-entwurf-self-address.ts`의 "현재 send path처럼 설명하는" 주석만 골라 손볼지는 별도 판단.
+- **v1-verb 주석 sweep — ✅ 완료 (oracle, Opus+GPT 협업 2026-06-27):** stale `entwurf_send`/`entwurf_resume`를
+  "현재 send/resume path처럼 설명하는" 주석·docstring·user-facing 문자열만 골라 `entwurf_v2`(또는 verb명 없는
+  "Entwurf resume marker")로 치환. 15파일 41행, **전부 주석/문서/문자열 — 로직 무변경, pnpm check green(183f)**.
+  잡은 user-facing 문자열: `entwurf-core.ts:361` "Use entwurf_resume to continue"→`entwurf_v2`, `:1340`
+  resident-guard 에러 "entwurf_resume marker"→"Entwurf resume marker", `meta-mailbox-body`/`acp/tool-surface`
+  에러 예시 도구명. 죽은 심볼도 정정: `entwurf-control.ts:819`가 가리키던 `registerControlSendTool`/
+  `runStartupControlSend`(v1 제거됨, 주석에만 잔존)→실제 경로(`buildLocalSenderEnvelope`+v2 senderProvider).
+  `check-entwurf-self-address.ts` docstring: 삭제 게이트명(`smoke-meta-sender-identity`)+오타 게이트명
+  (`check-entwurf-send-mailbox-fallback`→`check-entwurf-v2-send-fallback`)+이미 닫힌 "still hardcodes" 역전 교정.
+  **의도적 KEEP**: 게이트 *제거-assert*(bridge-boot:193/mailbox-guard:262/v2-mailbox:102/test.sh:40),
+  "gone/legacy/retired"로 정확히 서술한 곳(README/AGENTS/VERIFY/ROADMAP/index.ts, entwurf-v2-contract:8/194,
+  entwurf-v2-lock:5 legacy scope), CHANGELOG 전체(역사), demo/(GLG v2 재생성 예정) — 손대면 정상 assert/역사 훼손.
 - **bundled-mcp MUST/BEHAVIOR split** — model-in-loop라 MUST 정당화 불성립. MUST=callable surface resolve를 *모델 턴 없이* 증명 / BEHAVIOR=모델 자율. flake 반복 시 재조정.
 - `models.ts` `getModels` deprecated(L32/69) chore.
 - README 수동 `rg` 1패스(`PI_SHELL_ACP_`·기능주장) — doc은 `check-env-namespace` 사각.

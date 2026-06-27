@@ -254,7 +254,7 @@ parentGardenId:null, isEntwurf:false, createdAt, recordUpdatedAt }`. `model`/`tr
 - **Gemini CLI(2026-06-18 deprecated):** Google AI Pro/Ultra·무료 tier 대상 종료 → Antigravity CLI 이관.
   repo는 Gemini 어댑터 코드를 **호환성용 잔존**, README는 더 이상 추천 setup 경로로 제시 안 함.
 - **Long-term/separate issues:** #11 remote SSH resume cwd(원격 entwurf identity는 의도적 fail-fast),
-  #10 broader ontology RFC, #8 ACP `entwurf_send` message visibility UX, #2 pi-first context meter, L5 long soak.
+  #10 broader ontology RFC, #8 ACP `entwurf_v2` message visibility UX, #2 pi-first context meter, L5 long soak.
 
 ---
 

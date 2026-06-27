@@ -283,7 +283,7 @@ export function normalizeMcpServers(input: Record<string, unknown> | undefined):
 /**
  * Inject the per-session entwurf envelope (PI_SESSION_ID + PI_AGENT_ID) into the
  * `entwurf-bridge` stdio MCP entry so the bridge's MCP child can resolve the
- * caller identity (entwurf_self / entwurf_send). Runs AFTER the config hash is
+ * caller identity (entwurf_self / entwurf_v2). Runs AFTER the config hash is
  * taken — this is runtime wiring, not config, so a new session id alone must not
  * invalidate a reused session. http/sse have no env carrier; other stdio servers
  * are left untouched. Pre-existing PI_SESSION_ID/PI_AGENT_ID env are filtered so

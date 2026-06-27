@@ -643,7 +643,7 @@ try {
 	ok(!isEntwurfSessionName(residentName), "resident control name is NOT an Entwurf session name");
 
 	// The `entwurf` tag is FORBIDDEN on a resident name — that tag is the
-	// entwurf_resume marker; a resident session must never be resumable as a child.
+	// Entwurf resume marker; a resident session must never be resumable as a child.
 	throws(
 		() =>
 			buildGardenSessionName({
@@ -657,7 +657,7 @@ try {
 
 	// Regression guard for the closed blocker: a resident `control` session on
 	// disk must be REFUSED by readSessionIdentity(requireEntwurf) — it is not an
-	// Entwurf child and entwurf_resume must not open it.
+	// Entwurf child and entwurf_v2 must not open it.
 	const fileResident = path.join(tmp, "resident-control.jsonl");
 	fs.writeFileSync(
 		fileResident,

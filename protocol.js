@@ -23,7 +23,7 @@
 export const ENTWURF_PROJECT_CONTEXT_OPEN_TAG = "<project-context";
 
 /**
- * Sender-side UI echo custom message type for successful entwurf_send calls.
+ * Sender-side UI echo custom message type for successful entwurf_v2 send calls.
  * The bridge emits it, the control renderer draws it, and the provider-level
  * context filter removes it before LLM conversion. Keep as one SSOT: a typo
  * here otherwise becomes a silent UI/context split.

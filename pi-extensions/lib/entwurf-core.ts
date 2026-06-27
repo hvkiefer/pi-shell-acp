@@ -106,7 +106,7 @@ export interface EntwurfResult {
 	stopReason?: string;
 	/**
 	 * Durable garden-native session handle (`YYYYMMDDTHHMMSS-[0-9a-f]{6}` = JSONL
-	 * header id). The single public resume handle — pass this to entwurf_resume.
+	 * header id). The single public resume handle — pass this to entwurf_v2 (dormant-resume).
 	 */
 	sessionId: string;
 	/** Diagnostic only — resolved by header scan after the run. Never a public handle. */
@@ -345,7 +345,7 @@ export function mirrorChildStderr(proc: ChildProcess): void {
 //
 // Shared by pi native tool (pi-extensions/entwurf.ts) and the MCP bridge
 // (mcp/entwurf-bridge). Both paths must go through this gate before calling
-// runEntwurfSync / runEntwurfAsync. entwurf_resume deliberately bypasses it.
+// runEntwurfSync / runEntwurfAsync. entwurf_v2 resume deliberately bypasses it.
 //
 // Map key is the caller-provided sessionId:
 //   - pi native: pi.sessionManager.getSessionId()
@@ -358,7 +358,7 @@ const usedEntwurfTargets = new Map<string, Set<string>>();
 export function ensureEntwurfOncePerTarget(sessionId: string, targetKey: string): void {
 	const seen = usedEntwurfTargets.get(sessionId);
 	if (seen && seen.has(targetKey)) {
-		throw new Error(`entwurf to ${targetKey} already exists in this session. Use entwurf_resume to continue.`);
+		throw new Error(`entwurf to ${targetKey} already exists in this session. Use entwurf_v2 to continue.`);
 	}
 }
 
@@ -506,7 +506,7 @@ export function parseMessages(messages: AssistantMessageLike[]): string {
  *
  * Why this exists (issue #9):
  *   `runEntwurfResumeSync` originally fell back to `process.cwd()` when no
- *   explicit `cwd` was passed. Through the MCP `entwurf_resume` surface, the
+ *   explicit `cwd` was passed. Through the MCP `entwurf_v2` resume surface, the
  *   resumer is a different process from the original spawner, so its cwd is
  *   unrelated to the saved session's cwd. The child pi then started in the
  *   resumer's cwd, the entwurf bridge persisted that cwd in its session
@@ -1337,7 +1337,7 @@ export function buildGardenSessionName(input: BuildSessionNameInput): string {
 		}
 		if (tag === "entwurf") {
 			throw new SessionIdentityError(
-				`A resident garden session name must not carry the "entwurf" tag — that tag is the entwurf_resume ` +
+				`A resident garden session name must not carry the "entwurf" tag — that tag is the Entwurf resume ` +
 					`marker and would make this operator session resumable as an Entwurf child. Use "${RESIDENT_SESSION_TAG}".`,
 			);
 		}

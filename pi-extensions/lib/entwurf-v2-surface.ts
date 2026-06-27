@@ -46,7 +46,7 @@ export function parseEntwurfPrefixRootsEnv(raw: string | undefined = process.env
 }
 
 /** The raw shape a surface (pi tool / MCP verb) collects. `wants_reply` is snake_case to
- * match the external `entwurf_send` convention; the runner sees `wantsReply`. */
+ * match the external `entwurf_v2` convention; the runner sees `wantsReply`. */
 export interface SurfaceEntwurfV2Params {
 	target: string;
 	intent: "fire-and-forget" | "owned-outcome";

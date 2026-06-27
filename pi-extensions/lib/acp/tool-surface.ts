@@ -69,7 +69,7 @@ export const DEFAULT_CLAUDE_DISALLOWED_TOOLS: readonly string[] = [
 
 /**
  * pi built-in tool names (lowercase) that map 1:1 onto a backend capability the
- * ACP child ALWAYS provides. Extension tools (entwurf, entwurf_send, …) are
+ * ACP child ALWAYS provides. Extension tools (entwurf_v2, entwurf_peers, …) are
  * pi-side and never reach the backend — excluding THEM is honest, so they are
  * deliberately not listed here.
  */
@@ -107,7 +107,7 @@ export function assertExcludeToolsHonored(activeToolNames: readonly string[], re
 				`${many ? "them" : "it"} from pi's surface would make the declared tool set diverge from what the backend can ` +
 				`actually do. Restrict ${many ? "them" : "it"} via the backend's own tool config instead` +
 				(resolved.backend === "claude" ? " (provider settings 'tools' / 'disallowedTools')" : "") +
-				". Extension tools (entwurf, entwurf_send) can be excluded freely — they are pi-side and never reach the backend.",
+				". Extension tools (entwurf_v2, entwurf_peers) can be excluded freely — they are pi-side and never reach the backend.",
 		);
 	}
 }

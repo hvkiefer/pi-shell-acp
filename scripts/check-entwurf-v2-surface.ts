@@ -310,7 +310,7 @@ async function main(): Promise<void> {
 	// The MCP bridge is a `.ts`-import fence consumer (mcp/tsconfig allowImportingTsExtensions),
 	// so it STATICALLY imports the surface adapter (no dynamic import). The v2 handler runs the
 	// production runner IN-PROCESS via runAndRenderEntwurfV2FromSurface — it does NOT route the
-	// v2 dispatch through legacy rpcCall/enqueueMetaMessage (those stay for the entwurf_send body).
+	// v2 dispatch through legacy rpcCall/enqueueMetaMessage (those stay as the v2 runner's transport primitives).
 	{
 		const src = await fs.readFile(MCP_SRC, "utf8");
 		ok("5: MCP — registers entwurf_v2 server.tool", /server\.tool\(\s*"entwurf_v2"/.test(src));

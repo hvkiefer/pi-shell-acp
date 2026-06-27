@@ -1014,7 +1014,7 @@ smoke_entwurf_v2_matrix_live() {
   # substrate happy path across 3 cells: C1 control-socket (a real `pi --entwurf-control` resident
   # → control-socket RPC send → lock acquire→release ×1), C2 meta-mailbox deliverable (armed
   # self-fetch citizen → real .msg enqueue, lock-free), C3 meta-mailbox guard (no armed receiver →
-  # reject, no garbage). Model-in-loop is OUT (GPT Q2): "does the sender model call entwurf_send"
+  # reject, no garbage). Model-in-loop is OUT (GPT Q2): "does the sender model call entwurf_v2"
   # is a separate behavior test — this is a transport/lock/enqueue gate. Negative/timeout/contention
   # stay deterministic. Honest skip when LIVE!=1 so the release-gate is runnable unattended.
   # Model: ENTWURF_LIVE_TARGET=<provider>/<model> (default openai-codex/gpt-5.4).

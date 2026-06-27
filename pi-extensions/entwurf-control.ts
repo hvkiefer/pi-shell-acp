@@ -372,7 +372,7 @@ function stripSenderInfo(text: string): string {
 // send time. A missing envelope field means wiring is broken (no
 // PI_AGENT_ID inject from acp-bridge.ts, no PI_SESSION_ID from
 // entwurf-control, MCP child detached from pi process.env, …). Crash-loud:
-// throw at entwurf_send, reject at handleCommand("send"). wants_reply is
+// throw at entwurf_v2, reject at handleCommand("send"). wants_reply is
 // not part of the wiring check — its absence just means "no etiquette
 // marker", which is the default and not an error. Silent fallback for
 // envelope fields is banned — see AGENTS.md Code Principle "Never warn. Throw."
@@ -464,7 +464,7 @@ function parseSenderInfo(text: string): SenderInfo | null {
 // --entwurf-send-message startup flag). Returns undefined when any field
 // cannot be resolved — pi-native callers should fall back to body-less sends
 // rather than synthesize partial envelopes that would render as "(unknown ...)"
-// at the receiver. The MCP-side bridge (mcp/entwurf-bridge entwurf_send) is
+// at the receiver. The MCP-side bridge (mcp/entwurf-bridge entwurf_v2) is
 // strict — it throws when its own env wiring is incomplete — because it
 // represents the public transparency contract.
 //
@@ -528,7 +528,7 @@ const renderSessionMessage: MessageRenderer = (message, { expanded }, theme) => 
 	// The label is "[entwurf received ⟵]" with a left-pointing arrow so the
 	// receiving operator immediately sees the directionality (this is an
 	// incoming message). The corresponding sender-side surface in
-	// mcp/entwurf-bridge/entwurf_send renders "[entwurf sent →]" — same
+	// mcp/entwurf-bridge/entwurf_v2 renders "[entwurf sent →]" — same
 	// transport, opposite arrows, no confusion about who-said-what when the
 	// transcript is read end-to-end.
 	//
@@ -659,7 +659,7 @@ const buildSentMessageBox = (data: SentBoxData, expanded: boolean, theme: Theme)
 
 // CustomMessageRenderer adapter for Layer B (ACP path). The CustomMessage
 // carries the SentBoxData under `details` (set by index.ts streamShellAcp
-// when a completed mcp__entwurf-bridge__entwurf_send is observed). `content`
+// when a completed mcp__entwurf-bridge__entwurf_v2 is observed). `content`
 // holds the raw message body too, but we prefer details.body because the
 // content channel may have been routed through string-only persistence and
 // trimmed.
@@ -785,7 +785,7 @@ async function handleCommand(
 		// When sender is omitted entirely we accept the send (a fallback for
 		// non-bridge paths or future surfaces that haven't been migrated yet) but
 		// the renderer will just show the bare label — the operator will notice
-		// the missing header. The entwurf-bridge entwurf_send already throws
+		// the missing header. The entwurf-bridge entwurf_v2 already throws
 		// when its env is incomplete, so the common bridge path never reaches
 		// this `sender === undefined` branch.
 		const sender = command.sender;
@@ -816,7 +816,7 @@ async function handleCommand(
 		const wantsReply = typeof command.wants_reply === "boolean" ? command.wants_reply : false;
 
 		// Synthesize <sender_info> JSON at the receiver side. Caller code paths
-		// (entwurf-bridge entwurf_send, registerControlSendTool, runStartupControlSend)
+		// (entwurf-bridge entwurf_v2, the pi-native entwurf_v2 senderProvider via buildLocalSenderEnvelope)
 		// pass the envelope structurally and never touch the message body — the
 		// canonical XML-style payload is constructed here once. We emit
 		// wants_reply only when the sender explicitly set it true; an undefined
@@ -988,7 +988,7 @@ function updateStatus(ctx: ExtensionContext | null, enabled: boolean): void {
 	}
 	// Screwdriver (🪛) label, NOT the word "entwurf" — the status label is a UI
 	// affordance for the resident session and must not be confused with the
-	// `entwurf` session-name tag (the entwurf_resume marker). The garden id shows
+	// `entwurf` session-name tag (the Entwurf resume marker). The garden id shows
 	// only once the session file exists (= first assistant turn = model locked);
 	// before that it reads `🪛 ready` (model still changeable). See
 	// computeResidentStatusLabel.
@@ -1022,7 +1022,7 @@ function maybeSetResidentName(pi: ExtensionAPI, ctx: ExtensionContext): void {
 			process.stderr.write(`[entwurf-control] corrupt resident session name: ${existing}\n`);
 			process.exit(1);
 		}
-		// The `entwurf` tag is the entwurf_resume marker. An OPERATOR resident must never carry
+		// The `entwurf` tag is the Entwurf resume marker. An OPERATOR resident must never carry
 		// it (it would advertise a live citizen as also dormant-resumable). The ONE exception is
 		// a v2 spawn-bg resume promoting a dormant Entwurf session to a live resident: that child
 		// SHOULD keep its `entwurf` tag (so it is re-resumable once it dies), and is authorized by
@@ -1138,7 +1138,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerMessageRenderer(SESSION_MESSAGE_TYPE, renderSessionMessage);
 	// Layer B (ACP path) sender-side UI box. Registered unconditionally — even
 	// in a session that is not exposing a control socket (no `--entwurf-control`),
-	// an ACP backend may still use the MCP `entwurf_send` to message OTHER
+	// an ACP backend may still use the MCP `entwurf_v2` to message OTHER
 	// sessions. The renderer is needed here for the [entwurf sent →] box to
 	// appear in this session's transcript when it sends.
 	pi.registerMessageRenderer(ENTWURF_SENT_MESSAGE_TYPE, renderSentMessage);

@@ -6,7 +6,7 @@
 //
 // Claude-only collapse (NEXT §스코프 + oracle F): the 0.11.0 event-mapper
 // reconciled three backend dialects (Claude rawOutput=array / Codex
-// CallToolResult / Gemini content[]) plus an entwurf_send custom-box promotion.
+// CallToolResult / Gemini content[]) plus an entwurf_v2 sent-box custom promotion.
 // This lane drives ONLY claude-agent-acp, so the dialect collapses to one
 // (rawOutput=array) and the entwurf/gemini/codex special-casing is dropped.
 //
