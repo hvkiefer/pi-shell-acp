@@ -4,7 +4,7 @@ This is a daily-driver bridge. Correctness beats feature breadth. Read this befo
 
 ## What this repo is
 
-`entwurf` is a **thin ACP bridge** that lets pi talk to Claude Code, Codex, and Gemini. It borrows each backend's identity (system prompt preset, model behavior, tool implementations) and shapes the *operating surface* — what tools, MCP, skills, and permissions are visible — to match pi's own policy. That is the entire scope.
+`entwurf` is a **garden-citizen dispatch bridge** — entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + a **Claude-first ACP plugin** — that lets already-running harnesses address one another by garden id; pi is one adapter, not the subject. The ACP plugin borrows the backend's identity (system prompt preset, model behavior, tool implementations) and shapes the *operating surface* — what tools, MCP, skills, and permissions are visible — to match pi's own policy. Claude is the shipped ACP backend, Codex is a native garden citizen, and the Gemini path is deprecated. That is the entire scope.
 
 If a change moves the bridge toward "second harness" — prompt reconstruction, transcript hydration, ambient discovery, silent fallback — it does not belong here.
 

@@ -144,9 +144,11 @@ Drift points:
 ## Stage 4 — runtime smoke (backend auth required)
 
 Backend authentication is **the operator's responsibility** and lives entirely
-outside entwurf. The 0.12.0 runtime floor is **Claude-first**; the Codex and
-Gemini ACP lanes are exercised only by the `smoke-acp-*-live` floor inside
-`release-gate` (there is no standalone per-backend smoke command).
+outside entwurf. The 0.12.0 runtime floor is **Claude-first** — the
+`smoke-acp-*-live` floor inside `release-gate` exercises the Claude ACP backend
+only (there is no standalone per-backend smoke command). Codex reaches the
+garden as a native citizen (ACP only via the `ENTWURF_ACP_FOR_CODEX=1` opt-in,
+off the live floor); the Gemini path is deprecated.
 
 ### Stage 4 prep — Claude CLI install + login
 
@@ -168,9 +170,9 @@ missing piece is upstream of entwurf.
 
 > **Codex / Gemini (optional).** `npm i -g @openai/codex` + `codex login` for
 > the Codex lane; `npm i -g @google/gemini-cli` + `gemini auth` for the
-> deprecated Gemini probe. Neither is on the 0.12.0 live floor; both are
-> exercised, when present, by the `smoke-acp-*-live` gates run under
-> `release-gate`.
+> deprecated Gemini probe. Neither is on the 0.12.0 live floor — the
+> `smoke-acp-*-live` gates run the Claude ACP backend only; Codex/agy delivery
+> is captured as raw probes in [DELIVERY.md](../DELIVERY.md).
 
 ### Stage 4 prep — interactive setting (optional)
 
