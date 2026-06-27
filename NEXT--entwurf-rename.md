@@ -121,6 +121,12 @@
 | `.tmp-verify/` | gitignored local artifact, 무시(ship 안 됨). |
 
 ### 기타 꼬리
+- **entwurf_send 주석 sweep (별도 follow-up, 새 GPT 검수 #3):** user-facing 런타임 문자열은 고침
+  (`meta-mailbox-body.ts` "reply with entwurf_send"→"reply via entwurf_v2 …intent=fire-and-forget",
+  `check-entwurf-v2-mailbox`에 v2-not-v1 assert 추가, `fbcbdbc` 후속). 남은 `entwurf_send` 언급은
+  **주석뿐**이고 다수가 "gone/legacy임을 설명" 또는 게이트가 *제거됨을 assert*(check-entwurf-mailbox-guard/
+  bridge-boot/test.sh)라 정상 — 일괄 치환 금지(정상 assert 깨짐). `entwurf-control.ts`/`entwurf-mailbox-guard.ts`/
+  `check-entwurf-self-address.ts`의 "현재 send path처럼 설명하는" 주석만 골라 손볼지는 별도 판단.
 - **bundled-mcp MUST/BEHAVIOR split** — model-in-loop라 MUST 정당화 불성립. MUST=callable surface resolve를 *모델 턴 없이* 증명 / BEHAVIOR=모델 자율. flake 반복 시 재조정.
 - `models.ts` `getModels` deprecated(L32/69) chore.
 - README 수동 `rg` 1패스(`PI_SHELL_ACP_`·기능주장) — doc은 `check-env-namespace` 사각.

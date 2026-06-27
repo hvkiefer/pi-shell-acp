@@ -97,6 +97,10 @@ function recordingEnqueue(): {
 	ok("1: wantsReply=true → 'wants reply: yes' in body", body.includes("wants reply: yes"));
 	ok("1: body carries the message", body.includes("ping"));
 	ok("1: body carries the sender sessionId (replyable)", body.includes(SENDER.sessionId));
+	ok(
+		"1: replyable body points to the v2 reply surface (entwurf_v2), not the retired entwurf_send",
+		body.includes("entwurf_v2") && !body.includes("entwurf_send"),
+	);
 }
 
 // ── 2. sender present + wantsReply=false → 'wants reply: no' ──────────────────

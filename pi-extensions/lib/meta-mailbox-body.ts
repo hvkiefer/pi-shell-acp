@@ -64,7 +64,7 @@ export function formatMetaMailboxBody(sender: MailboxSenderEnvelope, message: st
 	const isMeta = sender.origin === "meta-session";
 	const kind = isMeta ? "meta-session, " : "";
 	const sessionLine = replyable
-		? `${sender.sessionId} (${kind}replyable — reply with entwurf_send to this sessionId)`
+		? `${sender.sessionId} (${kind}replyable — reply via entwurf_v2 to this sessionId, intent=fire-and-forget)`
 		: isMeta
 			? `${sender.sessionId} (meta-session, non-replyable)`
 			: `${sender.sessionId} (external, non-replyable)`;

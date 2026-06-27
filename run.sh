@@ -2127,9 +2127,9 @@ setup_all() {
 #     LIVE), the MCP bridge (check-bridge), and the garden-native substrate/guard
 #     (smoke-session-id-name on a pi-native target via ENTWURF_LIVE_TARGET,
 #     and smoke-resident-garden-guard).
-#   - ACP plugin acceptance floor (S0~S2g): the 10 ACP LIVE smokes
-#     (socket-citizen/raw-turn/overlay/provider/session-reuse/carrier-augment/rgg
-#     + S2g mcp/skill config passthrough + S2g axis-3 bundled-mcp resident/RPC)
+#   - ACP plugin acceptance floor (S0~S2g): the 11 ACP LIVE smokes
+#     (socket-citizen/raw-turn/overlay/provider/session-reuse/carrier-augment/
+#     memory-containment/rgg + S2g mcp/skill config passthrough + S2g axis-3 bundled-mcp resident/RPC)
 #     are MUST, not BEHAVIOR — they prove programmatic transport/provider/backend
 #     invariants of the ACP plugin on the v2 core, so a failure is a release
 #     defect, not an advisory model-in-loop signal. Each is LIVE-gated honest-SKIP.
