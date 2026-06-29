@@ -15,9 +15,18 @@
 - 추가 발견: pi `>=0.80.2` floor 미달 시(예: hejdev6 0.79.8) 설치는 성공하나 **provider 무음 미등록**. README Install엔 floor 안내 없음(clean-host 문서에만).
 - 설계 잠금 완료 (Opus + GPT `…e06002` 수렴). cut 순서 A→B→C→D 확정.
 
+## 진행 — A·B 완료 (green), 다음은 C·D
+
+- ✅ **A** `scripts/check-entwurf-bridge-pi-free.ts` + run.sh verb + `pnpm check` 파이프라인. bridge boot eager value-closure에 pi 0개 증명.
+- ✅ **B-1** `entwurf-v2-contract.ts` pi-free core 정화 + `entwurf-v2-contract-schema.ts`(pi-ai TypeBox) 분리. root tsconfig에 `.ts`-fence exclude 추가, gate import repoint.
+- ✅ **B-2** `entwurf-v2-production.ts` `preflight` → `lazyProductionPreflight`(`await import`), `entwurf-v2-decider.ts` `preflightForCwd` MaybePromise + resume 분기 `await`.
+- ✅ 검증: `pnpm check` rc=0 (60+ 게이트), typecheck 3-config 클린, lint 클린. bridge boot pi-free (28 모듈).
+- ⬜ **C** packaging (npm-primary) — 아래
+- ⬜ **D** README lane 재구성 + garden-id primer — 아래
+
 ## 다음 한 걸음 — 0.12.1 구현 (main 직접, A→B→C→D)
 
-**A. 게이트 먼저 (회귀 가드, RED 상태로)**
+**A. 게이트 먼저 (회귀 가드, RED 상태로) — ✅ 완료**
 - `scripts/check-entwurf-bridge-pi-free.ts` 신규:
   - static: `mcp/entwurf-bridge/src/index.ts`의 **eager static value-import closure**에 `@earendil-works/*` 0개 (`import type` + dynamic `await import` 제외)
   - runtime smoke: pi peers 없는 tmp에 tarball install → `entwurf-bridge`가 MCP `tools/list`까지 boot (최종 권위)

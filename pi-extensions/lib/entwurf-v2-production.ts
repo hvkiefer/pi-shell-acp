@@ -39,7 +39,12 @@ import {
 	receiverMarkerMatchesIdentity,
 } from "./entwurf-deliverability.ts";
 import { isNonPiGardenIdSocketConflict } from "./entwurf-facts.ts";
-import { type PreflightInput, type PreflightOutcome, preflight as realPreflight } from "./entwurf-preflight.ts";
+// 0.12.1 B-2: TYPE-ONLY import — `entwurf-preflight.ts` value-imports
+// `@earendil-works/pi-coding-agent` (ProjectTrustStore), so a static value-import
+// here would re-couple the harness-neutral MCP bridge to pi at boot
+// (check-entwurf-bridge-pi-free). The real preflight is reached ONLY via the lazy
+// `await import()` in `lazyProductionPreflight`, on the owned-outcome resume branch.
+import type { PreflightInput, PreflightOutcome } from "./entwurf-preflight.ts";
 import { isLivenessSupported } from "./entwurf-v2-contract.ts";
 import {
 	type DispatchDeciderDeps,
@@ -109,7 +114,10 @@ export interface ProductionEntwurfV2Seams {
 	releaseLock: (claim: LockClaim, deps: { dir?: string }) => unknown;
 	inspectSocket: (gid: string, dir: string) => Promise<TargetSocketInspection>;
 	probeSocket: (socketPath: string) => Promise<SocketLiveness>;
-	preflight: (input: PreflightInput) => PreflightOutcome;
+	// MaybePromise (0.12.1 B-2): the production default is the lazy wrapper, which
+	// `await import()`s the pi-coding-agent-backed preflight only on a resume verdict.
+	// A deterministic gate may still inject a sync spy returning a plain PreflightOutcome.
+	preflight: (input: PreflightInput) => PreflightOutcome | Promise<PreflightOutcome>;
 	classifyConnect: (code: string | undefined) => "dead" | "indeterminate";
 	sendRpc: (socketPath: string, command: RpcCommand, options?: RpcClientOptions) => Promise<{ response: RpcResponse }>;
 	enqueue: (opts: EnqueueMetaMessageOptions) => EnqueueMetaMessageResult;
@@ -136,6 +144,20 @@ export interface ProductionEntwurfV2Opts {
 	killGraceMs?: number;
 	/** Gate/smoke seam overrides — defaults are the real IO. */
 	seams?: Partial<ProductionEntwurfV2Seams>;
+}
+
+/**
+ * 0.12.1 B-2: the production `preflight` seam default. preflight value-imports
+ * `@earendil-works/pi-coding-agent` (ProjectTrustStore), so importing it eagerly
+ * would pull pi into the harness-neutral MCP bridge's boot closure. This wrapper
+ * defers that to a lazy `await import()` reached ONLY on the owned-outcome resume
+ * branch (the decider awaits it). peers/self/list/mailbox-deliver therefore boot
+ * with no pi package present; a pi-less environment that DOES hit a spawn-bg resume
+ * surfaces an honest module-not-found at that point rather than failing boot.
+ */
+async function lazyProductionPreflight(input: PreflightInput): Promise<PreflightOutcome> {
+	const { preflight } = await import("./entwurf-preflight.ts");
+	return preflight(input);
 }
 
 /** Map a record-side socket inspection to the singleton (socketGids, symlinkedGids) the
@@ -185,7 +207,7 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 		releaseLock: s.releaseLock ?? realReleaseLock,
 		inspectSocket: s.inspectSocket ?? inspectTargetControlSocket,
 		probeSocket: s.probeSocket ?? probeSocketLiveness,
-		preflight: s.preflight ?? realPreflight,
+		preflight: s.preflight ?? lazyProductionPreflight,
 		classifyConnect: s.classifyConnect ?? classifyConnectError,
 		sendRpc: s.sendRpc ?? realSendRpc,
 		enqueue: s.enqueue ?? enqueueMetaMessage,
@@ -265,7 +287,7 @@ export function makeProductionEntwurfV2Deps(opts: ProductionEntwurfV2Opts): Entw
 		releaseLock: release,
 		inspectSocket,
 		probeSocket,
-		preflightForCwd: (cwd: string): PreflightOutcome =>
+		preflightForCwd: (cwd: string): PreflightOutcome | Promise<PreflightOutcome> =>
 			io.preflight({ cwd, agentDir: opts.agentDir, prefixRoots: opts.prefixRoots }),
 		mailboxDeliverabilityFor,
 		mailboxDir,

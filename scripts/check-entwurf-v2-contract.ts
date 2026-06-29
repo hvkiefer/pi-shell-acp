@@ -41,10 +41,6 @@ import {
 	ENTWURF_V2_OWNERSHIPS,
 	ENTWURF_V2_REJECT_REASONS,
 	ENTWURF_V2_TRANSPORTS,
-	EntwurfV2InputSchema,
-	EntwurfV2ReceiptRejectSchema,
-	EntwurfV2ReceiptSchema,
-	EntwurfV2ReceiptSuccessSchema,
 	FACT_LIVENESSES,
 	type FactLiveness,
 	factLivenessOf,
@@ -57,6 +53,12 @@ import {
 	resolveDispatch,
 	UNSUPPORTED_DISPATCH_TABLE,
 } from "../pi-extensions/lib/entwurf-v2-contract.ts";
+import {
+	EntwurfV2InputSchema,
+	EntwurfV2ReceiptRejectSchema,
+	EntwurfV2ReceiptSchema,
+	EntwurfV2ReceiptSuccessSchema,
+} from "../pi-extensions/lib/entwurf-v2-contract-schema.ts";
 import { SESSION_ID_RE } from "../pi-extensions/lib/session-id.js";
 import type { SocketLiveness } from "../pi-extensions/lib/socket-probe.ts";
 

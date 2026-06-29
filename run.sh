@@ -36,6 +36,7 @@ Usage:
   ./run.sh release-gate [project-dir] [--allow-skip-gemini]  # SINGLE release gate: full static (pnpm check) + the v2-native live gates (v2 matrix/spawn-resume-live, check-bridge, retargeted smoke-session-id-name, RGG) + the ACP plugin acceptance floor (11 LIVE smokes: socket-citizen/raw-turn/overlay/provider/session-reuse/carrier-augment/memory-containment/rgg/mcp/skill/bundled-mcp). TWO-TIER summary: MUST (release-blocking, owns the exit code — "green" applies here) + BEHAVIOR (advisory, non-blocking: RGG positives model-in-loop turn). LIVE-gated MUST steps HONEST-SKIP when LIVE!=1 (a CUT needs LIVE=1, SKIP=0). --allow-skip-gemini accepted-but-ignored (back-compat). final cut authorization is GLG's.
   ./run.sh check-bridge               # entwurf-bridge direct MCP smoke + protocol/negative-path test.sh (live substrate = v2 live smokes)
   ./run.sh check-entwurf-bridge-boot # deterministic gate (5d-5-pre, G1a/G1b, IN pnpm check): boot start.sh under strip-types + assert v2 fence graph loads + entwurf_v2 registered/schema; tools/list only, no auth/side-effect
+  ./run.sh check-entwurf-bridge-pi-free # deterministic gate (0.12.1 A, IN pnpm check): static — bridge index eager value-import closure must carry no @earendil-works/pi-* (type-only + dynamic import excluded); proves the meta-bridge boots pi-free
   ./run.sh check-model-lock           # deterministic unit test for pi-extensions/model-lock.ts (4-quadrant + edge cases, no API)
   ./run.sh check-shell-quote          # POSIX-safety gate for shellQuote (remote SSH arg quoting in entwurf paths) — source parity + behavior matrix, no SSH
   ./run.sh check-entwurf-session-identity # deterministic gate for locked garden session identity & name grammar (sessionId/buildSessionName/parse/collision), no API
@@ -783,6 +784,17 @@ check_entwurf_bridge_boot() {
   # no lock/fs side effect, no auth → safe in pnpm check. Broad protocol/negative suite stays
   # in check-bridge/test.sh (D1=A안).
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-bridge-boot.ts)
+}
+
+check_entwurf_bridge_pi_free() {
+  # 0.12.1 A-gate (static half): the entwurf-bridge MCP server must boot WITHOUT any
+  # pi package. entwurf is a harness-neutral npm package; pi is one optional adapter
+  # lane, not a boot dependency. Walks the EAGER static value-import closure of
+  # mcp/entwurf-bridge/src/index.ts and fails if any reachable module statically
+  # value-imports @earendil-works/pi-*. Type-only imports and dynamic `await import()`
+  # (the intended lazy preflight boundary) are excluded — the runtime boot smoke is the
+  # final authority that peers/self/list/mailbox-deliver come up pi-free.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-bridge-pi-free.ts)
 }
 
 check_entwurf_v2_production() {
@@ -2559,6 +2571,9 @@ case "$cmd" in
     ;;
   check-entwurf-bridge-boot)
     check_entwurf_bridge_boot
+    ;;
+  check-entwurf-bridge-pi-free)
+    check_entwurf_bridge_pi_free
     ;;
   check-entwurf-v2-spawn)
     check_entwurf_v2_spawn

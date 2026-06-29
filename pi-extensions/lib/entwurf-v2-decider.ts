@@ -195,7 +195,11 @@ export interface DispatchDeciderDeps {
 	releaseLock: (claim: LockClaim) => unknown;
 	inspectSocket: (gardenId: string) => Promise<TargetSocketInspection>;
 	probeSocket: (socketPath: string) => Promise<SocketLiveness>;
-	preflightForCwd: (cwd: string) => PreflightOutcome;
+	// MaybePromise (0.12.1 B-2): production lazy-imports the pi-coding-agent-backed
+	// preflight via `await import()` so the harness-neutral bridge boots pi-free;
+	// only the owned-outcome resume branch (below) awaits it. Sync test fakes that
+	// return a plain PreflightOutcome still satisfy this.
+	preflightForCwd: (cwd: string) => PreflightOutcome | Promise<PreflightOutcome>;
 	/**
 	 * SE-2 slice 2d-3: the REQUIRED mailbox-deliverability seam (no default). The decider
 	 * does NOT judge deliverability itself — it asks this injected fn, which combines the
@@ -392,7 +396,7 @@ async function decideInDomain(
 			// 1B: preflight runs ONLY here (the sole branch that launches a child into a
 			// target cwd). deny → nonce-owned release → untrusted-fail-fast, with the
 			// honest measured liveness (dormant = the `dead` we just probed).
-			const outcome = deps.preflightForCwd(resume.cwd);
+			const outcome = await deps.preflightForCwd(resume.cwd);
 			if (outcome.kind === "deny") {
 				return rejectAfterRelease(makeRejectReceipt("untrusted-fail-fast", liveness));
 			}

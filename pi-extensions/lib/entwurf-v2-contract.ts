@@ -1,8 +1,11 @@
 /**
  * entwurf-v2-contract — the FROZEN contract surface for the unified `entwurf_v2`
- * verb (0.11 Stage 0 step 4-pre / 동결결정 10). PURE: TypeBox schemas + the
+ * verb (0.11 Stage 0 step 4-pre / 동결결정 10). PURE pi-FREE core: the
  * intent×liveness decision table + the reject taxonomy + a pure resolver.
  * NO runtime dispatch, NO spawn/send, NO I/O — step 5 wires this to transports.
+ * The pi-ai TypeBox REPRESENTATION of this contract lives in the separate
+ * `entwurf-v2-contract-schema.ts` (0.12.1 B-1) so this module — which the
+ * harness-neutral MCP bridge reaches at boot — carries no pi dependency.
  *
  * Why a frozen contract BEFORE the fact-provider (step 4): with the legacy
  * 3-verb surface (`entwurf`/`entwurf_resume`/`entwurf_send`) still live, building
@@ -41,8 +44,6 @@
  * not prose.
  */
 
-import { StringEnum, Type } from "@earendil-works/pi-ai";
-import { SESSION_ID_RE } from "./session-id.js";
 import type { SocketLiveness } from "./socket-probe.ts";
 
 // ── Caller-declared intent (F1) ────────────────────────────────────────────
@@ -350,78 +351,9 @@ export function resolveDispatch(
 	};
 }
 
-// ── TypeBox schemas (for step 5 MCP tool params + the gate's structural assert) ──
-// StringEnum (typebox 1.x) inside Type.Object (typebox 0.34) — same mix the
-// existing entwurf tools use (entwurf-control.ts:92-95). The logic types above
-// are hand-written unions, NOT `Static<>` inferences, so the 0.34/1.x widening
-// caveat does not touch them; the gate keeps schema ↔ types in lockstep.
-export const EntwurfV2InputSchema = Type.Object(
-	{
-		// R2/F6 executable: the garden-id shape is enforced by pattern, not prose —
-		// a malformed/typo gid fails the schema (→ bad-target) and can never reach a
-		// spawn. SSOT regex = SESSION_ID_RE (pi-extensions/lib/session-id.js).
-		target: Type.String({
-			pattern: SESSION_ID_RE.source,
-			description:
-				"garden-id of an EXISTING citizen (pattern-enforced). spawn-new is out of v2 scope (legacy entwurf keeps it); a malformed/typo gid is bad-target.",
-		}),
-		intent: StringEnum(ENTWURF_INTENTS, {
-			description:
-				"caller's declared outcome contract (F1): fire-and-forget = ack only, owned-outcome = caller owns completion.",
-		}),
-		mode: Type.Optional(
-			StringEnum(ENTWURF_V2_MODES, {
-				description:
-					"delivery mode (steer = interrupt current turn, follow_up = queue) — NOT the ownership axis (F1) nor liveness routing. MEANINGLESS on the meta-mailbox transport (F-mailbox): a mailbox ack is enqueue+doorbell, not a turn injection, so steer/follow_up does not apply when the verdict transport is meta-mailbox.",
-			}),
-		),
-		wantsReply: Type.Optional(
-			Type.Boolean({
-				description: "conversation etiquette only — NOT ownership; never triggers an auto-send (Q2).",
-			}),
-		),
-		// `additionalProperties: false` — a frozen contract input is exact; an unknown
-		// key is a caller error, not silently ignored.
-	},
-	{ additionalProperties: false },
-);
-
-// Receipt = a DISCRIMINATED union on `ok` (R3/F6) — NOT one flat object with
-// optionals. Each branch is EXACT (`additionalProperties: false`): without it,
-// JSON Schema's default admits extra keys, so an illegal receipt like
-// {ok:true, ..., reason:"bad-target"} would validate against the success branch.
-// With it, success carries action/transport/ownership and rejects a stray reason;
-// reject carries reason and rejects any allow facet — the branches are mutually
-// exclusive at the schema level, not merely by declared-property convention.
-export const EntwurfV2ReceiptSuccessSchema = Type.Object(
-	{
-		ok: Type.Literal(true),
-		action: StringEnum(ENTWURF_V2_ACTIONS),
-		transport: StringEnum(ENTWURF_V2_TRANSPORTS),
-		ownership: StringEnum(ENTWURF_V2_OWNERSHIPS),
-		observedLiveness: StringEnum(FACT_LIVENESSES, {
-			description: "the 4-value fact liveness the verdict was computed from (R1/R3).",
-		}),
-	},
-	{ additionalProperties: false },
-);
-
-export const EntwurfV2ReceiptRejectSchema = Type.Object(
-	{
-		ok: Type.Literal(false),
-		reason: StringEnum(ENTWURF_V2_REJECT_REASONS),
-		// ？6: required-nullable, NOT optional — a reject branch ALWAYS carries the
-		// key, and it is `null` for the pre-probe rejects (PRE_PROBE_REJECT_REASONS)
-		// and a real FactLiveness otherwise. Optional would lose the "key always
-		// present, value may be null" shape and weaken the discriminated union; the
-		// reason-dependent null/non-null rule is enforced semantically (the gate's
-		// rejectObservedLivenessWellFormed fixture), not by this blanket union.
-		observedLiveness: Type.Union([StringEnum(FACT_LIVENESSES), Type.Null()], {
-			description:
-				"the 4-value fact liveness the reject was computed from (R1/R3); null for the pre-probe rejects (bad-target / target-locked / target-address-conflict) where no probe ran.",
-		}),
-	},
-	{ additionalProperties: false },
-);
-
-export const EntwurfV2ReceiptSchema = Type.Union([EntwurfV2ReceiptSuccessSchema, EntwurfV2ReceiptRejectSchema]);
+// ── TypeBox schemas ────────────────────────────────────────────────────────
+// MOVED to `entwurf-v2-contract-schema.ts` (0.12.1 B-1): the pi-ai TypeBox
+// builders (StringEnum/Type) are a pi-lane dependency, so they cannot live in
+// this pi-free core — the MCP bridge reaches this module at boot and must stay
+// harness-neutral (check-entwurf-bridge-pi-free). The schemas import the
+// constants/types above; pi-side consumers import the schemas from there.
