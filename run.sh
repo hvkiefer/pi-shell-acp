@@ -93,6 +93,7 @@ Usage:
   ./run.sh smoke-meta-install-state   # 1.0.0 meta-bridge Phase 2: stateful install/uninstall + store-doctor regression gate. Offline/deterministic (deps: bash+node+python3)
   ./run.sh smoke-meta-prune           # 1.0.0 meta-bridge Phase 4: listing-only store janitor regression gate — classify keep/orphan/stale/ambiguous, delete nothing. Offline/deterministic (deps: bash+node)
   ./run.sh smoke-meta-keyset-guard    # 0.10.0 meta-bridge: keyset-owner guard regression — check-keyset-overlap + managed-keys SSOT (disjoint passes, collisions fail). Offline/hermetic (deps: bash+python3)
+  ./run.sh check-meta-manifest-schema # 0.12.2 meta-bridge: CLI-version-INDEPENDENT static guard — plugin manifests pinned to the minimal keyset that validates on the lowest supported Claude (closed-schema regression that broke 0.12.1 install on floor) + desired_mcp installed-vs-clone dual-mode. Offline (deps: python3)
   ./run.sh smoke-claude-native-resume-live # LIVE-only: Claude Code native fresh→--resume continuity + meta-record uniqueness; proves meta-bridge records identity without touching the backend resume path
 
   ./run.sh install-meta-bridge        # 1.0.0 meta-bridge Phase 2: stateful GLOBAL install (plugin + USER MCP + settings keyset, honest uninstall state)
@@ -2802,6 +2803,15 @@ case "$cmd" in
     # disjoint consumer passes and exact/array/parent-child collisions fail loud.
     # Offline/hermetic (deps: bash+python3).
     (cd "$REPO_DIR" && bash scripts/smoke-meta-keyset-guard.sh)
+    ;;
+  check-meta-manifest-schema)
+    # 0.12.2 meta-bridge: deterministic, CLI-version-INDEPENDENT guard. `claude plugin
+    # validate` is a CLOSED schema whose allowed keyset differs by version, so a
+    # decorative key (0.12.1's root `description`) passed on the dev box but broke
+    # install on the floor Claude. This pins the committed manifests to the minimal
+    # validated keyset and asserts desired_mcp()'s installed-vs-clone dual-mode.
+    # Offline/hermetic (deps: python3).
+    (cd "$REPO_DIR" && python3 scripts/check-meta-manifest-schema.py)
     ;;
   smoke-meta-install-state)
     # 1.0.0 meta-bridge Phase 2 regression gate: state file captures pre-install

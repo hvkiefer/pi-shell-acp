@@ -4,6 +4,25 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.12.2 — 2026-06-29
+
+### Fixed
+
+- **Claude Code meta-bridge installs on the supported 2.1.x floor.** Claude's plugin validator is a closed schema whose accepted marketplace keys differ by patch level; 0.12.1's root-level `marketplace.json` `description` passed on Claude 2.1.195 but failed on the floor host's 2.1.97 with `Unrecognized key: "description"`. The marketplace manifest now keeps only the minimal root keyset confirmed on the floor (`name`, `owner`, `plugins`), leaving explanatory text in installer/docs comments rather than in closed-schema JSON.
+- **Installed meta-bridge MCP wiring no longer bakes pnpm store paths.** On npm/pnpm-installed hosts, the user-scope Claude MCP entry now points at the stable `entwurf-bridge` bin instead of `$REPO/mcp/entwurf-bridge/start.sh`, whose `$REPO` can be a `.pnpm/@junghanacs+entwurf@.../node_modules/...` hash path that goes stale on version or peer changes. Development clones still pin to that clone's `start.sh`; both branches preserve the external Claude sender env (`ENTWURF_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code`, `ENTWURF_BRIDGE_REQUIRE_META_SENDER=1`).
+
+### Added
+
+- **`check-meta-manifest-schema` — a CLI-version-independent meta-bridge manifest guard.** The new deterministic gate pins the Claude marketplace/plugin/hooks manifests to the minimal keysets used by the meta-bridge, including the load-bearing hook event names (`SessionStart`, `CwdChanged`, `UserPromptSubmit`, `FileChanged`) and hook command keys. It also asserts `meta-bridge-state.py::desired_mcp()` chooses the installed-vs-clone MCP wiring without invoking a real Claude CLI. The gate is wired into `pnpm check` so future decorative closed-schema keys fail before release.
+
+### Verification
+
+- `pnpm check` passes with the new `check-meta-manifest-schema` static guard included.
+- `./run.sh smoke-meta-install-state` passes, proving the state manager/doctor consumers still follow `desired_mcp()` without drift.
+- Installed-location regression probe passes: running `scripts/check-meta-manifest-schema.py` from a synthetic `node_modules/@junghanacs/entwurf` package no longer self-fails.
+- Claude Code 2.1.97 floor validation passed on `hejdev6` after removing the root marketplace `description`; current Claude 2.1.195 validation also passes with warnings only.
+- `LIVE=1 ./run.sh release-gate /tmp/psa-release-gate-0.12.2.NLGhet` passed on 2026-06-29 with `MUST: PASS=17 FAIL=0 SKIP=0` and `BEHAVIOR: PASS=1 FAIL=0`; log `/tmp/entwurf-release-gate-0.12.2-20260629T205339.log`.
+
 ## 0.12.1 — 2026-06-29
 
 ### Fixed

@@ -1,71 +1,51 @@
-# NEXT — entwurf 0.12.1 release-cut handoff
+# NEXT — entwurf 0.12.2 meta-bridge install portability
 
 > 나침반이지 DB가 아니다: **현재 위치 · 다음 한 걸음 · 넘으면 안 되는 선**만 둔다.
 > 현재+미래 방향과 설계 SSOT = **`ROADMAP.md`**. 닫힌 변경 핵심 = **`CHANGELOG.md`**. 세션별 process history = git log.
 
-## NOW — 0.12.1 C ready, release-gate GREEN, awaiting GLG cut authorization
+## DONE — 0.12.1 released
 
-- `0.12.0` 배포 후 발견된 설치 버그를 0.12.1로 닫는 WIP가 main working tree에 있음. 아직 commit/tag/push/publish 안 함.
-- 핵심 수정:
-  - npm/node_modules 설치에서 `node --experimental-strip-types src/index.ts`가 죽는 문제를 dist JS emit으로 해결.
-  - `build-bridge = rm -rf dist && tsc -p mcp/entwurf-bridge/tsconfig.build.json`.
-  - `prepare = husky 2>/dev/null || true; npm run --silent build-bridge` — git install은 prepack 대신 prepare를 타므로 dist 부재 gap을 닫기 위한 추가 수정.
-  - `start.sh`는 위치 기반 dual-mode: `node_modules` 아래면 dist, dev clone이면 source strip-types.
-  - `run.sh` / `start.sh` / `mcp/entwurf-bridge/test.sh`가 npm/pnpm bin symlink를 따라 package root를 찾음.
-  - `package.json`은 neutral npm package로 `bin` (`entwurf`, `entwurf-bridge`)을 노출하고 pi peers를 optional로 표시.
-  - README + `docs/setup-clean-host.md`는 npm-first / pi-adapter-second로 정리됨.
-  - Concept primer에 **Garden / garden id** 설명 추가됨.
-- 원격 `hejdev6` WIP tarball 실제 설치 검증 완료:
-  - local `npm install /tmp/entwurf-0.12.1-wip.tgz`
-  - package bins present
-  - optional `@earendil-works/*` peers absent
-  - installed `entwurf-bridge` answers `tools/list`
-  - isolated HOME에서 `entwurf install` + `entwurf check-bridge` 통과
-  - real HOME에는 기존 `~/.pi/agent/entwurf-targets.json -> .../pi-shell-acp/...` stale symlink가 있음. GLG는 force update 쪽이라고 말함. 릴리즈 후 canonical install path에서 `entwurf setup:links --force`가 맞다는 판단.
+- tag `v0.12.1` (origin), npm `@junghanacs/entwurf@0.12.1` publish, GitHub release 모두 완료.
+- hejdev6(오라클)에 릴리즈본 `pnpm add -g` 설치 검증: bins/dist/pi-free/`tools/list` 부팅 전부 통과.
 
-## Release-gate — RESOLVED (was MUST FAIL=1), now fully green
+## NOW — 0.12.2 WIP in working tree (uncommitted), GPT 검수 완료 · GLG 컷 대기
 
-`/make-release 0.12.1` was correctly ABORTED on a MUST fail; Opus took over the review (GPT session filled). Root cause was **two live model-in-loop smokes whose observation contracts went stale**, NOT the 0.12.1 install change (no ACP code path touched) and NOT a product defect:
+0.12.1 설치 검증 중 발견한 **메타브리지 install 이식성 회귀 2건**을 닫는 WIP. commit/tag/push/publish 안 함.
 
-- `smoke-acp-carrier-augment-live`: asked the model to echo a `SECRET_PROJECT_CODE` from a `/tmp` `AGENTS.md` → current Claude refuses as injection. Fixed → benign factual marker (build codename) asked as a normal "answer from project context" task. LIVE rc=0.
-- `smoke-acp-bundled-mcp-live`: prompt asked "values only" but the assertion matched field-name-labeled lines (`socketState: alive`) → bare-value reply dropped + `[tool:done]` notice truncated socketState. Fixed → prompt requests labeled 3 lines. LIVE rc=0 (14 checks).
-- Both reviewed and **approved by GPT** as observation-contract realignments, not gate weakening (same MUST assertions, non-circular gid proof intact).
+**버그 (hejdev6 claude 2.1.97에서 `entwurf install-meta-bridge` rc=1):**
+- `claude plugin validate`는 **closed schema**(미지 키 거부). `marketplace.json` 루트 `description`이 구버전 claude에 미등록 → `Unrecognized key`. thinkpad(2.1.195)는 허용 → 신버전 단일 박스 검증이 회귀를 가렸다.
+- installed 호스트의 user-scope MCP가 pnpm store **해시 경로**(`$REPO/mcp/.../start.sh`)를 박아 peer/버전 바뀌면 stale. SSOT는 `meta-bridge-state.py::desired_mcp()` (apply가 덮어씀).
 
-Re-run `LIVE=1 ./run.sh release-gate <fresh scratch>` (2026-06-29):
-- `MUST: PASS=17 FAIL=0 SKIP=0`
-- `BEHAVIOR: PASS=1 FAIL=0` (the earlier RGG-positive BEHAVIOR fail was flaky; green on re-run)
-- `✅ release-gate MUST PASS + BEHAVIOR PASS — all green.`
+**수정 (working tree, `pnpm check` green):**
+- A `marketplace.json` 루트 `description` 제거 (minimal-manifest). 설명은 install.sh 주석.
+- B `desired_mcp()` + `install.sh`의 `claude mcp add` dual-mode: installed(`*/node_modules/@junghanacs/entwurf`)→안정적 `entwurf-bridge` bin / clone→`start.sh`. env 2개 보존. 판별은 path-suffix(절대 `command -v` 아님 — clone에서 stale 전역 bin 위험).
+- C1 신규 `scripts/check-meta-manifest-schema.py` — **CLI 버전 독립** 정적 가드: manifest 키셋 ⊆ 최저-Claude 검증 최소집합 + desired_mcp dual-mode 단언. `pnpm check`/run.sh dispatch/usage 배선. 음성테스트로 그 버그 잡는 것 확인.
 
-CHANGELOG 0.12.1 records the two fixes + the green release-gate evidence.
-
-## Verified floor (current working tree)
-
-- `pnpm check` rc=0 · `check-pack` (215 files) rc=0 · `check-pack-install` rc=0 (neutral npm install + .bin/entwurf-bridge dist boot + stale sentinel + pi-free)
-- `check-entwurf-bridge-boot` / `check-entwurf-bridge-pi-free` rc=0 · `biome` rc=0 · 3-config typecheck rc=0
-- `LIVE=1 release-gate` MUST 17/0/0 + BEHAVIOR 1/0
-- Adversarial probes: npm+pnpm `.bin/entwurf-bridge` boot, installed `test.sh` via start.sh (dist), dist-removed → `ERR_UNSUPPORTED` fail-loud
+**경험적 증명:** hejdev6 floor(claude 2.1.97)에서 root `description` 제거판 전체 manifest validate **통과(exit 0, 무해 경고만)**. hooks.json `asyncRewake`/`timeout` 다른 취약 키 없음 확인.
 
 ## 다음 한 걸음
 
-1. **GLG cut 승인 대기** — necessary condition met (gate green + GPT 합의). commit/tag/push/publish는 GLG 결정.
-2. 승인 시: `commit` 스킬로 release-prep 커밋 → `/make-release 0.12.1` (tag/push/GitHub-release). npm publish는 명시적 GLG/operator action.
-3. 릴리즈 후: `hejdev6` real HOME의 stale `~/.pi/agent/entwurf-targets.json` (→ pi-shell-acp) 를 canonical npm install path 확정 후 `entwurf setup:links --force`로 정리. (지금 clone에서 force하면 canonical이 clone 경로로 잡힘 — 어느 path를 persistent로 둘지 GLG 결정.)
+1. **GLG 컷 승인/prepare-release 대기** — Opus 구현 + GPT 검수 완료. patch caution 4건(desired_mcp+install.sh 동시·path-suffix·env보존·no $comment)과 installed-location self-fail fix, hook event subset guard까지 반영 확인.
+2. 승인 시: `commit` 스킬 → 버전 0.12.2 bump → `/make-release 0.12.2` → npm publish.
+3. 릴리즈 후 hejdev6 clean reinstall(`pnpm add -g @junghanacs/entwurf@0.12.2` → `entwurf install-meta-bridge` → `doctor-meta-bridge`)로 floor 호스트 end-to-end 확정.
 
-## Follow-up (cut blocker 아님, 다음 세션 cleanup)
+## Follow-up (이번 컷 blocker 아님 — GPT 합의 설계)
 
-- `smoke-acp-skill-live`의 "secret probe code" 표현을 "probe code/project marker"로 낮추기 (GPT 제안). 현재 green이지만 carrier-augment와 같은 injection-refusal 취약성 소지. 선제 cleanup 권장.
+- **C2** `check-pack-install` 확장: fake `claude` CLI + temp `HOME`/`CLAUDE_CONFIG_DIR`로 installed `node_modules/.bin/entwurf install-meta-bridge` 실행 → `~/.claude.json` command가 해시 store 경로 아니라 안정적 `entwurf-bridge`인지 검증. (지금은 정적 desired_mcp 단언으로만 커버 — 실제 install wiring은 아직 게이트 밖.)
+- **C3** support-floor: 실제 최저버전(2.1.97 오라클) validate/install/doctor를 0.12.2 컷 체크리스트 또는 별도 remote gate로. thinkpad 단독 검증은 거짓 안심 → 정직성 가드.
+- **멀티하네스(Codex/Antigravity)**: claude marketplace 일반화 금지. 하네스별 adapter contract(manifest shape, MCP 등록면, version floor, doctor evidence). 공통화는 runner/reporting만.
+- `smoke-acp-skill-live` "secret probe code" → "probe code/project marker" 낮추기 (injection-refusal 취약 선제 cleanup, GPT 제안 — 0.12.1부터 이월).
 
 ## 넘으면 안 되는 선
 
-- Work on `main`; do **not** create a branch for this lane.
-- `core.hooksPath` 건드리지 않음. `--no-verify` 금지.
-- Do not publish/tag/push from agent without explicit GLG approval and green release preflight.
-- If live release gate is requested, run with a scratch cwd and `LIVE=1`.
+- Work on `main`; 이 레인용 브랜치 만들지 않음.
+- `core.hooksPath` 안 건드림. `--no-verify` 금지.
+- GLG 명시 승인 + green preflight 없이 publish/tag/push 금지.
+- live release gate 요청 시 scratch cwd + `LIVE=1`.
 
 ## 참조
 
-- 설계 SSOT: `ROADMAP.md`
-- 닫힌 변경: `CHANGELOG.md`
+- 설계 SSOT: `ROADMAP.md` · 닫힌 변경: `CHANGELOG.md`
 - 검증 calibration: `VERIFY.md`, `BASELINE.md`, `DELIVERY.md`
-- repo baseline: `AGENTS.md`
-- ACP 레일: `docs/acp-backend-rail.md`
+- repo baseline: `AGENTS.md` · ACP 레일: `docs/acp-backend-rail.md`
+- clean-host 설치: `docs/setup-clean-host.md`

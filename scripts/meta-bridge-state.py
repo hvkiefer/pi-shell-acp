@@ -264,20 +264,42 @@ def desired_marketplace(asm: Path) -> dict[str, Any]:
     return {"source": {"source": "directory", "path": str(asm.resolve())}}
 
 
+def is_installed_package(repo: Path) -> bool:
+    # An installed (npm / pnpm) layout always ends in node_modules/@junghanacs/entwurf
+    # (pnpm global nests it under .pnpm/<hash>/node_modules/@junghanacs/entwurf). A dev
+    # clone never lives under node_modules/@junghanacs/entwurf, so the trailing three
+    # path components cleanly distinguish the two WITHOUT a PATH lookup (`command -v
+    # entwurf-bridge` could resolve a stale GLOBAL bin from a clone host and is wrong here).
+    parts = repo.resolve().parts
+    return parts[-3:] == ("node_modules", "@junghanacs", "entwurf")
+
+
 def desired_mcp(repo: Path) -> dict[str, Any]:
+    env = {
+        "ENTWURF_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code",
+        # Anonymous sends are forbidden on the Claude Code install path: a send
+        # with no pi-session identity AND no meta-sender marker is refused, not
+        # delivered as an unidentified external. The SessionStart hook writes
+        # the marker (parent-pid keyed), so a normally-opened session always has
+        # an authoritative garden-id sender.
+        "ENTWURF_BRIDGE_REQUIRE_META_SENDER": "1",
+    }
+    if is_installed_package(repo):
+        # Installed package: wire the STABLE `entwurf-bridge` bin shim that npm/pnpm
+        # place on PATH. Baking repo/mcp/entwurf-bridge/start.sh would embed the pnpm
+        # store path (.pnpm/@junghanacs+entwurf@<ver>_<peer-hash>/...), which moves
+        # on any peer/version change and leaves a dead MCP command. The bare bin name
+        # tracks whatever version is currently installed — the right behaviour for a
+        # managed install host. start.sh's own position-based dual-mode then runs the
+        # dist boot under node_modules. (0.12.2 fix; 0.12.1 shipped only the clone path.)
+        return {"type": "stdio", "command": "entwurf-bridge", "args": [], "env": env}
+    # Dev clone: pin to THIS clone's launcher (an absolute resolved path), never the
+    # global bin, so a clone host stays bound to its own source tree.
     return {
         "type": "stdio",
         "command": "bash",
         "args": [str((repo / "mcp" / "entwurf-bridge" / "start.sh").resolve())],
-        "env": {
-            "ENTWURF_BRIDGE_EXTERNAL_AGENT_ID": "external-mcp/claude-code",
-            # Anonymous sends are forbidden on the Claude Code install path: a send
-            # with no pi-session identity AND no meta-sender marker is refused, not
-            # delivered as an unidentified external. The SessionStart hook writes
-            # the marker (parent-pid keyed), so a normally-opened session always has
-            # an authoritative garden-id sender.
-            "ENTWURF_BRIDGE_REQUIRE_META_SENDER": "1",
-        },
+        "env": env,
     }
 
 
@@ -519,7 +541,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="entwurf meta-bridge state manager")
     parser.add_argument(
         "command",
-        choices=["prepare", "apply", "preflight-uninstall", "uninstall", "check", "managed-keys"],
+        choices=["prepare", "apply", "preflight-uninstall", "uninstall", "check", "managed-keys", "desired-mcp"],
     )
     parser.add_argument("--repo", default=Path(__file__).resolve().parents[1], type=Path)
     parser.add_argument("--asm", default=None, type=Path)
@@ -539,6 +561,11 @@ def main() -> int:
             check(repo, asm)
         elif args.command == "managed-keys":
             print(json.dumps(managed_keys(), indent=2))
+        elif args.command == "desired-mcp":
+            # Debug/guard surface: print the user-scope MCP entry desired_mcp() would
+            # write for --repo. Lets a deterministic guard assert the installed-vs-clone
+            # dual-mode without spinning up a real `claude` CLI. --repo need not exist.
+            print(json.dumps(desired_mcp(repo), indent=2))
     except StateError as exc:
         print(f"meta-bridge-state: {exc}", file=sys.stderr)
         return 1

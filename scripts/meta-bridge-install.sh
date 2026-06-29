@@ -115,9 +115,23 @@ claude mcp remove entwurf-bridge -s user >/dev/null 2>&1 || true
 # 0.11 S2 cutover: drop any stale USER-scope pi-tools-bridge entry written by a
 # prior version (one-shot rename cleanup, not a runtime alias).
 claude mcp remove pi-tools-bridge -s user >/dev/null 2>&1 || true
-claude mcp add -s user entwurf-bridge \
-  -e ENTWURF_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code \
-  -- bash "$REPO/mcp/entwurf-bridge/start.sh" >/dev/null
+# 0.12.2 installed-vs-clone dual-mode — MUST mirror meta-bridge-state.py::desired_mcp(),
+# which the trailing `apply` re-asserts as the SSOT. An installed package ($REPO ends
+# in node_modules/@junghanacs/entwurf) wires the STABLE `entwurf-bridge` bin shim; baking
+# the pnpm store path here would go stale on any peer/version bump. A dev clone pins to
+# this clone's start.sh. Both branches carry the same two env vars desired_mcp() writes.
+case "$REPO" in
+  */node_modules/@junghanacs/entwurf)
+    claude mcp add -s user entwurf-bridge \
+      -e ENTWURF_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code \
+      -e ENTWURF_BRIDGE_REQUIRE_META_SENDER=1 \
+      -- entwurf-bridge >/dev/null ;;
+  *)
+    claude mcp add -s user entwurf-bridge \
+      -e ENTWURF_BRIDGE_EXTERNAL_AGENT_ID=external-mcp/claude-code \
+      -e ENTWURF_BRIDGE_REQUIRE_META_SENDER=1 \
+      -- bash "$REPO/mcp/entwurf-bridge/start.sh" >/dev/null ;;
+esac
 (cd /tmp && claude mcp get entwurf-bridge 2>/dev/null | grep -q "Scope: User config") || \
   die "post-install: entwurf-bridge is not reachable as USER-scope MCP from /tmp"
 echo "[meta-bridge-install] installed entwurf-bridge MCP (scope: user = global receiver tools)"
