@@ -2,9 +2,11 @@
 
 All notable changes to this project will be documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The repo uses semver.
 
-## Unreleased — 0.12.0 entwurf-first cutover (release candidate, not yet tagged)
+## Unreleased
 
-> This release hard-cuts the project from `pi-shell-acp` to **`entwurf`**. It is not a compatibility rename: the package/provider/model/MCP identity is now `entwurf`, v1 entwurf verbs are gone, and `entwurf_v2` is the canonical garden-id dispatch verb. The repo is **entwurf-core (v2 dispatch) + meta-bridge + pi adapter + ACP plugin**. Pi remains an important adapter and ACP host, but the project subject is the garden-citizen dispatch substrate. Verified release floor: `pnpm check`, `check-pack`, `check-pack-install`, and `LIVE=1 ./run.sh release-gate <scratch>` MUST tier `PASS=17 FAIL=0 SKIP=0` on 2026-06-25; the single BEHAVIOR failure is the known advisory model-in-loop `/gnew` `entwurf_self` autonomous-call flake.
+## 0.12.0 — 2026-06-29
+
+> This release hard-cuts the project from `pi-shell-acp` to **`entwurf`**. It is not a compatibility rename: the package/provider/model/MCP identity is now `entwurf`, v1 entwurf verbs are gone, and `entwurf_v2` is the canonical garden-id dispatch verb. The repo is **entwurf-core (v2 dispatch) + meta-bridge + pi adapter + ACP plugin**. Pi remains an important adapter and ACP host, but the project subject is the garden-citizen dispatch substrate. Verified release floor: `pnpm check`, `check-pack`, `check-pack-install`, and `LIVE=1 ./run.sh release-gate <scratch>` MUST tier `PASS=17 FAIL=0 SKIP=0` on 2026-06-29, with BEHAVIOR (advisory model-in-loop autonomous MCP tool-selection) `PASS=1 FAIL=0` and recorded separately from the cut decision.
 
 ### Added
 
@@ -20,7 +22,9 @@ All notable changes to this project will be documented here. Format follows [Kee
 - **ACP is a plugin, not a second harness.** The host `--entwurf-control` pi session supplies socket citizenship; the ACP plugin owns backend process lifecycle, overlay, per-backend dialect, and turn evidence only. No auth proxy, no subscription bypass, no transcript hydration, no ambient MCP scan.
 - **Dependencies bumped and fenced.** pi dev/runtime floor is now **0.80.2** (`>=0.80.2 <0.81`), with `getModels` reached through the loader-compatible `/compat` entrypoint. Claude ACP moved to `@agentclientprotocol/claude-agent-acp@0.50.0` and `@agentclientprotocol/sdk@0.29.0`; model forcing uses `session/set_config_option(configId="model")`. The deprecated `ClientSideConnection` path was replaced by the fluent `client().connect(stream)` adapter with explicit teardown close.
 - **Release gate remains two-tier.** MUST owns the cut decision and now includes v2-native live gates plus ACP plugin live smokes (socket-citizen, raw-turn, overlay, provider, reuse, carrier augment, memory containment, RGG, operator MCP, skill, bundled bridge). BEHAVIOR is advisory model-in-loop autonomous tool-selection and never blocks the cut.
-- **Install docs are source-first until publish.** README marks npm as coming soon; source/git install remains the public pre-publish path. Clean-host docs retain the npm path as the post-publish release path but use the git path for the current walk-through.
+- **Install docs are npm-first.** README and the clean-host walk-through lead with `pi install npm:@junghanacs/entwurf` (resolving to `~/.pi/agent/npm/node_modules/@junghanacs/entwurf`, the path `check-package-source-routing` pins); the `git:` source path and a local clone are documented as alternatives for tracking `main` or hacking on the bridge.
+- **Verification docs simplified to the 0.12 surface.** `VERIFY.md` was reduced from 621 to 260 lines and `BASELINE.md` from 284 to 227 lines by deleting broken/dead v1 procedures, moving historical rows back to CHANGELOG/git, and keeping the load-bearing 0.12 evidence axes: install paths, identity interview, carrier separation, backend MCP identifiers, tuple formula, JSONL memory axis, and pass criteria.
+- **v1 residue swept from runnable comments and stale ledgers.** Retired `entwurf_send` / `entwurf_resume` references in current-source comments and the absorbed `NEXT--acp-on-v2.md` branch ledger were removed or rewritten to the v2 surface; historical CHANGELOG rows remain historical evidence, not current recipes.
 
 ### Removed
 
@@ -29,9 +33,15 @@ All notable changes to this project will be documented here. Format follows [Kee
 - **OpenClaw install surface.** The old plugin/importer path remains historical only; it is not a live consumer.
 - **Phantom compaction surface.** Documentation no longer claims bridge-owned compaction knobs or a compaction smoke surface; backend-native compaction remains backend-owned.
 
+### Fixed
+
+- **Mailbox reply instructions point at the canonical v2 surface.** Replyable meta-session bodies now tell agents to use `entwurf_v2`, not the retired `entwurf_send` tool.
+- **Branch-lane handoff pointers no longer dangle.** `AGENTS.md` now points at `NEXT--entwurf-rename.md` instead of the deleted `NEXT--acp-on-v2.md`.
+
 ### Deferred
 
-- **npm publish / old package deprecation** — GLG-owned final step after the release cut. `package.json` is already `@junghanacs/entwurf`; registry publication is intentionally last.
+- **npm publish / old package deprecation** — maintainer-owned final step after the release cut. `package.json` is already `@junghanacs/entwurf` with `publishConfig.access: public`; registry publication is intentionally last.
+- **Demo / GIF / hero retake** — the recorded demo scripts and gallery image still describe the retired v1 `entwurf` / `entwurf_resume` / `entwurf_send` flow, so they ship as pre-0.12 evidence; a v2-native retake of the demo and image surface is a post-0.12 minor follow-up.
 - **Fresh sibling minting** — v2 dispatch targets already-identified citizens only. Creating a brand-new sibling from nothing is a later `spawn-fresh` lane.
 - **Persisted resume/load** — current ACP reuse is in-memory plus record write; persisted read/use stays off.
 - **Non-Claude ACP backends / Cortex lane** — next backend work should first define the backend-addition rail and verification contract.

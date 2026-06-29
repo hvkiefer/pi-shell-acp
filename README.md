@@ -4,7 +4,7 @@
 
 ![entwurf — a forged screwdriver for garden-citizen dispatch](docs/assets/entwurf-hero.jpg)
 
-![npm — coming soon](https://img.shields.io/badge/npm-coming%20soon-lightgrey?logo=npm) · maintained by [junghanacs.com](https://junghanacs.com/)
+[![npm](https://img.shields.io/npm/v/@junghanacs/entwurf?logo=npm)](https://www.npmjs.com/package/@junghanacs/entwurf) · maintained by [junghanacs.com](https://junghanacs.com/)
 
 > **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
 
@@ -72,13 +72,27 @@ A few words that look unusual for a coding tool.
 
 `entwurf` is a thin garden-citizen bridge with a **Claude-first ACP plugin**. Pi is the host adapter for that ACP plugin today; Codex runs as a direct pi-native provider by default, with a tested `ENTWURF_ACP_FOR_CODEX=1` opt-in that routes it through the ACP bridge too. The bridge does not provide Claude credentials, tokens, or subscription access, and does not bypass any backend auth. Whatever the operator's local `claude` / `codex` already trusts is what entwurf uses.
 
-`pi` installs the bridge from a `git:` source in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope, plus a local clone for hacking on the bridge. An `npm:` source is **coming soon** — the `@junghanacs/entwurf` package is not yet published.
+`pi` installs the bridge from an `npm:` source (the published `@junghanacs/entwurf` package) in **global** (default, writes to `~/.pi/agent/settings.json`) or **project** (`-l` flag, writes to `.pi/settings.json`) scope. A `git:` source and a local clone remain available for tracking `main` or hacking on the bridge.
 
 After installing the package, run `run.sh install .` in your target project. The script writes the `entwurfProvider` block into `.pi/settings.json` with the correct absolute path for `entwurf-bridge/start.sh` — no hand-editing required. The exact location of `run.sh` depends on which install path was used (each section below shows it). For manual configuration, [`pi/settings.reference.json`](./pi/settings.reference.json) is the reference shape — see [Settings](#settings) below.
 
-### From npm — coming soon
+### From npm via pi — global
 
-The `@junghanacs/entwurf` package is **not yet published to npm**. Until it is, use the `git:` or local-clone paths below.
+```bash
+pi install npm:@junghanacs/entwurf
+cd /path/to/your-project
+~/.pi/agent/npm/node_modules/@junghanacs/entwurf/run.sh install .
+~/.pi/agent/npm/node_modules/@junghanacs/entwurf/run.sh check-bridge
+```
+
+### From npm via pi — project (`-l` flag)
+
+```bash
+cd /path/to/your-project
+pi install -l npm:@junghanacs/entwurf
+./.pi/npm/node_modules/@junghanacs/entwurf/run.sh install .
+./.pi/npm/node_modules/@junghanacs/entwurf/run.sh check-bridge
+```
 
 ### From source via pi — global (alternative)
 

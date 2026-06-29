@@ -33,7 +33,7 @@ walk-through and onto your own integration.
 | Node | **24** (LTS line) | `engines.node` is `>=22.6.0` (minimum, for TypeScript strip-types); verification axis is **24** |
 | pnpm | **10.33.0** (via corepack) | matches the version entwurf's `pnpm check` chain runs under |
 | pi binary | **`@earendil-works/pi-coding-agent` 0.80.2 or newer** | npm registry; binary name `pi`; garden-native session identity needs `--session-id` / `--name` |
-| entwurf install path | `git:github.com/junghan0611/entwurf` now; `npm:@junghanacs/entwurf` after publish | git path is the current pre-publish walk-through; npm becomes the release path after GLG publishes |
+| entwurf install path | `npm:@junghanacs/entwurf` (published release path) | the `git:github.com/junghan0611/entwurf` source path remains the alternative for tracking `main` |
 
 ## Stage 0 — Node 24 + pnpm via nvm
 
@@ -75,42 +75,43 @@ Drift points:
 - if `npm i -g` lands outside the nvm shim, `pi` may not be on `$PATH` after a shell reload. `which pi` should resolve under `~/.nvm/versions/node/v24.*/bin/pi`.
 - backend ACP server packages (e.g. `claude-agent-acp`) ship as pinned `dependencies` of entwurf and get installed in the next stage — **do not install them globally yourself**.
 
-## Stage 2 — entwurf install (git path)
+## Stage 2 — entwurf install (npm path)
 
-Install the bridge from GitHub directly. `pi install` clones into
-`~/.pi/agent/git/github.com/junghan0611/entwurf/`, then `run.sh install` wires
+Install the bridge from the published npm package. `pi install` lands it under
+`~/.pi/agent/npm/node_modules/@junghanacs/entwurf/`, then `run.sh install` wires
 it into a target project's `.pi/` directory.
 
 ```bash
-# clone-side install — populates ~/.pi/agent/git/...
-pi install git:github.com/junghan0611/entwurf
+# package-side install — populates ~/.pi/agent/npm/node_modules/...
+pi install npm:@junghanacs/entwurf
 
-# verify the clone landed where pi expects it
-ls ~/.pi/agent/git/github.com/junghan0611/entwurf/
+# verify the package landed where pi expects it
+ls ~/.pi/agent/npm/node_modules/@junghanacs/entwurf/
 
 # project-side wire-up — pick an empty cwd for the smoke
 mkdir -p ~/entwurf-smoke
 cd ~/entwurf-smoke
-~/.pi/agent/git/github.com/junghan0611/entwurf/run.sh install .
+~/.pi/agent/npm/node_modules/@junghanacs/entwurf/run.sh install .
 ```
 
 `run.sh install .` runs the one-shot wiring the consumer-project README
 documents: writes `.pi/` config, registers the extensions (provider,
 `entwurf-control`, `model-lock`), adds `entwurfProvider.mcpServers.entwurf-bridge`,
-and links `~/.pi/agent/entwurf-targets.json` to the clone's
+and links `~/.pi/agent/entwurf-targets.json` to the package's
 `pi/entwurf-targets.json`. Expected log lines:
 
 ```
 install: added entwurfProvider.mcpServers.entwurf-bridge
 install: updated <cwd>/.pi/settings.json
-install: package source -> ~/.pi/agent/git/github.com/junghan0611/entwurf
+install: package source -> ~/.pi/agent/npm/node_modules/@junghanacs/entwurf
 install: linked ~/.pi/agent/entwurf-targets.json -> .../pi/entwurf-targets.json
 ```
 
 Drift points:
 - with no backend credentials yet, `run.sh install .` still completes — it does not validate backend auth, only registers the bridge.
-- `~/.pi/agent/git/...` is fixed by pi's install scanner. Use `pi install -l git:...` to land it inside the project cwd instead.
-- `pi install` runs `npm install` inside the clone; `husky` is dev-only and absent on a target host, so its `prepare` hook silently exits 0.
+- `~/.pi/agent/npm/...` is fixed by pi's install scanner. Use `pi install -l npm:...` to land it inside the project cwd instead.
+- the `git:github.com/junghan0611/entwurf` source path is the alternative for tracking `main` or hacking on the bridge; it clones into `~/.pi/agent/git/...` with the same `run.sh install .` wire-up.
+- `pi install` runs `npm install` inside the package; `husky` is dev-only and absent on a target host, so its `prepare` hook silently exits 0.
 
 ## Stage 3 — package-surface verification (auth-free)
 
