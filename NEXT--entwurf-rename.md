@@ -145,4 +145,5 @@
 
 - 이 파일(`NEXT--entwurf-rename.md`)은 **main merge 직전 삭제**. durable 산물은 ROADMAP/AGENTS/CHANGELOG로
   먼저 승격. main은 branch-lane NEXT를 들고 가지 않는다.
-- rename 완료로 별도 lane 파일 `NEXT--acp-on-v2.md`도 merge 전 정리 대상인지 확인.
+- ~~별도 lane 파일 `NEXT--acp-on-v2.md` 정리~~ → **완료(`0ddd1da` 삭제).** AGENTS.md:233 인바운드 링크도
+  `NEXT--entwurf-rename.md`로 교정(bbot 6/26 검수 dangling 지적 반영).

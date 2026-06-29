@@ -230,7 +230,7 @@ Code-level invariants pinned at the same time:
 
 ## Next
 
-Current priority + open decisions: [NEXT--acp-on-v2.md](./NEXT--acp-on-v2.md) (branch lane) and [NEXT.md](./NEXT.md) (main lane). Read at session start. `/recall` restores the past axis; NEXT fixes the future axis. Forward direction: [ROADMAP.md](./ROADMAP.md).
+Current priority + open decisions: [NEXT--entwurf-rename.md](./NEXT--entwurf-rename.md) (branch lane) and [NEXT.md](./NEXT.md) (main lane). Read at session start. `/recall` restores the past axis; NEXT fixes the future axis. Forward direction: [ROADMAP.md](./ROADMAP.md).
 
 ## References
 
