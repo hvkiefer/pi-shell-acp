@@ -158,6 +158,17 @@ If either section reports `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`, the hos
 is still running a pre-0.12.4 package or a broken tarball. Reinstall the current
 package and re-run `entwurf install-meta-bridge && entwurf doctor-meta-bridge`.
 
+Upgrade invariant: every global npm/pnpm package upgrade must be followed by
+`entwurf install-meta-bridge` from that same installed binary and then
+`entwurf doctor-meta-bridge`. The installer writes absolute Claude Code
+`statusLine` / marketplace paths plus the user-scope MCP entry; package managers
+replace the package but do not rewrite those Claude settings. If a dev checkout's
+`./run.sh doctor-meta-bridge` expects repo paths while settings still point at a
+pnpm store path (or the reverse), that is an ownership mismatch — run the doctor
+from the surface that intentionally owns the install, or reinstall from the other
+surface. Restart already-open Claude Code sessions after changing the meta-bridge
+install.
+
 A plain external MCP host can call tools but is non-replyable. A garden-native
 meta-session has a garden id, a mailbox, and a trusted sender marker; it can call
 `entwurf_self`, receive mailbox wakeups, and be replied to by garden id.

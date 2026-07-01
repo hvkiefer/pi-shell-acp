@@ -94,7 +94,17 @@ if [ -n "$CACHE_HOOKS" ]; then
   # the doctor cannot read its load-bearing hook command, so the store-churn guard is
   # blind — a verify-impossible state must fail loud, not pass as a soft warn (A3b).
   BAKED="$({ grep -oE '"command": "[^ ]+ \$\{CLAUDE_PLUGIN_ROOT\}/meta-bridge-hook.ts"' "$CACHE_HOOKS" || true; } | head -1 | sed -E 's/.*"command": "([^ ]+) .*/\1/')"
-  if [ -n "$BAKED" ] && [ -x "$BAKED" ]; then ok "baked node exists + executable: $BAKED"
+  if [ -n "$BAKED" ] && [ -x "$BAKED" ]; then
+    ok "baked node exists + executable: $BAKED"
+    CACHE_ROOT="$(cd "$(dirname "$CACHE_HOOKS")/.." && pwd)"
+    TMP_AGENT="$(mktemp -d 2>/dev/null || mktemp -d -t entwurf-doctor-hook)"
+    HOOK_ENV='{"session_id":"doctor-synthetic-native","transcript_path":"/tmp/entwurf-doctor-synthetic-transcript.jsonl","cwd":"/tmp","hook_event_name":"SessionStart","model":{"id":"doctor-model"}}'
+    if HOOK_OUT="$(printf '%s' "$HOOK_ENV" | env PI_CODING_AGENT_DIR="$TMP_AGENT" CLAUDE_PLUGIN_ROOT="$CACHE_ROOT" "$BAKED" "$CACHE_ROOT/meta-bridge-hook.ts" 2>&1)" && printf '%s' "$HOOK_OUT" | grep -q 'hookSpecificOutput'; then
+      ok "cached SessionStart hook executes cleanly in an isolated temp agent dir"
+    else
+      bad "cached SessionStart hook failed to execute — stale plugin cache / unsupported TS syntax / broken bundle. Re-run install-meta-bridge from the intended surface. Detail: $(printf '%s' "$HOOK_OUT" | tr '\n' ' ' | cut -c1-300)"
+    fi
+    rm -rf "$TMP_AGENT" 2>/dev/null || true
   elif [ -n "$BAKED" ]; then bad "baked node path is DEAD (nix GC / version bump?): $BAKED — re-run ./run.sh install-meta-bridge"
   else bad "could not parse baked node path from $CACHE_HOOKS — hook command format drift; doctor cannot verify the NixOS store-churn guard. Re-run ./run.sh install-meta-bridge or update the doctor parser."; fi
 else

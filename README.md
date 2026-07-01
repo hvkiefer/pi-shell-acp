@@ -187,6 +187,12 @@ raw `.ts` helpers under `node_modules`. If the doctor reports
 `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`, reinstall a current package before
 trusting the floor result.
 
+After upgrading a globally installed package, run `entwurf install-meta-bridge`
+again before trusting native Claude Code sessions. The installer owns absolute
+Claude Code `statusLine` / marketplace paths plus the user-scope MCP entry; a
+package-manager upgrade alone can leave those keys pointing at the previous pnpm
+store version. Existing Claude Code sessions should be restarted after reinstall.
+
 For manual configuration, [`pi/settings.reference.json`](./pi/settings.reference.json)
 shows the pi adapter settings shape, and the external-host examples below show
 plain MCP registrations.

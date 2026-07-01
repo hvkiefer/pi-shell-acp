@@ -4,6 +4,10 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+### Fixed
+
+- **Release/post-publish docs now pin the meta-bridge ownership step.** Global npm/pnpm upgrades must be followed by `entwurf install-meta-bridge` and `entwurf doctor-meta-bridge` from the same installed surface, because Claude Code settings carry absolute `statusLine` / marketplace paths and a user-scope MCP entry that package managers do not rewrite. The doctor now also executes the cached SessionStart hook once in an isolated temp agent dir, catching stale plugin-cache / hook-syntax failures before the next real Claude Code session.
+
 ## 0.12.4 — 2026-07-01
 
 ### Fixed
