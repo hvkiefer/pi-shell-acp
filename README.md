@@ -80,10 +80,11 @@ A few words that look unusual for a coding tool.
 adapter that hosts the ACP plugin and live control-socket surface, but the base
 install is **not** `pi install npm:...` anymore.
 
-The package exposes two bins:
+The package exposes three bins:
 
 - `entwurf` → `run.sh` (installer, checks, meta-bridge doctor/install)
 - `entwurf-bridge` → the MCP stdio launcher (`mcp/entwurf-bridge/start.sh`)
+- `entwurf-statusline` → the Claude Code statusline renderer (`scripts/meta-bridge-statusline.sh`); a stable bin shim so a package upgrade tracks the current version without rewriting Claude settings
 
 The bridge does not provide Claude credentials, tokens, or subscription access,
 and does not bypass any backend auth. Whatever the operator's local `claude` /

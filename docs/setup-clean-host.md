@@ -78,8 +78,11 @@ Prove the installed MCP server answers `tools/list` from inside `node_modules`.
 This is the first `node_modules` strip-types regression fixed in 0.12.0: Node
 refuses `--experimental-strip-types` for `.ts` under `node_modules`, so the
 installed package must boot the prebuilt JS under `mcp/entwurf-bridge/dist/`.
-The 0.12.4 doctor fix below applies the same installed-vs-dev split to
-`doctor-meta-bridge` helper checks.
+The same installed-vs-dev split then closes the other two `.ts`-at-runtime
+surfaces on that same fence: the `doctor-meta-bridge` store-scan helper (0.12.4)
+and the plugin `SessionStart`/`UserPromptSubmit` hook (0.12.5, runs the compiled
+`dist/pi-extensions/meta-bridge-hook.js` when installed). Installed packages run
+tsc-emitted JS on every one of these; dev clones keep the `.ts` source.
 
 ```bash
 node --input-type=module <<'JS'
