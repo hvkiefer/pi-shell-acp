@@ -10,9 +10,7 @@ npm package: <https://www.npmjs.com/package/@junghanacs/entwurf>
 
 Legacy package: [`@junghanacs/pi-shell-acp`](https://www.npmjs.com/package/@junghanacs/pi-shell-acp). `entwurf` is its 0.12+ successor line: the same work renamed around the garden-citizen dispatch substrate rather than the pi adapter.
 
-> **Public, active development.** Real working code, still young. Verify it in your own workflow before relying on it all day. Evidence calibration: [VERIFY.md](./VERIFY.md); native async-delivery capability levels: [DELIVERY.md](./DELIVERY.md).
-
-> **Current state for 0.12.1.** This repo is **entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + an ACP plugin**. Pi is one supported harness adapter — important because it supplies control sockets and hosts the ACP plugin today — but it is not the project subject. Claude Code is shipped through the meta-bridge; pi is shipped through the control-socket adapter; Codex and Antigravity (`agy`) reach the garden with verified delivery probes, documented per launch mode in [DELIVERY.md](./DELIVERY.md), with shipped adapter/install lanes landing after the 0.12.0 doc cut. The ACP plugin is Claude-first; Cortex/vendor-governed ACP backends are future lanes.
+> **Repository shape.** This repo is **entwurf-core (v2 dispatch) + a meta-bridge + a pi adapter + an ACP plugin**. Pi is one supported harness adapter — important because it supplies control sockets and hosts the ACP plugin today — but it is not the project subject. Claude Code is shipped through the meta-bridge; pi is shipped through the control-socket adapter. Codex and Antigravity (`agy`) have verified delivery probes documented per launch mode in [DELIVERY.md](./DELIVERY.md); shipped adapter/install lanes are tracked separately. The ACP plugin is Claude-first; Cortex/vendor-governed ACP backends are future lanes.
 
 <details>
 <summary>Watch archived pre-0.12 demo (2131×1142 GIF, click to expand)</summary>
@@ -55,7 +53,7 @@ native Claude Code
         → entwurf_self | entwurf_v2 | entwurf_inbox_read
 ```
 
-This meta-bridge installer/doctor is **Claude Code only** in the shipped 0.12.0 surface. Codex and Antigravity delivery probes are recorded in [DELIVERY.md](./DELIVERY.md) as verified adapter evidence, not yet shipped install surfaces.
+This meta-bridge installer/doctor is **Claude Code only** in the current shipped surface. Codex and Antigravity delivery probes are recorded in [DELIVERY.md](./DELIVERY.md) as verified adapter evidence, not yet shipped install surfaces.
 
 > **Direction.** Inverse of [`pi-acp`](https://github.com/svkozak/pi-acp). `pi-acp` lets external ACP clients talk *to* pi; `entwurf` lets garden citizens talk across harness boundaries — with pi as one adapter, not the center.
 
@@ -147,7 +145,7 @@ because Node refuses to strip `.ts` files under `node_modules`.
 ### Pi adapter / ACP plugin lane
 
 To use the `entwurf` provider inside pi, install a compatible pi binary
-separately (`@earendil-works/pi-coding-agent >=0.80.2 <0.81`). Then point pi at
+separately (`@earendil-works/pi-coding-agent >=0.80.3 <0.81`). Then point pi at
 the npm-installed package or development clone:
 
 ```bash

@@ -46,7 +46,7 @@ import { generateSessionId } from "../pi-extensions/lib/entwurf-core.ts";
 import { terminateChild } from "./lib/acp-child-cleanup.ts";
 
 const ACP_PROVIDER = "entwurf";
-const ACP_MODEL = process.env.ENTWURF_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
+const ACP_MODEL = process.env.ENTWURF_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-5";
 
 const REAL_CONTROL_DIR = path.join(os.homedir(), ".pi", "entwurf-control");
 const SOCKET_SUFFIX = ".sock";

@@ -4,6 +4,29 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+## 0.12.3 — 2026-07-01
+
+### Changed
+
+- **Claude ACP dependency lane refreshed for Sonnet 5.** The ACP runtime pins now use `@agentclientprotocol/claude-agent-acp@0.54.1` with `@agentclientprotocol/sdk@1.1.0`, while keeping the direct `@anthropic-ai/sdk@0.100.1` peer-resolution pin. The pi adapter floor is now `@earendil-works/pi-* >=0.80.3 <0.81`, matching the runtime catalog that exposes `claude-sonnet-5`.
+- **Curated Claude surface moves from Sonnet 4.6 to Sonnet 5.** `claude-sonnet-5` replaces `claude-sonnet-4-6` across the ACP provider, demo/default smoke targets, pi target registry, and release docs. The Sonnet-specific 200K cap was removed; Sonnet 5 now surfaces the verified 1M context window like the Opus anchor, with a 1M ceiling guard to prevent silent future inflation.
+- **Release and backend docs are version-neutral where the repo shape is stable.** The README now describes the durable repository shape instead of a point-in-time `0.12.x` state, and the clean-host/demo/verification docs reflect the current pi floor and Sonnet 5 defaults.
+- **Cortex and fresh-spawn planning docs realigned to the 0.12 substrate.** The ACP backend rail documentation and NEXT/ROADMAP planning notes now describe the as-built adapter seam and the mux-visible fresh-sibling lane without re-centering old v1/fat-bridge assumptions.
+
+### Fixed
+
+- **Live ACP smoke timeout cleanup no longer leaves stale timers after PASS.** Raw-turn, overlay, memory-containment, and session-reuse live smokes now clear their timeout handles when the awaited operation wins, so a successful live check exits promptly instead of lingering until the old timeout expires.
+- **Session-reuse live smoke now preserves its success evidence.** The two-turn reuse smoke no longer calls `process.exit(0)` on success, allowing the turn-2/PASS log and cleanup to drain naturally while the retained ACP child is still handled by the backend exit cleanup.
+- **Claude Code meta-bridge install state also disables workflow surfaces.** `enableWorkflows` and `workflowKeywordTriggerEnabled` are now managed false alongside the existing auto-memory, compaction, prompt-suggestion, progress, and auto-mode settings.
+
+### Verification
+
+- `pnpm check` passed on 2026-07-01 after the dependency/model/doc updates; prep log `/tmp/pi-tmux-entwurf-prep-check-0123.log` ended with `EXIT=0`.
+- `LIVE=1 ./run.sh smoke-acp-raw-turn-live` passed with `claude-sonnet-5` and exited promptly after PASS.
+- `LIVE=1 ./run.sh smoke-acp-provider-live` passed with `claude-sonnet-5` through the pi provider path.
+- `LIVE=1 ./run.sh smoke-acp-session-reuse-live` passed with a two-turn reused ACP child; turn 2 recalled the turn-1 codeword from delta-only prompt scope.
+- `LIVE=1 ./run.sh release-gate /tmp/psa-release-gate-0.12.3.ZcRc8w` passed on 2026-07-01 with `MUST: PASS=17 FAIL=0 SKIP=0` and `BEHAVIOR: PASS=1 FAIL=0`; log `/tmp/pi-tmux-entwurf-release-gate-0123.log`.
+
 ## 0.12.2 — 2026-06-29
 
 ### Fixed

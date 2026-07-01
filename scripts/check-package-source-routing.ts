@@ -74,7 +74,7 @@ function rmInstall(...segs: string[]): void {
 	fs.rmSync(path.join(tmpAgent, ...segs), { recursive: true, force: true });
 }
 
-const ACP: ResolvedTarget = { provider: "entwurf", model: "claude-sonnet-4-6", explicitOnly: false };
+const ACP: ResolvedTarget = { provider: "entwurf", model: "claude-sonnet-5", explicitOnly: false };
 const eArg = (r: { args: string[] }): string | undefined => {
 	const i = r.args.indexOf("-e");
 	return i >= 0 ? r.args[i + 1] : undefined;
@@ -211,7 +211,7 @@ check("project-scope source (unseen in user settings) fails fast on remote", () 
 //     (resume callers fail-fast; no -e injected).
 check("resume recorded entwurf + remote + no source → unresolvedAcpIntent", () => {
 	setSource(null);
-	const r = getEntwurfExplicitExtensions("claude-sonnet-4-6", true, "entwurf");
+	const r = getEntwurfExplicitExtensions("claude-sonnet-5", true, "entwurf");
 	assert.equal(r.unresolvedAcpIntent, true);
 	assert.equal(eArg(r), undefined);
 	assert.ok(r.warnings.length > 0, "should warn about the unresolved bridge");
@@ -220,7 +220,7 @@ check("resume recorded entwurf + remote + no source → unresolvedAcpIntent", ()
 // 13. recorded provider=entwurf + LOCAL → self-root resolves, no fail-fast.
 check("resume recorded entwurf + local resolves via self-root", () => {
 	setSource(null);
-	const r = getEntwurfExplicitExtensions("claude-sonnet-4-6", false, "entwurf");
+	const r = getEntwurfExplicitExtensions("claude-sonnet-5", false, "entwurf");
 	assert.ok(!r.unresolvedAcpIntent, "local self-root should resolve");
 	assert.equal(eArg(r), REPO_ROOT);
 	assert.equal(r.provider, "entwurf");
@@ -242,7 +242,7 @@ check("resume Codex-via-ACP opt-in + remote + no source → unresolvedAcpIntent"
 //     fail-fast — because the legacy pi-claude-code-use bridge may exist.
 check("resume Claude-only heuristic + remote + no source stays warning-only", () => {
 	setSource(null);
-	const r = getEntwurfExplicitExtensions("claude-sonnet-4-6", true, undefined);
+	const r = getEntwurfExplicitExtensions("claude-sonnet-5", true, undefined);
 	assert.ok(!r.unresolvedAcpIntent, "Claude heuristic must not fail-fast");
 	assert.ok(r.warnings.length > 0, "should warn");
 	assert.equal(eArg(r), undefined);

@@ -210,7 +210,7 @@ async function makeHarness(opts: MakeHarnessOpts = {}): Promise<Harness> {
 // Test models.
 const NATIVE_A: ModelLike = { provider: "openai-codex", id: "gpt-5.4" };
 const NATIVE_B: ModelLike = { provider: "openai-codex", id: "gpt-5.5" };
-const PSA_SONNET: ModelLike = { provider: "entwurf", id: "claude-sonnet-4-6" };
+const PSA_SONNET: ModelLike = { provider: "entwurf", id: "claude-sonnet-5" };
 const PSA_OPUS: ModelLike = { provider: "entwurf", id: "claude-opus-4-8" };
 
 let passed = 0;
@@ -250,7 +250,7 @@ await run("2. native → entwurf: revert + warning notify", async () => {
 	assert.equal(h.notifyCalls.length, 1);
 	assert.equal(h.notifyCalls[0].level, "warning");
 	assert.match(h.notifyCalls[0].message, /locked to openai-codex\/gpt-5\.4/);
-	assert.match(h.notifyCalls[0].message, /entwurf\/claude-sonnet-4-6/);
+	assert.match(h.notifyCalls[0].message, /entwurf\/claude-sonnet-5/);
 });
 
 await run("3. entwurf → native: revert + warning notify", async () => {

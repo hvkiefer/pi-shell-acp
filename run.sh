@@ -2,10 +2,10 @@
 #
 # Model id convention (see AGENTS.md Hard Rule #1):
 #   - User-facing examples use the qualified form `entwurf/<backend-model>`
-#     (e.g. `entwurf/claude-sonnet-4-6`); the prefix routes to this provider
+#     (e.g. `entwurf/claude-sonnet-5`); the prefix routes to this provider
 #     so `--provider` is redundant and is dropped in docs.
 #   - Smoke helpers that feed `ensureBridgeSession({modelId})` directly (cancel,
-#     model-switch) pass BARE backend ids (`claude-sonnet-4-6`, `gpt-5.4`)
+#     model-switch) pass BARE backend ids (`claude-sonnet-5`, `gpt-5.4`)
 #     because the bridge library contract is bare. Smoke helpers that invoke pi
 #     via the CLI still pin `--provider entwurf` and can accept either
 #     bare or qualified model, but we keep bare here to match the bridge-level
@@ -32,7 +32,7 @@ TARGET_PROJECT_DIR=${2:-$PROJECT_DIR_DEFAULT}
 # and install path against the same scope for traceability.
 PACKAGE_NAME="@junghanacs/entwurf"
 # Runtime provider id — DO NOT change. Embedded in model strings
-# (`entwurf/claude-sonnet-4-6`), settings keys (`entwurfProvider`),
+# (`entwurf/claude-sonnet-5`), settings keys (`entwurfProvider`),
 # log prefixes (`[entwurf:bootstrap]`), and the `--provider entwurf`
 # CLI surface. Renaming this would break every consumer transcript and every
 # saved session anchor.
@@ -908,7 +908,7 @@ smoke_acp_raw_turn_live() {
   # plus captured raw NDJSON bytes. NO provider/overlay/streamSimple/_meta — the
   # raw backend pipe only. Launch source must be the package bin (PATH fallback
   # fails acceptance unless ENTWURF_ACP_RAW_TURN_ALLOW_PATH_FALLBACK=1, debug).
-  # Model override: ENTWURF_ACP_RAW_TURN_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_RAW_TURN_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-raw-turn-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-raw-turn-live.ts)
 }
@@ -926,7 +926,7 @@ smoke_acp_overlay_live() {
   # meta-store for mailbox absence (flaky — concurrent sessions); the honest
   # claim is overlay-supplies-hooks:{}. Launch must be the package bin (PATH
   # fallback fails acceptance unless ENTWURF_ACP_OVERLAY_ALLOW_PATH_FALLBACK=1).
-  # Model override: ENTWURF_ACP_OVERLAY_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_OVERLAY_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-overlay-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-overlay-live.ts)
 }
@@ -941,7 +941,7 @@ smoke_acp_memory_containment_live() {
   # can stop a memory write is the lever — not us. Fails loud if engraving.md is
   # empty (carrier OFF = no containment). Launch must be the package bin (PATH
   # fallback fails acceptance unless ENTWURF_ACP_MEMORY_ALLOW_PATH_FALLBACK=1).
-  # Model override: ENTWURF_ACP_MEMORY_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_MEMORY_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-memory-containment-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-memory-containment-live.ts)
 }
@@ -956,7 +956,7 @@ smoke_acp_provider_live() {
   # assistant reply (live model proof) + the removed S0 stub error never appears
   # (provider path actually opened) + pi exits 0. Tool-free prompt; the
   # event-mapper gate owns the tool→notice contract.
-  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-provider-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-provider-live.ts)
 }
@@ -970,7 +970,7 @@ smoke_acp_session_reuse_live() {
   # was reused and the live ACP session kept turn-1 history (a respawn-per-turn
   # backend would forget it). The one-shot exit0 half is owned by
   # smoke-acp-provider-live.
-  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-session-reuse-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-session-reuse-live.ts)
 }
@@ -982,7 +982,7 @@ smoke_acp_carrier_augment_live() {
   # secret (the augment rode the wire to the model) and the EMPTY default carrier
   # must bill clean (exit 0, no HTTP-400 canary — 핀1 live). Optional tiny carrier
   # check via SMOKE_ACP_CARRIER_PRESENT=1 (non-blocking).
-  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-4-6).
+  # Model override: ENTWURF_ACP_PROVIDER_MODEL (default claude-sonnet-5).
   #   LIVE=1 ./run.sh smoke-acp-carrier-augment-live
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/smoke-acp-carrier-augment-live.ts)
 }
@@ -1040,9 +1040,9 @@ smoke_acp_rgg_live() {
   # surface (plugin stays lightweight, no ambient MCP — S2b/S2d boundary). To
   # observe that boundary directly, run the shared runner with SMOKE_RGG_POSITIVE=1
   # and ENTWURF_LIVE_TARGET set (T3 will report N/A, not a real failure).
-  # Target override: ENTWURF_RGG_TARGET (default entwurf/claude-sonnet-4-6).
+  # Target override: ENTWURF_RGG_TARGET (default entwurf/claude-sonnet-5).
   #   ./run.sh smoke-acp-rgg-live
-  local target="${ENTWURF_RGG_TARGET:-entwurf/claude-sonnet-4-6}"
+  local target="${ENTWURF_RGG_TARGET:-entwurf/claude-sonnet-5}"
   (cd "$REPO_DIR" && ENTWURF_LIVE_TARGET="$target" SMOKE_RGG_POSITIVE=0 bash scripts/smoke-resident-garden-guard.sh)
 }
 
@@ -1280,7 +1280,7 @@ assert.equal(peerTui, piAi,
 // pi moves its public surface every minor (the 0.79→0.80 getModels→provider-
 // factory churn is exactly this), so an open `>=` floor is exactly how the next
 // installer re-acquires the drift. Expected
-// shape: `>=<devDep> <0.<minor+1>` (e.g. `>=0.80.2 <0.81`).
+// shape: `>=<devDep> <0.<minor+1>` (e.g. `>=0.80.3 <0.81`).
 const [piMaj, piMin] = piAi.split('.').map(Number);
 assert.equal(piMaj, 0,
   `pi pin major must stay 0 for the next-minor ceiling rule (got ${piAi}); revisit check-dep-versions when pi reaches 1.x`);
@@ -1375,7 +1375,7 @@ check_pi_runtime_version() {
   # never statically import a floor-only symbol here, or this guard would crash
   # before it can fail loud.
   (cd "$REPO_DIR" && node --input-type=module <<'EOF'
-const FLOOR = '0.80.2';
+const FLOOR = '0.80.3';
 const cmp = (a, b) => {
   const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
@@ -1393,7 +1393,7 @@ if (typeof VERSION !== 'string') {
   process.exit(1);
 }
 if (cmp(VERSION, FLOOR) < 0) {
-  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge is built and tested against the 0.80.2 public/runtime surface (trust exports hasTrustRequiringProjectResources + ProjectTrustStore nearest-ancestor get, the 0.80 model-catalog API getModels reached via the deprecated /compat entrypoint — 0.80 moved the standalone root getModels there, and the extension loader resolves only /compat, NOT the providers/* factory subpath — provider registration surface, compaction semantics) that older pi lacks or behaves differently on. Bump @earendil-works/pi-*.`);
+  console.error(`[check-pi-runtime-version] FAIL: pi VERSION ${VERSION} < ${FLOOR} — the bridge is built and tested against the 0.80.3 public/runtime surface (trust exports hasTrustRequiringProjectResources + ProjectTrustStore nearest-ancestor get, the 0.80 model-catalog API getModels reached via the deprecated /compat entrypoint — 0.80 moved the standalone root getModels there, and the extension loader resolves only /compat, NOT the providers/* factory subpath — provider registration surface, compaction semantics) that older pi lacks or behaves differently on. Bump @earendil-works/pi-*.`);
   process.exit(1);
 }
 console.log(`[check-pi-runtime-version] ok — pi VERSION ${VERSION} >= ${FLOOR}`);
@@ -1536,8 +1536,8 @@ check_acp_provider_surface() {
 
 check_acp_sdk_surface() {
   # Deterministic gate for the S2a ACP SDK dependency surface. Pins the three
-  # ACP runtime deps to the 0.11.0 oracle versions (@agentclientprotocol/sdk
-  # 0.22.1 + claude-agent-acp 0.39.0 + @anthropic-ai/sdk 0.100.1), locks the
+  # ACP runtime deps to the current oracle versions (@agentclientprotocol/sdk
+  # 1.1.0 + claude-agent-acp 0.54.1 + @anthropic-ai/sdk 0.100.1), locks the
   # peer-resolution that keeps claude-agent-sdk satisfiable (0.100.1, not the
   # stale 0.91.1), asserts the wire SDK still value-exports the symbols the raw
   # turn needs (silent-rename gate), and forbids any source-level anthropic SDK
@@ -1946,9 +1946,9 @@ check_pack_install() {
   local install_log
   install_log=$(cd "$tmp" && pnpm add \
     "$tgz_path" \
-    "@earendil-works/pi-ai@0.80.2" \
-    "@earendil-works/pi-coding-agent@0.80.2" \
-    "@earendil-works/pi-tui@0.80.2" \
+    "@earendil-works/pi-ai@0.80.3" \
+    "@earendil-works/pi-coding-agent@0.80.3" \
+    "@earendil-works/pi-tui@0.80.3" \
     "typebox@latest" \
     --ignore-workspace --ignore-scripts 2>&1) || {
     fail "[check-pack-install] pnpm add failed:"
@@ -2000,14 +2000,14 @@ check_pack_install() {
   # opus anchor (CURATED_ANCHOR_MODEL_ID in lib/acp/models.ts — the model whose
   # absence is a hard registry regression). Checking only one would let half the
   # surface drop silently.
-  for anchor in "claude-sonnet-4-6" "claude-opus-4-8"; do
+  for anchor in "claude-sonnet-5" "claude-opus-4-8"; do
     if ! grep -q "$anchor" <<<"$loader_out"; then
       fail "[check-pack-install] pi loader output missing curated Claude model $anchor:"
       echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
       return 1
     fi
   done
-  echo "[check-pack-install] pi loader smoke pass (entwurf registered, claude-sonnet-4-6 + claude-opus-4-8 anchor)"
+  echo "[check-pack-install] pi loader smoke pass (entwurf registered, claude-sonnet-5 + claude-opus-4-8 anchor)"
 
   # npm-managed neutral install regression — the README's PRIMARY install path is
   # now `npm install @junghanacs/entwurf` (NOT `pi install npm:...`). This layout

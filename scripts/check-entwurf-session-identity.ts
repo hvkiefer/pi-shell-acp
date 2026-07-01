@@ -132,7 +132,7 @@ try {
 		{ p: "entwurf", m: "claude-opus-4-8", title: "Review substrate smoke", tags: ["entwurf", "review"] },
 		{ p: "openai-codex", m: "gpt-5.5", title: "async resume check", tags: ["entwurf", "smoke"] },
 		{ p: "entwurf", m: "gemini-3.1-pro-preview", title: "vision team", tags: ["entwurf"] },
-		{ p: "entwurf", m: "claude-sonnet-4-6", title: "manual session", tags: [] as string[] },
+		{ p: "entwurf", m: "claude-sonnet-5", title: "manual session", tags: [] as string[] },
 	];
 	for (const c of cases) {
 		const sid = generateSessionId(new Date(2026, 5, 3, 19, 12, 45));
@@ -252,7 +252,7 @@ try {
 		tags: ["entwurf"],
 	});
 	eq(parseSessionName(goodName)?.model, recorded, "name model mirrors recorded model");
-	const driftName = "20260603T191245-deadbe==entwurf/claude-sonnet-4-6--x__entwurf";
+	const driftName = "20260603T191245-deadbe==entwurf/claude-sonnet-5--x__entwurf";
 	ok(parseSessionName(driftName)?.model !== recorded, "model drift is detectable for fail-fast");
 
 	// ---- T-collision: header scan is authority; spawn pre-check ----
@@ -440,12 +440,12 @@ try {
 		bigFile,
 		`${JSON.stringify({ type: "session", id: "20260603T210000-bbbbbb", cwd: "/b" })}\n` +
 			msg({ content: bigBody, model: "m-big", provider: "p-big", usage: { cost: { total: 1 } } }) +
-			msg({ content: "final", model: "claude-sonnet-4-6", provider: "entwurf", usage: { cost: { total: 0.5 } } }),
+			msg({ content: "final", model: "claude-sonnet-5", provider: "entwurf", usage: { cost: { total: 0.5 } } }),
 	);
 	const a2 = analyzeSessionFileLike(bigFile);
 	eq(a2.turns, 2, "analyze(big): turns correct across chunk boundaries");
 	eq(a2.lastAssistantText, "final", "analyze(big): trailing turn intact after multi-chunk line");
-	eq(a2.lastModel, "claude-sonnet-4-6", "analyze(big): trailing model intact");
+	eq(a2.lastModel, "claude-sonnet-5", "analyze(big): trailing model intact");
 	eq(Math.round(a2.cost * 100) / 100, 1.5, "analyze(big): cost summed across large line");
 
 	// ---- T-identity: resume identity authority = FIRST model_change ----
@@ -513,21 +513,21 @@ try {
 	const cleanName = buildSessionName({
 		sessionId: idE,
 		provider: "entwurf",
-		model: "claude-sonnet-4-6",
+		model: "claude-sonnet-5",
 		rawTitle: "clean resume",
 		tags: ["entwurf", "async"],
 	});
 	fs.writeFileSync(
 		fileE,
 		sessionLine(idE, "/identity/e") +
-			mc("entwurf", "claude-sonnet-4-6") +
+			mc("entwurf", "claude-sonnet-5") +
 			infoLine(cleanName) +
-			msg({ content: "ok", model: "claude-sonnet-4-6", provider: "entwurf" }),
+			msg({ content: "ok", model: "claude-sonnet-5", provider: "entwurf" }),
 	);
 	noThrow(() => readSessionIdentity(fileE), "identity: clean session does not throw");
 	const recE = readSessionIdentity(fileE);
 	eq(recE?.provider, "entwurf", "identity(clean): provider");
-	eq(recE?.modelId, "claude-sonnet-4-6", "identity(clean): modelId mirrors name");
+	eq(recE?.modelId, "claude-sonnet-5", "identity(clean): modelId mirrors name");
 
 	// 6. no model_change → null (caller refuses with its own no-recorded-model result).
 	const idF = "20260603T220000-6666ff";
@@ -583,7 +583,7 @@ try {
 	);
 	eq(
 		readSessionIdentity(fileE, { requireEntwurf: true })?.modelId,
-		"claude-sonnet-4-6",
+		"claude-sonnet-5",
 		"requireEntwurf: accepted Entwurf session returns first-model_change identity",
 	);
 

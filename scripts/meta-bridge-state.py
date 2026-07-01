@@ -80,6 +80,8 @@ MANAGED_SETTINGS_SCALARS: list[tuple[str, list[str], Any]] = [
     ("showTurnDuration", ["showTurnDuration"], False),
     ("terminalProgressBarEnabled", ["terminalProgressBarEnabled"], False),
     ("useAutoModeDuringPlan", ["useAutoModeDuringPlan"], False),
+    ("enableWorkflows", ["enableWorkflows"], False),
+    ("workflowKeywordTriggerEnabled", ["workflowKeywordTriggerEnabled"], False),
 ]
 
 

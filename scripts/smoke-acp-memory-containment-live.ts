@@ -69,7 +69,7 @@ import {
 } from "../pi-extensions/lib/acp/tool-surface.ts";
 import { terminateChild } from "./lib/acp-child-cleanup.ts";
 
-const REQUESTED_MODEL_ID = process.env.ENTWURF_ACP_MEMORY_MODEL ?? "claude-sonnet-4-6";
+const REQUESTED_MODEL_ID = process.env.ENTWURF_ACP_MEMORY_MODEL ?? "claude-sonnet-5";
 const ALLOW_PATH_FALLBACK = process.env.ENTWURF_ACP_MEMORY_ALLOW_PATH_FALLBACK === "1";
 const RAW_TAIL_CAP = 64 * 1024;
 
@@ -78,15 +78,14 @@ function fail(msg: string): never {
 	process.exit(1);
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
 function withTimeout<T>(label: string, p: Promise<T>, ms: number): Promise<T> {
-	return Promise.race([
-		p,
-		sleep(ms).then((): never => {
-			throw new Error(`${label} timed out after ${ms}ms`);
-		}),
-	]);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+	});
+	return Promise.race([p, timeout]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
 }
 
 /** Recursively list files under `dir` whose path contains a `memory` segment. */

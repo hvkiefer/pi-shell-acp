@@ -102,7 +102,7 @@ assert settings['cleanupPeriodDays'] == 365
 assert settings['env']['DISABLE_AUTOCOMPACT'] == '1'
 assert settings['env']['KEEP_ME'] == 'yes'
 assert settings['statusLine']['command'] == os.environ['REPO'] + '/scripts/meta-bridge-statusline.sh'
-for key in ['promptSuggestionEnabled','awaySummaryEnabled','autoMemoryEnabled','verbose','autoCompactEnabled','showTurnDuration','terminalProgressBarEnabled','useAutoModeDuringPlan']:
+for key in ['promptSuggestionEnabled','awaySummaryEnabled','autoMemoryEnabled','verbose','autoCompactEnabled','showTurnDuration','terminalProgressBarEnabled','useAutoModeDuringPlan','enableWorkflows','workflowKeywordTriggerEnabled']:
     assert settings[key] is False, key
 assert settings['skipDangerousModePermissionPrompt'] is True
 for item in ['Bash','Read','Write','Edit','Grep','Glob','WebFetch','WebSearch','Skill','mcp__entwurf-bridge__*']:
@@ -192,7 +192,7 @@ assert settings['statusLine']['command'] == '/old/user/statusline.sh'
 assert settings['promptSuggestionEnabled'] is True
 assert settings['skipDangerousModePermissionPrompt'] is False
 assert settings['showTurnDuration'] is True
-for key in ['awaySummaryEnabled','autoMemoryEnabled','verbose','autoCompactEnabled','terminalProgressBarEnabled','useAutoModeDuringPlan']:
+for key in ['awaySummaryEnabled','autoMemoryEnabled','verbose','autoCompactEnabled','terminalProgressBarEnabled','useAutoModeDuringPlan','enableWorkflows','workflowKeywordTriggerEnabled']:
     assert key not in settings, key
 allow=settings['permissions']['allow']
 deny=settings['permissions']['deny']
@@ -319,7 +319,7 @@ STORE="$TMP/store"; export STORE; mkdir -p "$STORE"
 valid_record "20260606T000000-aaaaaa" "native-a" > "$STORE/20260606T000000-aaaaaa.meta.json"
 valid_record "20260606T000001-bbbbbb" "native-b" > "$STORE/20260606T000001-bbbbbb.meta.json"
 
-STATUS_INPUT_MATCH='{"session_id":"native-a","workspace":{"current_dir":"/tmp"},"model":{"id":"claude-sonnet-4-6"},"context_window":{"context_window_size":200000,"used_percentage":2,"current_usage":{"input_tokens":10}}}'
+STATUS_INPUT_MATCH='{"session_id":"native-a","workspace":{"current_dir":"/tmp"},"model":{"id":"claude-sonnet-5"},"context_window":{"context_window_size":200000,"used_percentage":2,"current_usage":{"input_tokens":10}}}'
 STATUS_INPUT_MISS='{"session_id":"native-missing","workspace":{"current_dir":"/tmp"},"model":{"id":"claude-opus-4-8"}}'
 STATUS_INPUT_READY='{"workspace":{"current_dir":"/tmp"},"model":{"id":"claude-haiku-4-5"}}'
 STATUS_OUT_MATCH="$(printf '%s' "$STATUS_INPUT_MATCH" | ENTWURF_META_SESSIONS_DIR="$STORE" "$REPO/scripts/meta-bridge-statusline.sh")"

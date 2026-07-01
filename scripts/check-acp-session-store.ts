@@ -43,8 +43,8 @@ import {
 
 const baseInput = (): BridgeConfigInput => ({
 	backend: "claude",
-	modelId: "claude-sonnet-4-6",
-	nativeModelId: "claude-sonnet-4-6",
+	modelId: "claude-sonnet-5",
+	nativeModelId: "claude-sonnet-5",
 	appendSystemPrompt: "",
 	mcpServersHash: "deadbeef",
 	settingSources: [],
@@ -61,7 +61,7 @@ const baseInput = (): BridgeConfigInput => ({
 {
 	const sig0 = bridgeConfigSignature(baseInput());
 	assert.ok(isSha256Hex(sig0), "config signature is a sha256 digest (no raw carrier text on disk)");
-	assert.ok(!sig0.includes("claude-sonnet-4-6"), "config signature is a digest — never embeds the raw modelId/carrier");
+	assert.ok(!sig0.includes("claude-sonnet-5"), "config signature is a digest — never embeds the raw modelId/carrier");
 	assert.equal(sig0, bridgeConfigSignature(baseInput()), "signature is deterministic");
 	// Array copies do not affect equality (same content).
 	assert.equal(bridgeConfigSignature({ ...baseInput(), settingSources: [] }), sig0, "empty settingSources stable");
@@ -178,7 +178,7 @@ const baseInput = (): BridgeConfigInput => ({
 
 	const facts = (over: Partial<SessionCompatFacts> = {}): SessionCompatFacts => ({
 		cwd: "/w",
-		modelId: "claude-sonnet-4-6",
+		modelId: "claude-sonnet-5",
 		bridgeConfigSignature: bridgeConfigSignature(baseInput()),
 		contextMessageSignatures: ["user:text:a"],
 		...over,
@@ -201,7 +201,7 @@ const baseInput = (): BridgeConfigInput => ({
 	const sig = bridgeConfigSignature(baseInput());
 	const compatFacts: SessionCompatFacts = {
 		cwd: "/w",
-		modelId: "claude-sonnet-4-6",
+		modelId: "claude-sonnet-5",
 		bridgeConfigSignature: sig,
 		contextMessageSignatures: ["user:text:a"],
 	};
@@ -305,7 +305,7 @@ const baseInput = (): BridgeConfigInput => ({
 {
 	const facts: SessionCompatFacts = {
 		cwd: "/w",
-		modelId: "claude-sonnet-4-6",
+		modelId: "claude-sonnet-5",
 		bridgeConfigSignature: bridgeConfigSignature(baseInput()),
 		contextMessageSignatures: ["user:text:a"],
 	};

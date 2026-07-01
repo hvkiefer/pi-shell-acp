@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Api, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
 
-const model = { id: "claude-sonnet-4-6" } as unknown as Model<Api>;
+const model = { id: "claude-sonnet-5" } as unknown as Model<Api>;
 
 // Declared tools exclude `read`, but the Claude child always exposes Read →
 // declared != actual → the preflight must reject before spawning.

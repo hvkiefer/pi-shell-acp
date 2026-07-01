@@ -8,7 +8,7 @@
 #      reply in the same pane (cross-model, mode=sync).
 #
 # Layout (tmux, 220x50):
-#   pane 0 (single) — driven pi (claude-sonnet-4-6) — receives both prompts.
+#   pane 0 (single) — driven pi (claude-sonnet-5) — receives both prompts.
 #
 # Recording: asciinema → baseline.cast → agg → baseline.gif
 
@@ -30,7 +30,7 @@ GIF="$PUBLISH_DIR/entwurf-demo.gif"
 DRIVER_LOG="$OUTDIR/baseline-debug.log"
 
 # Driven pi runs the bridge surface and answers both prompts.
-DRIVER_MODEL=${DRIVER_MODEL:-entwurf/claude-sonnet-4-6}   # pias
+DRIVER_MODEL=${DRIVER_MODEL:-entwurf/claude-sonnet-5}   # pias
 # Sibling spawned via entwurf in scene 2 — different backend for contrast.
 SIBLING_MODEL=${SIBLING_MODEL:-entwurf/gpt-5.4}            # piat
 SIBLING_CWD=${SIBLING_CWD:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}

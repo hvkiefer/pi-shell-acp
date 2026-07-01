@@ -50,18 +50,17 @@ export const ENTWURF_ACP_NO_AUTH_SENTINEL = "entwurf-no-auth";
 // both axes (protocol smoke + agent interview) — do not extend casually.
 // Exported so the claude backend adapter (backend-adapter.ts) can answer
 // `routeModel` without re-deriving the set from curatedClaudeModels().
-export const SUPPORTED_ANTHROPIC_MODEL_IDS = ["claude-sonnet-4-6", "claude-opus-4-8"] as const;
+export const SUPPORTED_ANTHROPIC_MODEL_IDS = ["claude-sonnet-5", "claude-opus-4-8"] as const;
 
 /** The anchor model whose absence is a hard registry regression, not a soft skip. */
 export const CURATED_ANCHOR_MODEL_ID = "claude-opus-4-8";
 
-// Anthropic's registry reports 1M for Claude 4.6+ models, but the public
-// entwurf surface deliberately distinguishes Sonnet vs Opus: Sonnet stays
-// at 200K, Opus surfaces at 1M. (The 0.11.0 ENTWURF_ACP_CLAUDE_CONTEXT env
-// override is a behavior-oracle nicety deferred past S0 — the loader/fence
-// slice only needs the anchor present and registered.)
+// Anthropic's registry reports 1M for both Sonnet 5 and Opus 4.8, and the
+// entwurf surface now exposes the full 1M for BOTH. Sonnet 5's 1M window is the
+// whole point of the 0.12.3 bump — it is the compact-free long-context floor the
+// earlier 200K Sonnet cap could not provide. We still clamp to a 1M ceiling so a
+// future registry value can't silently inflate the surface past what we verify.
 const CLAUDE_CONTEXT_DEFAULT = 1_000_000;
-const CLAUDE_SONNET_DEFAULT = 200_000;
 
 // `getModels("anthropic")` reads the static builtin model catalog only — no env
 // read, no credential access, no network — preserving the #26 auth-boundary
@@ -79,8 +78,7 @@ function requireRegistryModel(models: readonly RegistryModel[], id: string): Reg
 }
 
 function claudeContextWindow(model: { id: string; contextWindow: number }): number {
-	const cap = model.id === "claude-sonnet-4-6" ? CLAUDE_SONNET_DEFAULT : CLAUDE_CONTEXT_DEFAULT;
-	return Math.min(model.contextWindow, cap);
+	return Math.min(model.contextWindow, CLAUDE_CONTEXT_DEFAULT);
 }
 
 /**

@@ -32,7 +32,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Api, AssistantMessageEvent, Context, Message, Model } from "@earendil-works/pi-ai";
 
-const sonnet = { id: "claude-sonnet-4-6" } as unknown as Model<Api>;
+const sonnet = { id: "claude-sonnet-5" } as unknown as Model<Api>;
 const opus = { id: "claude-opus-4-8" } as unknown as Model<Api>;
 
 type Stream = AsyncIterable<AssistantMessageEvent> & {
@@ -488,7 +488,7 @@ try {
 		);
 		const d1 = deltaText(t1);
 		const iPrep = d1.indexOf("[acp: preparing claude session]");
-		const iReady = d1.indexOf("[acp: session ready model=claude-sonnet-4-6]");
+		const iReady = d1.indexOf("[acp: session ready model=claude-sonnet-5]");
 		const iSent = d1.indexOf("[acp: sending prompt]");
 		assert.ok(
 			iPrep >= 0 && iReady > iPrep && iSent > iReady,
@@ -517,7 +517,7 @@ try {
 			messages: [
 				{ role: "user", content: "real user line", timestamp: 0 },
 				mkAssistant([
-					{ type: "text", text: "\n[acp: session ready model=claude-sonnet-4-6]\n", textSignature: MARKER },
+					{ type: "text", text: "\n[acp: session ready model=claude-sonnet-5]\n", textSignature: MARKER },
 					{ type: "text", text: "real assistant line" },
 				]),
 			],

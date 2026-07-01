@@ -90,7 +90,7 @@ assert.ok(nativeThrew, "non-claude backend exposing write natively must throw wh
 // ---------------------------------------------------------------------------
 
 const baseParams = {
-	modelId: "claude-sonnet-4-6",
+	modelId: "claude-sonnet-5",
 	tools: DEFAULT_CLAUDE_TOOLS,
 	permissionAllow: DEFAULT_CLAUDE_PERMISSION_ALLOW,
 	disallowedTools: DEFAULT_CLAUDE_DISALLOWED_TOOLS,
@@ -101,7 +101,7 @@ const baseParams = {
 
 const meta = buildClaudeSessionMeta(baseParams);
 const opts = (meta.claudeCode as { options: Record<string, unknown> }).options;
-assert.equal(opts.model, "claude-sonnet-4-6", "model must propagate");
+assert.equal(opts.model, "claude-sonnet-5", "model must propagate");
 assert.deepEqual(opts.tools, [...DEFAULT_CLAUDE_TOOLS], "tools must propagate (copied)");
 assert.deepEqual(
 	(opts.settings as { permissions: { allow: string[] } }).permissions.allow,

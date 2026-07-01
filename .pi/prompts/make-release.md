@@ -313,7 +313,7 @@ PI_CODING_AGENT_DIR="$TMP_AGENT" pi --no-extensions -e "$BRIDGE" --list-models e
 rm -rf "$TMP_AGENT"
 ```
 
-Pass criteria: output includes `entwurf` and `claude-sonnet-4-6`, with no
+Pass criteria: output includes `entwurf` and `claude-sonnet-5`, with no
 `Unknown provider` / `No models matching`. If this fails after publish, stop and
 ask GLG whether to deprecate/yank before notifying downstream consumers.
 

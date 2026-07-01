@@ -27,12 +27,22 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Api, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MODEL = process.env.ENTWURF_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-4-6";
+const MODEL = process.env.ENTWURF_ACP_PROVIDER_MODEL?.trim() || "claude-sonnet-5";
 const TURN_TIMEOUT_MS = Number(process.env.ENTWURF_ACP_PROVIDER_TIMEOUT_MS) || 240_000;
 
 function fail(msg: string): never {
 	console.error(`[smoke-acp-session-reuse-live] FAIL: ${msg}`);
 	process.exit(1);
+}
+
+function withTimeout<T>(label: string, p: Promise<T>, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+	});
+	return Promise.race([p, timeout]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
 }
 
 if (process.env.LIVE !== "1") {
@@ -100,13 +110,15 @@ async function main(): Promise<void> {
 			},
 		],
 	};
-	const r1 = await Promise.race([
+	const r1 = await withTimeout(
+		"turn 1",
 		consume(backend.streamShellAcp(model, turn1, options) as Stream),
-		new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn 1 timed out")), TURN_TIMEOUT_MS)),
-	]);
+		TURN_TIMEOUT_MS,
+	);
 	if (r1.error) fail(`turn 1 errored: ${r1.error}`);
 	if (!r1.done) fail("turn 1 did not complete");
 	console.error(`[smoke-acp-session-reuse-live] turn 1 reply: ${JSON.stringify(r1.text.slice(-120))}`);
+	console.error("[smoke-acp-session-reuse-live] starting turn 2 reuse prompt");
 
 	// --- turn 2 (reuse): ask for the codeword, DELTA ONLY ---
 	const turn2: Context = {
@@ -136,10 +148,11 @@ async function main(): Promise<void> {
 			},
 		],
 	};
-	const r2 = await Promise.race([
+	const r2 = await withTimeout(
+		"turn 2",
 		consume(backend.streamShellAcp(model, turn2, options) as Stream),
-		new Promise<never>((_, rej) => setTimeout(() => rej(new Error("turn 2 timed out")), TURN_TIMEOUT_MS)),
-	]);
+		TURN_TIMEOUT_MS,
+	);
 	if (r2.error) fail(`turn 2 errored: ${r2.error}`);
 	if (!r2.done) fail("turn 2 did not complete");
 	console.error(`[smoke-acp-session-reuse-live] turn 2 reply: ${JSON.stringify(r2.text.slice(-120))}`);
@@ -160,8 +173,10 @@ async function main(): Promise<void> {
 
 main()
 	.then(() => {
-		// retained child is SIGKILLed by the backend's process 'exit' hook.
-		process.exit(0);
+		// Let stdout/stderr and finally cleanup drain naturally; the backend's process
+		// 'exit' hook still SIGKILLs the retained child when Node exits. A direct
+		// process.exit(0) can truncate the success/PASS log after the live turn.
+		process.exitCode = 0;
 	})
 	.catch((err) => {
 		fail(err instanceof Error ? err.message : String(err));

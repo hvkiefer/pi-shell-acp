@@ -1,5 +1,5 @@
 // ACP client adapter — the ONE place that touches the @agentclientprotocol/sdk
-// 0.29 fluent surface (`client({ name }).connect(stream)`).
+// 1.1 fluent surface (`client({ name }).connect(stream)`).
 //
 // The wire SDK deprecated the `new ClientSideConnection(toClient, stream)`
 // constructor in favour of the fluent `client()` builder. The two have
@@ -52,7 +52,7 @@ export interface AcpClientHandlers {
 }
 
 /**
- * Production factory — wrap the SDK 0.29 fluent `client()` into the
+ * Production factory — wrap the SDK 1.1 fluent `client()` into the
  * `AcpConnectionLike` seam the backend (and the live smokes) drive.
  *
  * Client-side handlers register by ACP method name; agent-side calls go through

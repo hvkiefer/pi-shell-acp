@@ -3,7 +3,7 @@
 //   LIVE=1 ./run.sh smoke-acp-raw-turn-live
 //
 // What this proves (and ONLY this): the pinned Claude ACP adapter
-// (@agentclientprotocol/claude-agent-acp@0.39.0) spawns, speaks the ACP wire
+// (@agentclientprotocol/claude-agent-acp@0.54.1) spawns, speaks the ACP wire
 // protocol over stdio NDJSON, and returns one real model turn. It is the
 // bytes-flow proof that the S2a dep surface is not just installable but
 // actually drivable — before any provider/overlay/streamSimple code (S2b+).
@@ -35,7 +35,7 @@ import { ndJsonStream, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { connectAcpClient } from "../pi-extensions/lib/acp/acp-client.ts";
 import { terminateChild } from "./lib/acp-child-cleanup.ts";
 
-const REQUESTED_MODEL_ID = process.env.ENTWURF_ACP_RAW_TURN_MODEL ?? "claude-sonnet-4-6";
+const REQUESTED_MODEL_ID = process.env.ENTWURF_ACP_RAW_TURN_MODEL ?? "claude-sonnet-5";
 const ALLOW_PATH_FALLBACK = process.env.ENTWURF_ACP_RAW_TURN_ALLOW_PATH_FALLBACK === "1";
 const RAW_TAIL_CAP = 64 * 1024; // cap captured raw NDJSON to 64KB tail on report.
 
@@ -44,17 +44,18 @@ function fail(msg: string): never {
 	process.exit(1);
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
 // Guard each RPC so a hung backend fails this smoke instead of the outer
-// process timeout — keeps the failure attributable to the right step.
+// process timeout — keeps the failure attributable to the right step. Always
+// clear the timeout; otherwise a successful live turn can print PASS and keep
+// Node alive until the stale timer fires.
 function withTimeout<T>(label: string, p: Promise<T>, ms: number): Promise<T> {
-	return Promise.race([
-		p,
-		sleep(ms).then((): never => {
-			throw new Error(`${label} timed out after ${ms}ms`);
-		}),
-	]);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+	});
+	return Promise.race([p, timeout]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
 }
 
 if (process.env.LIVE !== "1") {

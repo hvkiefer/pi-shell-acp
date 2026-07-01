@@ -58,7 +58,7 @@ function settings(name: string, block: unknown): string {
 function resolveWith(globalPath: string, projectPath: string, adapter: AcpBackendAdapter = claudeLikeFake) {
 	return resolveProviderConfig({
 		cwd: root,
-		modelId: "claude-sonnet-4-6",
+		modelId: "claude-sonnet-5",
 		adapter,
 		globalSettingsPath: globalPath,
 		projectSettingsPath: projectPath,
@@ -291,11 +291,11 @@ try {
 			weather: { type: "http", url: "https://w.test" },
 			other: { command: "x" },
 		}).servers;
-		const enriched = enrichMcpServersWithEnvelope(servers, { modelId: "claude-sonnet-4-6", piSessionId: "LIVE-1" });
+		const enriched = enrichMcpServersWithEnvelope(servers, { modelId: "claude-sonnet-5", piSessionId: "LIVE-1" });
 		const bridge = enriched.find((s) => s.name === "entwurf-bridge") as Extract<AcpMcpServer, { command: string }>;
 		const env = Object.fromEntries(bridge.env.map((e) => [e.name, e.value]));
 		assert.equal(env.PI_SESSION_ID, "LIVE-1", "live PI_SESSION_ID wins over the stale operator value");
-		assert.equal(env.PI_AGENT_ID, "entwurf/claude-sonnet-4-6", "PI_AGENT_ID injected from the model id");
+		assert.equal(env.PI_AGENT_ID, "entwurf/claude-sonnet-5", "PI_AGENT_ID injected from the model id");
 		assert.equal(env.FOO, "bar", "operator env preserved");
 		const weather = enriched.find((s) => s.name === "weather");
 		assert.ok(!("env" in (weather ?? {})), "http server not enriched (no env carrier)");

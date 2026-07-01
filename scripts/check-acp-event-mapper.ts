@@ -21,7 +21,7 @@ import {
 	finalizeAcpStreamState,
 } from "../pi-extensions/lib/acp/event-mapper.ts";
 
-const IDENTITY = { api: "entwurf", provider: "entwurf", model: "claude-sonnet-4-6" };
+const IDENTITY = { api: "entwurf", provider: "entwurf", model: "claude-sonnet-5" };
 
 // Drive a set of synthetic updates through a fresh mapper and collect every
 // emitted event (push is synchronous; the terminal done drains the queue).

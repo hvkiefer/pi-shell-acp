@@ -44,7 +44,7 @@ Verification here is not a benchmark. In production we exchange short turns and 
 ### Verifying the two capabilities a gate cannot fully judge
 
 - **Garden-id delivery:** discover a target with `entwurf_peers`, then `entwurf_v2` with the correct intent — `fire-and-forget` for a live/replyable or meta-session target, `owned-outcome` only to wake a dormant record-backed pi citizen. Picking the wrong intent is rejected, never auto-fixed.
-- **ACP continuity:** a direct `pi --provider entwurf --model claude-sonnet-4-6` turn, or the `smoke-acp-session-reuse-live` gate (process-scoped reuse + recall). Multi-turn reuse is proven by that gate, not by any v1 resume tool.
+- **ACP continuity:** a direct `pi --provider entwurf --model claude-sonnet-5` turn, or the `smoke-acp-session-reuse-live` gate (process-scoped reuse + recall). Multi-turn reuse is proven by that gate, not by any v1 resume tool.
 
 ### What NOT to do — bypassing the operational path
 
@@ -102,7 +102,7 @@ pi install git:github.com/junghan0611/entwurf          # pi auto-clones + instal
 cd /path/to/consumer-project
 ~/.pi/agent/git/github.com/junghan0611/entwurf/run.sh install .   # wire bundled mcpServers
 pi --list-models entwurf                               # curated model surface
-pi --provider entwurf --model claude-sonnet-4-6 -p "reply with ok only"   # one-turn smoke
+pi --provider entwurf --model claude-sonnet-5 -p "reply with ok only"   # one-turn smoke
 ```
 
 Expected: the package appears under pi's `User packages`; `install .` logs `added entwurfProvider.mcpServers.entwurf-bridge` + `updated <project>/.pi/settings.json`; the smoke returns a one-word reply (full bootstrap → ACP session → bridge → clean shutdown). Note: `~/.pi/agent/git/.../entwurf` is pi-managed — do not edit it (a `pi update` overwrites). Step 2 is still required after `pi install git:…`.
@@ -115,7 +115,7 @@ pnpm install                                   # pnpm is the pinned packageManag
 pi install ./
 ./run.sh install /path/to/consumer-project
 pnpm check                                     # full deterministic floor
-pi --provider entwurf --model claude-sonnet-4-6 -p "reply with ok only"
+pi --provider entwurf --model claude-sonnet-5 -p "reply with ok only"
 LIVE=1 ./run.sh release-gate /path/to/consumer-project
 ```
 
@@ -140,7 +140,7 @@ Compare a fresh self-awareness report across axes: (1) same backend, different i
 
 ## 1A. Main Agent Evaluation — Is `entwurf` Claude strong enough?
 
-Separate from continuity gates. Gates prove "sessions continue"; this questionnaire examines tool self-awareness / native tool usability / MCP-boundary awareness / long-turn focus / quality vs direct Claude Code. Run it against `entwurf/claude-sonnet-4-6` via a direct `pi --provider entwurf` turn (or a live ACP session); accumulate turns by re-prompting the same target.
+Separate from continuity gates. Gates prove "sessions continue"; this questionnaire examines tool self-awareness / native tool usability / MCP-boundary awareness / long-turn focus / quality vs direct Claude Code. Run it against `entwurf/claude-sonnet-5` via a direct `pi --provider entwurf` turn (or a live ACP session); accumulate turns by re-prompting the same target.
 
 ### 1A.0 Two carrier surfaces — engraving vs pi-context-augment (load-bearing)
 

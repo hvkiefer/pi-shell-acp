@@ -1,16 +1,16 @@
 // Deterministic gate for the S2a ACP SDK dependency surface.
 //
-// Pins the ACP runtime deps to the 0.11.0 behavior-oracle versions and locks
+// Pins the ACP runtime deps to the current behavior-oracle versions and locks
 // the peer-resolution that makes the Claude ACP adapter satisfiable:
 //
-//   @agentclientprotocol/sdk              0.29.0   wire SDK (acp-bridge import source)
-//   @agentclientprotocol/claude-agent-acp 0.50.0   Claude adapter (spawn binary)
+//   @agentclientprotocol/sdk              1.1.0    wire SDK (acp-bridge import source)
+//   @agentclientprotocol/claude-agent-acp 0.54.1   Claude adapter (spawn binary)
 //   @anthropic-ai/sdk                     0.100.1  peer-resolution pin ONLY (see below)
 //
 // The anthropic SDK is NOT an API client / auth surface here. It is a direct
-// dep solely to satisfy @anthropic-ai/claude-agent-sdk@0.3.186's peer floor
+// dep solely to satisfy @anthropic-ai/claude-agent-sdk@0.3.197's peer floor
 // (>=0.93.0); drop it and the tree resolves a stale 0.91.1 so the peer goes
-// unmet — a failure that would only surface at the first raw turn. 0.11.0's
+// unmet — a failure that would only surface at the first raw turn. The
 // lockfile proves the same shape. Source-level import / API-client
 // instantiation / credential use stays forbidden — asserted in layer (4).
 // (GPT hard constraint 2, revised 2026-06-18: direct dep allowed ONLY as an
@@ -42,15 +42,15 @@ const read = (p: string): string => readFileSync(resolve(repoRoot, p), "utf8");
 const pkg = JSON.parse(read("package.json")) as { dependencies?: Record<string, string> };
 const deps = pkg.dependencies ?? {};
 const PINS: Record<string, string> = {
-	"@agentclientprotocol/sdk": "0.29.0",
-	"@agentclientprotocol/claude-agent-acp": "0.50.0",
+	"@agentclientprotocol/sdk": "1.1.0",
+	"@agentclientprotocol/claude-agent-acp": "0.54.1",
 	[ANTHROPIC_SDK]: "0.100.1",
 };
 for (const [name, ver] of Object.entries(PINS)) {
 	assert.equal(
 		deps[name],
 		ver,
-		`package.json dependencies["${name}"] must be exact "${ver}" (got "${deps[name]}") — S2a pins the 0.11.0 oracle versions`,
+		`package.json dependencies["${name}"] must be exact "${ver}" (got "${deps[name]}") — S2a pins the current oracle versions`,
 	);
 }
 
@@ -63,13 +63,13 @@ for (const [name, ver] of Object.entries(PINS)) {
 const lock = read("pnpm-lock.yaml");
 assert.match(
 	lock,
-	/@agentclientprotocol\/claude-agent-acp@0\.50\.0\(@anthropic-ai\/sdk@0\.100\.1/,
-	"pnpm-lock: claude-agent-acp@0.50.0 must peer-resolve @anthropic-ai/sdk@0.100.1 (peer-pin), not the stale 0.91.1",
+	/@agentclientprotocol\/claude-agent-acp@0\.54\.1\(@anthropic-ai\/sdk@0\.100\.1/,
+	"pnpm-lock: claude-agent-acp@0.54.1 must peer-resolve @anthropic-ai/sdk@0.100.1 (peer-pin), not the stale 0.91.1",
 );
 assert.match(
 	lock,
-	/@anthropic-ai\/claude-agent-sdk@0\.3\.186\(@anthropic-ai\/sdk@0\.100\.1/,
-	"pnpm-lock: claude-agent-sdk@0.3.186 must peer-resolve @anthropic-ai/sdk@0.100.1 — else its >=0.93.0 peer floor is unmet",
+	/@anthropic-ai\/claude-agent-sdk@0\.3\.197\(@anthropic-ai\/sdk@0\.100\.1/,
+	"pnpm-lock: claude-agent-sdk@0.3.197 must peer-resolve @anthropic-ai/sdk@0.100.1 — else its >=0.93.0 peer floor is unmet",
 );
 
 // ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ const casEntry = adapterRequire.resolve("@anthropic-ai/claude-agent-sdk");
 const casInfo = pkgInfoFromEntry(casEntry);
 assert.equal(
 	casInfo.version,
-	"0.3.186",
-	`@anthropic-ai/claude-agent-sdk must runtime-resolve to 0.3.186 from the adapter context (got ${casInfo.version})`,
+	"0.3.197",
+	`@anthropic-ai/claude-agent-sdk must runtime-resolve to 0.3.197 from the adapter context (got ${casInfo.version})`,
 );
 const casRequire = createRequire(resolve(casInfo.dir, "package.json"));
 const sdkEntry = casRequire.resolve(ANTHROPIC_SDK);
@@ -121,19 +121,19 @@ assert.equal(
 );
 
 // ---------------------------------------------------------------------------
-// (2c) adapter-context wire-SDK + MCP-SDK runtime resolve — the 0.50 bump's real
-//      fault surface. Lock text (layer 2) freezes the publish floor; these probe
+// (2c) adapter-context wire-SDK + MCP-SDK runtime resolve — the ACP dep bump's
+//      real fault surface. Lock text (layer 2) freezes the publish floor; these probe
 //      the LIVE module graph the adapter actually traverses: the adapter must SEE
-//      the same wire SDK the backend imports at root (0.29.0), and claude-agent-sdk
+//      the same wire SDK the backend imports at root (1.1.0), and claude-agent-sdk
 //      must SEE its declared MCP peer (1.29.x). Cheap edges, both newly relevant
-//      after the 0.39→0.50 / 0.22→0.29 bump.
+//      after the 0.50→0.54 / 0.29→1.1 bump.
 // ---------------------------------------------------------------------------
 const wireEntry = adapterRequire.resolve("@agentclientprotocol/sdk");
 const wireInfo = pkgInfoFromEntry(wireEntry);
 assert.equal(
 	wireInfo.version,
-	"0.29.0",
-	`@agentclientprotocol/sdk must runtime-resolve to 0.29.0 from the adapter context (got ${wireInfo.version}) — the adapter and the backend must share one wire SDK`,
+	"1.1.0",
+	`@agentclientprotocol/sdk must runtime-resolve to 1.1.0 from the adapter context (got ${wireInfo.version}) — the adapter and the backend must share one wire SDK`,
 );
 // @modelcontextprotocol/sdk gates its bare specifier behind "exports", so a
 // require.resolve of the package ROOT throws (no resolvable entry) — read the
@@ -143,12 +143,12 @@ assert.equal(
 const mcpPkg = JSON.parse(read("node_modules/@modelcontextprotocol/sdk/package.json")) as { version?: string };
 assert.ok(
 	typeof mcpPkg.version === "string" && mcpPkg.version.startsWith("1.29."),
-	`@modelcontextprotocol/sdk must be 1.29.x (got ${mcpPkg.version}) — claude-agent-sdk 0.3.186 declares a ^1.29.0 peer`,
+	`@modelcontextprotocol/sdk must be 1.29.x (got ${mcpPkg.version}) — claude-agent-sdk 0.3.197 declares a ^1.29.0 peer`,
 );
 
 // ---------------------------------------------------------------------------
 // (3) @agentclientprotocol/sdk value-export surface (silent-rename gate)
-//     The 0.11.0 acp-bridge imports these from the wire SDK; a silent upstream
+//     The ACP bridge imports these from the wire SDK; a silent upstream
 //     rename would not fail typecheck (type-only erasure) but would break the
 //     raw turn. Assert the *value* exports exist at runtime.
 // ---------------------------------------------------------------------------

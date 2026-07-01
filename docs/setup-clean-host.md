@@ -30,7 +30,7 @@ ssh cleanhost 'uname -a; whoami; which git node npm pi claude 2>/dev/null'
 | Node | **24** recommended; `>=22.6.0` minimum | `engines.node` (Node strip-types / ESM runtime) |
 | npm | bundled with Node 24 | public package install path |
 | entwurf | `@junghanacs/entwurf` | neutral npm package; exposes `entwurf` and `entwurf-bridge` bins |
-| pi binary | **optional**, `@earendil-works/pi-coding-agent >=0.80.2 <0.81` | needed only for the pi adapter / ACP provider / spawn-bg resume lane |
+| pi binary | **optional**, `@earendil-works/pi-coding-agent >=0.80.3 <0.81` | needed only for the pi adapter / ACP provider / spawn-bg resume lane |
 
 ## Stage 0 — Node 24 via nvm
 
@@ -109,7 +109,7 @@ If the host will run pi sessions or the Claude ACP provider through pi, install
 a compatible pi binary separately and wire the target project.
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent@0.80.2
+npm install -g @earendil-works/pi-coding-agent@0.80.3
 pi --version
 
 mkdir -p ~/entwurf-smoke
@@ -126,7 +126,7 @@ Drift points:
   `entwurf-bridge`, and links `~/.pi/agent/entwurf-targets.json` to the package's
   `pi/entwurf-targets.json`.
 - Older pi versions may silently miss the provider/extension surface. Use the
-  pinned floor (`>=0.80.2 <0.81`) for release verification.
+  pinned floor (`>=0.80.3 <0.81`) for release verification.
 - A host that only uses the external MCP bridge can skip this stage until it
   needs `owned-outcome` spawn-bg resume or pi-native control sockets.
 
@@ -157,7 +157,7 @@ source ~/.bashrc
 claude login
 
 cd ~/entwurf-smoke
-pi --provider entwurf --model claude-sonnet-4-6 -p "reply with ok only"
+pi --provider entwurf --model claude-sonnet-5 -p "reply with ok only"
 ```
 
 If the backend CLI fails directly (`claude -p "ping"`), fix that upstream first.
@@ -171,7 +171,7 @@ a raw pi-assigned uuid hard-exits before any model turn.
 
 ```bash
 pi --session-id "$(entwurf new-session-id)" \
-  --entwurf-control --provider entwurf --model claude-sonnet-4-6
+  --entwurf-control --provider entwurf --model claude-sonnet-5
 # control socket: ~/.pi/entwurf-control/<garden-id>.sock
 ```
 

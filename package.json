@@ -1,6 +1,6 @@
 {
 	"name": "@junghanacs/entwurf",
-	"version": "0.12.2",
+	"version": "0.12.3",
 	"description": "Garden-citizen dispatch substrate and meta-bridge for Claude Code, Codex, Antigravity, and pi harnesses.",
 	"license": "MIT",
 	"author": {
@@ -67,23 +67,23 @@
 	},
 	"packageManager": "pnpm@10.33.0",
 	"dependencies": {
-		"@agentclientprotocol/claude-agent-acp": "0.50.0",
-		"@agentclientprotocol/sdk": "0.29.0",
+		"@agentclientprotocol/claude-agent-acp": "0.54.1",
+		"@agentclientprotocol/sdk": "1.1.0",
 		"@anthropic-ai/sdk": "0.100.1",
 		"@modelcontextprotocol/sdk": "^1.12.1",
 		"zod": "^3.25.0 || ^4.0.0"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": ">=0.80.2 <0.81",
-		"@earendil-works/pi-coding-agent": ">=0.80.2 <0.81",
-		"@earendil-works/pi-tui": ">=0.80.2 <0.81",
+		"@earendil-works/pi-ai": ">=0.80.3 <0.81",
+		"@earendil-works/pi-coding-agent": ">=0.80.3 <0.81",
+		"@earendil-works/pi-tui": ">=0.80.3 <0.81",
 		"typebox": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.13",
-		"@earendil-works/pi-ai": "0.80.2",
-		"@earendil-works/pi-coding-agent": "0.80.2",
-		"@earendil-works/pi-tui": "0.80.2",
+		"@earendil-works/pi-ai": "0.80.3",
+		"@earendil-works/pi-coding-agent": "0.80.3",
+		"@earendil-works/pi-tui": "0.80.3",
 		"@types/node": "^24.3.0",
 		"husky": "^9.1.7",
 		"typescript": "^6.0.2"

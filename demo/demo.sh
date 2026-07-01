@@ -3,7 +3,7 @@
 #
 # Layout (tmux, 220x50):
 #   pane 0 (top)    — peer pi (codex, gpt-5.4)       — idle, waits for greeting
-#   pane 1 (bottom) — sender pi (claude-sonnet-4-6)  — driven by send-keys
+#   pane 1 (bottom) — sender pi (claude-sonnet-5)  — driven by send-keys
 #
 # Scenes (driven into sender pane):
 #   1. Spawn a sonnet sibling, store one fact.
@@ -32,7 +32,7 @@ SENDER_LOG="$OUTDIR/sender-debug.log"
 
 # Models match the user's piat / pias aliases.
 PEER_MODEL=${PEER_MODEL:-entwurf/gpt-5.4}        # piat
-SENDER_MODEL=${SENDER_MODEL:-entwurf/claude-sonnet-4-6}  # pias
+SENDER_MODEL=${SENDER_MODEL:-entwurf/claude-sonnet-5}  # pias
 
 # Pacing in seconds. Tuned from real runs: each scene's actual agent work
 # completes in ~5–15 s (Scene 1 sibling cold-spawn is the slowest; resume +
@@ -134,7 +134,7 @@ sleep "$WARMUP"
 # window/pane base-index configs.
 drive() {
   # Scene 1 — spawn + memory write
-  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 1. Spawn a claude-sonnet-4-6 sibling via the entwurf tool. provider: entwurf, model: claude-sonnet-4-6, cwd: /home/junghan/repos/gh/entwurf, mode: sync. Task body: "You are a sibling for a recorded demo. Remember one fact only — my favorite forge color is tempered indigo. Reply with one short sentence acknowledging. No tool calls, no repo exploration." After it returns, print only the Session ID line so I can see it.'
+  tmux send-keys -t "$SENDER_PANE" -l 'Demo scene 1. Spawn a claude-sonnet-5 sibling via the entwurf tool. provider: entwurf, model: claude-sonnet-5, cwd: /home/junghan/repos/gh/entwurf, mode: sync. Task body: "You are a sibling for a recorded demo. Remember one fact only — my favorite forge color is tempered indigo. Reply with one short sentence acknowledging. No tool calls, no repo exploration." After it returns, print only the Session ID line so I can see it.'
   tmux send-keys -t "$SENDER_PANE" Enter
   sleep "$SCENE_DELAY"
 

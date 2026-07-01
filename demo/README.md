@@ -17,7 +17,7 @@ Historical pre-0.12 demo, still linked from the top-level `README.md` as archive
    tools, names the carrier surface for each cited piece of
    information, and admits unknowns instead of fabricating.
 2. **Entwurf surface** — the same pane spawns a sibling via the
-   `entwurf` tool (`mode=sync`, cross-model — driver `claude-sonnet-4-6`,
+   `entwurf` tool (`mode=sync`, cross-model — driver `claude-sonnet-5`,
    sibling `gpt-5.4`), prints the Session ID, and quotes the sibling's
    one-line reply verbatim.
 
@@ -81,7 +81,7 @@ grep -E '(entwurf|model-switch)' demo/sender-debug.log
 | Var | Default | Meaning |
 |---|---|---|
 | `PEER_MODEL` | `entwurf/gpt-5.4` (≡ `piat`) | top pane backend (receives greeting) |
-| `SENDER_MODEL` | `entwurf/claude-sonnet-4-6` (≡ `pias`) | bottom pane backend (drives scenes) |
+| `SENDER_MODEL` | `entwurf/claude-sonnet-5` (≡ `pias`) | bottom pane backend (drives scenes) |
 | `SCENE_DELAY` | `25` | seconds to wait for each scene's agent work |
 | `WARMUP` | `3` | seconds to wait for both pi banners |
 | `FINAL_PAUSE` | `5` | extra wait after scene 3 (peer reply lag) |
@@ -93,7 +93,7 @@ grep -E '(entwurf|model-switch)' demo/sender-debug.log
 
 | Var | Default | Meaning |
 |---|---|---|
-| `DRIVER_MODEL` | `entwurf/claude-sonnet-4-6` (≡ `pias`) | the driven pane — answers Q-B0 and spawns the sibling |
+| `DRIVER_MODEL` | `entwurf/claude-sonnet-5` (≡ `pias`) | the driven pane — answers Q-B0 and spawns the sibling |
 | `SIBLING_MODEL` | `entwurf/gpt-5.4` (≡ `piat`) | cross-backend sibling spawned in scene 2 |
 | `SIBLING_CWD` | repo root | cwd passed to the entwurf sibling (drives `<project-context>` injection) |
 | `SCENE1_DELAY` | `60` | seconds for the long English baseline answer |
@@ -114,7 +114,7 @@ The demo launch lines correspond to your shell aliases:
 | Alias | Model id | Use as |
 |---|---|---|
 | `piao` | `entwurf/claude-opus-4-8` | `SENDER_MODEL` (precision scenes) |
-| `pias` | `entwurf/claude-sonnet-4-6` | `SENDER_MODEL` (default) |
+| `pias` | `entwurf/claude-sonnet-5` | `SENDER_MODEL` (default) |
 | `piat` | `entwurf/gpt-5.4` | `PEER_MODEL` (default) |
 | `piat5` | `entwurf/gpt-5.5` | either |
 | `piag` | `entwurf/gemini-3.1-pro-preview` | either |
@@ -137,7 +137,7 @@ SCENE_DELAY=30 FINAL_PAUSE=10 bash demo.sh
 
 ## Prerequisites
 
-- `pi` on PATH (current floor 0.80.2)
+- `pi` on PATH (current floor 0.80.3)
 - `entwurf` provider configured + auth ready for the selected sender/peer models
 - `asciinema` installed
 - `agg` installed (optional — only for GIF conversion)
