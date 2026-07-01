@@ -38,31 +38,61 @@ v2에 spawn이 "없는" 게 아니다. `entwurf_v2 owned-outcome`은 **기존 do
 
 | repro (tmux) | driver 메서드 | 세부 |
 |---|---|---|
-| `tmux new-session -d -s <n> -x 200 -y 50` | `launch(spec)` | detached, pane geometry(200×50)를 spec 파라미터로 |
-| `tmux send-keys -t <n> "<text>" Enter` **+ `sleep 1; send-keys Enter`** | `send(target,text)` | **더블-Enter 제출 quirk 캡슐화** — CC TUI는 첫 keystroke가 입력창만 채우고 두번째 Enter가 제출 |
-| `tmux capture-pane -t <n> -p` | `capture(target)` | raw pane text만 반환. 폴링(`grep -qE '●\s*READY'`, 30회 loop)은 호출측 책임 |
-| `tmux kill-session -t <n>` | `kill(target)` | idempotent(`2>/dev/null \|\| true`) |
+| `tmux new-session -d -s <n> -x 200 -y 50` + `set-option @entwurf_garden_id/@entwurf_parent_garden_id` | `launch(spec)` | detached, geometry는 spec. **namespace 각인** → tmux server가 lineage 레지스트리(형 통찰). driver는 opaque 문자열만 새김(의미 모름) |
+| `tmux send-keys -t <n> -l "<text>"` | `pasteText(target,text)` | literal 주입만. `-l`/paste-buffer 여지(arbitrary prompt 안전) |
+| `tmux send-keys -t <n> Enter` | `sendKey(target,key)` | 단일 키 |
+| (조합) `pasteText→sendKey(Enter)→sleep(1)→sendKey(Enter)` | **driver 아님 → launch-profile(claude-code, ①-7)** | 더블-Enter 제출은 mux 차이 아니라 CC TUI submit policy. driver에 박으면 pi-native/타 TUI 오염 |
+| `tmux capture-pane -t <n> -p` | `capture(target)` | raw pane text만. 폴링(`grep -qE '●\s*READY'`)은 호출측 책임 |
+| `tmux list-sessions -F …` | `list(): MuxSessionView[]` | ★ 활성 파악 + 각인 읽어 lineage. **view, not fact** — authority(socket/meta-record/probe) 아님, 교차검증·진단 전용. 미각인은 optional 부재(throw 아님) |
+| `tmux kill-session -t <n>` | `kill(target)` | idempotent — `\|\|true` 셸 대신 runner `okExitCodes` |
 | (암묵 `has-session`) | `isAlive(target)?` | 선택 |
 
 **동형 레퍼런스(그대로 미러):** `pi-extensions/lib/acp/backend-adapter.ts` — `interface AcpBackendAdapter`(:115), `claudeAdapter`(:194), `const ADAPTERS = [claudeAdapter]`(:275), `resolveAcpBackendAdapter(modelId)`(:287). driver 1개 = mux 1개 = siblings-not-workers의 mux 레이어 반복.
 
+**설계 3겹 불변식 (2026-07-01 opus4.8 ↔ gpt-5.5 3라운드 확정 — 어기면 tmux가 코드를 삼킨다):**
+1. **driver 불변식 = `$TMUX` 비의존.** caller가 tmux 밖이어도 `tmux new-session -d`로 detached 생성. "mux가 launch surface"이지 "caller도 mux 안"은 아님. → `check-mux-driver` fake-runner가 강제(fake엔 `$TMUX` 개념 없음).
+2. **관찰 규율 = mux-visible launch가 default, 유령 분신 금지.** caller가 tmux 안이면 같은 server에 떠서 `tmux ls`+`switch-client`로 즉시 adopt. 강제 아니라 권장 posture(`opens siblings, not disposable workers`의 tmux 판). → manual observe smoke.
+3. **경계 불변식 = mint ≠ transport.** spawn/mint(garden-id 발급·registry·name/cwd/model)는 **mux를 모른다**; driver는 **mint를 모른다**. mint/core 파일군의 `lib/mux/*` import 금지를 `scripts/check-mux-boundary.ts`(TS compiler API로 `ImportDeclaration`+dynamic import string literal 검사, **allowlist 방식** — launch-profile/orchestrator만 허용)가 강제(①-7). "강제하면 코드가 tmux를 따라간다"의 실물 방어.
+
+**테스트 3층 (GPT 제안 채택):**
+- `check-mux-driver` — fake runner deterministic. argv/순서/kill idempotency(`okExitCodes`)만 단언. tmux 바이너리 불요.
+- `LIVE=1` smoke — 진짜 tmux로 detached 생성/캡처/kill. `$TMUX` 비의존 증명.
+- manual observe smoke — "parent inside tmux 권장" + `$TMUX` 감지 시 `switch-client -t <handle>` 힌트. attach/switch는 core driver 아님 → 후속 `openMuxTarget` manual 레이어.
+
 **착수 플랜(순서대로):**
-1. **mux driver 인터페이스 먼저** — 새 파일 `pi-extensions/lib/mux/driver.ts`(경로 확정은 착수 시): `MuxDriver` interface + `MuxLaunchSpec`/`MuxTarget` 타입 + `DRIVERS`/`resolveMuxDriver`. 아직 tmux 바이너리 호출 없음. shape 초안:
+1. **mux driver 인터페이스 먼저 (leaf module)** — 새 파일 `pi-extensions/lib/mux/driver.ts`. `entwurf-core`를 import하지 않는 순수 transport leaf(tmux argv + injectable runner). GPT 검수 반영 shape:
    ```ts
    export interface MuxDriver {
-     readonly id: "tmux" | "zmx";                     // enum 값 ↔ transport `<id>-live`
-     launch(spec: MuxLaunchSpec): Promise<MuxTarget>; // detached pane, liveness handle 반환
-     send(target: MuxTarget, text: string): Promise<void>; // 더블-Enter 제출 캡슐화
-     capture(target: MuxTarget): Promise<string>;     // raw pane text (호출측 폴링)
-     kill(target: MuxTarget): Promise<void>;          // idempotent
+     readonly id: "tmux" | "zmx";                 // bare id — transport 문자열은 호출측이 {tmux:"tmux-live",zmx:"zmx-live"}로 파생
+     launch(spec: MuxLaunchSpec): Promise<MuxTarget>;
+     pasteText(t: MuxTarget, text: string): Promise<void>;  // literal 주입만 (send-keys -l 여지)
+     sendKey(t: MuxTarget, key: string): Promise<void>;     // 단일 키 (Enter 등)
+     capture(t: MuxTarget): Promise<string>;                // raw pane text (호출측 폴링)
+     kill(t: MuxTarget): Promise<void>;                     // idempotent
+     list(): Promise<MuxSessionView[]>;                     // 진단용 관찰 스냅샷 — authority 아님(view, not fact)
+     isAlive?(t: MuxTarget): Promise<boolean>;
    }
-   export const DRIVERS: readonly MuxDriver[] = [tmuxDriver /*, zmxDriver*/];
-   export function resolveMuxDriver(id: string): MuxDriver; // resolveAcpBackendAdapter 미러
+   export type MuxLaunchSpec = {
+     gardenId: string; parentGardenId?: string;   // → @entwurf_garden_id / @entwurf_parent_garden_id 각인(namespace)
+     command: string[]; env?: Record<string, string>;
+     geometry?: { cols: number; rows: number };    // default 200×50
+     cwd?: string;
+   };
+   // MuxTarget = launch/resolve된 실행 핸들. branded → list 결과(MuxSessionView)를 send/kill에 실수로 못 넣게
+   export type MuxTarget = { readonly __brand: unique symbol; driverId: "tmux" | "zmx"; gardenId: string; handle: string; driverData?: unknown };
+   // MuxSessionView = tmux ls 관찰 스냅샷. dispatch authority 아님(socket/meta-record/probe가 authority). conflict는 diagnostic bucket
+   export type MuxSessionView = { driverId: "tmux" | "zmx"; handle: string; gardenId?: string; parentGardenId?: string; observedAt: number; raw?: string };
+   export function createTmuxDriver(deps: { runner: MuxRunner; sleep?: (ms: number) => Promise<void> }): MuxDriver; // argv 순수부/부수효과 분리
+   export const tmuxDriver: MuxDriver;              // createTmuxDriver({ runner: realRunner })
+   export const DRIVERS: readonly MuxDriver[] = [tmuxDriver /*, zmxDriver */];
+   export function resolveMuxDriver(id: string): MuxDriver; // resolveAcpBackendAdapter 미러 fail-fast
    ```
-2. **`tmuxDriver` 구현** — repro의 정확한 4동작 이식(더블-Enter 포함, geometry는 spec 파라미터). repro 스크립트는 그대로 두되 프로덕션 경로가 driver를 쓰게.
-3. **deterministic 게이트 `check-mux-driver.ts`** — 실제 tmux 바이너리 없이(fake/echo mux) tmuxDriver 구동: 4동작 argv 단언, 더블-Enter 제출 시퀀스 단언, kill idempotency. `check-acp-*` 스타일. `pnpm check` 체인 + `run.sh` dispatch 배선.
+   - submit quirk(더블-Enter)는 **여기 없음** — claude-code launch-profile(①-7)이 소유. `pi-native-gpt`는 자기 submit policy.
+   - `driver.ts`는 leaf: `entwurf-core`/mint import 금지. 역방향(mint→`lib/mux`) 금지는 ①-7 import-boundary 게이트.
+2. **`tmuxDriver` 구현** — repro 동작 이식하되 각 메서드는 `plan*(): string[][]`(argv) 계산 → injectable runner 실행. geometry/`@garden_id`/`@parent_session_id`는 spec. 더블-Enter는 **여기 아님**(①-7). repro 스크립트는 그대로 두되 프로덕션 경로가 driver를 쓰게.
+3. **deterministic 게이트 `check-mux-driver.ts`** — 실제 tmux 없이 fake runner로 tmuxDriver 구동: primitive별 argv/순서 단언, `@garden_id` 각인 단언, kill idempotency(`okExitCodes`), `resolveMuxDriver` fail-fast. `check-acp-*` 스타일. `pnpm check` 체인 + `run.sh` dispatch 배선.
 4. **`zmxDriver` 스텁** — 같은 interface로 `DRIVERS=[tmux,zmx]`가 컴파일되게. 미구현 op는 fail-loud.
-5. **enum 공존** — `ENTWURF_V2_TRANSPORTS`(:186)에 `zmx-live` 추가(`tmux-live`와 공존). schema↔types 게이트 갱신. mux 종류를 별도 필드로 빼는 추상화는 금지(enum 나열 > 추상화 두께).
+5. **enum 공존** — `ENTWURF_V2_TRANSPORTS`(:186)에 `zmx-live` 추가(`tmux-live`와 공존). schema↔types 게이트 갱신 **+ `DispatchVerdict`의 resume union도 같이 확장(GPT 지적 — 놓치면 타입 갈라짐)**. mux 종류를 별도 필드로 빼는 추상화는 금지(enum 나열 > 추상화 두께).
 6. **네이밍 중립화(cosmetic)** — fixture `tmuxTarget`(위 2줄) → `muxTarget`. 프로덕션 필드가 아니므로 리스크 낮음.
 7. **fresh pi-native GPT launch profile(더 큰 후속)** — `runEntwurfSync`(:1940)의 registry/session-id/name/cwd-enrich 자산 재사용하되, `--no-extensions` detached one-shot 복구가 아니라 mux-visible `pi-native-gpt` launch profile로 설계(`claude-code`/`codex`/`agy`도 같은 launch/observe/capture/kill 규율). **완료판정:** mux launch가 서면 `6d06ad0`이 지운 `entwurf/gpt-5.x` ACP 타깃을 레지스트리에 되살릴 수 있음.
 8. **agy(Antigravity)** — spawn surface 통일 **후** 그 위에 얹기(기반 먼저 안 서면 launch seam이 갈림).
@@ -86,6 +116,7 @@ v2에 spawn이 "없는" 게 아니다. `entwurf_v2 owned-outcome`은 **기존 do
 
 - Work on `main`; 이 레인용 브랜치 만들지 않음.
 - **mux launch는 driver 인터페이스 뒤에서만** — 프로덕션 코드에 `tmux` 직접 호출 금지(repro 예외). tmux 전용 가정/타입/필드명 새로 심지 말 것. zmx는 경량 1급 driver 후보.
+- **mint는 mux를 모르고 driver는 mint를 모른다** — spawn/mint 로직에 `lib/mux` import 금지, `driver.ts`는 `entwurf-core` 무의존 leaf. 더블-Enter submit은 driver 아니라 launch-profile. `$TMUX` 전제(caller도 tmux 안이어야)를 driver/게이트에 심지 말 것 — 관찰가능 launch는 강제 아닌 default posture.
 - **fresh pi-native GPT도 먼저 mux-visible** — v1식 detached/bg `pi -p` 복구를 기본값으로 되살리지 않는다. headless/bg pi 최적화는 GLG 명시 시 별도 레인.
 - pi floor는 이제 **0.80.3**, entwurf sonnet은 **`claude-sonnet-5`(1M)** — 되돌리지 말 것.
 - `core.hooksPath` 안 건드림. `--no-verify` 금지.
