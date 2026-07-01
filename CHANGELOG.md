@@ -16,6 +16,7 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 - `pnpm check` passed on 2026-07-01 after the doctor/install-floor fix.
 - `./run.sh check-pack-install` passed with the new installed store-doctor scan and doctor-dispatch lock assertions.
+- Release-gate prep evidence: `LIVE=1 ./run.sh release-gate /tmp/psa-release-gate-0.12.4.PliLsd` passed on 2026-07-01; log `/tmp/pi-tmux-entwurf-release-gate-0124.log`; summary `MUST: PASS=17 FAIL=0 SKIP=0`, advisory `BEHAVIOR: PASS=0 FAIL=1` (`smoke-resident-garden-guard` post-`/gnew` autonomous `entwurf_self` identity turn; non-blocking).
 - `hejdev6` real floor host reproduced the pre-fix strip-types failure from an installed package and passed after installing the patched tarball: compiled store-doctor scanned `1 record(s)` with plain `node`, and installed `doctor-meta-bridge` reported store-scan ok plus v2-surface deferred.
 
 ## 0.12.3 — 2026-07-01
