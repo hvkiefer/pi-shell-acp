@@ -3190,9 +3190,10 @@ case "$cmd" in
     ;;
   install-meta-bridge)
     # 1.0.0 meta-bridge step 5: operator-grade GLOBAL install of the garden-native
-    # receive plugin. Assembles a self-contained, node-path-baked copy under
-    # pi/meta-bridge/.assembled and runs marketplace add + install --scope user, so
-    # every native Claude Code session auto-loads it (no manual --plugin-dir).
+    # receive plugin. Assembles a self-contained, node-path-baked copy under the
+    # XDG data dir ($XDG_DATA_HOME/entwurf/meta-bridge/.assembled — dev clone and
+    # installed package alike, never the checkout) and runs marketplace add +
+    # install --scope user, so every native Claude Code session auto-loads it.
     # Idempotent; Linux/macOS only (Windows fail-fast).
     (cd "$REPO_DIR" && bash scripts/meta-bridge-install.sh "$@")
     ;;

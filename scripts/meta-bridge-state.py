@@ -513,9 +513,33 @@ def check(repo: Path, asm: Path) -> None:
         failures.append(f"{claude_root_config_path()} root is not an object")
         root = {}
 
+    # The marketplace source path in settings was written by apply() from the
+    # RECORDED assembledMarketplacePath. Compare against that recorded value, not the
+    # --asm passed here: a doctor/check run under a different XDG_DATA_HOME than
+    # install must not false-FAIL a correctly-wired marketplace. Fall back to --asm
+    # only if the recorded field is somehow absent.
+    recorded_asm = state.get("assembledMarketplacePath")
+    # Shape-validate the recorded path (basename included). Every state our code
+    # writes carries this field (init_state/prepare/apply), so a missing/empty/
+    # non-string value is itself corruption — NOT a reason to fall back to --asm and
+    # PASS. And a malformed value that matches a same-malformed settings entry (both
+    # hand-corrupted) would otherwise slip the comparison below and greenlight a
+    # bogus marketplace source. This mirrors the uninstall.sh honest-inverse guard:
+    # only the exact install suffix …/entwurf/meta-bridge/.assembled is valid.
+    ASM_SUFFIX = "/entwurf/meta-bridge/.assembled"
+    if not isinstance(recorded_asm, str) or not recorded_asm.endswith(ASM_SUFFIX):
+        failures.append(
+            f"install-state assembledMarketplacePath is missing/malformed ('{recorded_asm}'); "
+            f"must end in {ASM_SUFFIX} — repair state or re-run install-meta-bridge"
+        )
+    marketplace_expected = (
+        {"source": {"source": "directory", "path": recorded_asm}}
+        if recorded_asm
+        else desired_marketplace(asm)
+    )
     checks = [
         (["enabledPlugins", PLUGIN_REF], True, "enabled plugin"),
-        (["extraKnownMarketplaces", MARKETPLACE], desired_marketplace(asm), "known marketplace"),
+        (["extraKnownMarketplaces", MARKETPLACE], marketplace_expected, "known marketplace"),
         (["statusLine"], desired_statusline(repo), "statusLine"),
     ] + [(path_, desired, name) for name, path_, desired in MANAGED_SETTINGS_SCALARS]
     for path_, expected, label in checks:
@@ -554,6 +578,7 @@ def main() -> int:
             "apply",
             "preflight-uninstall",
             "uninstall",
+            "assembled-path",
             "check",
             "managed-keys",
             "desired-mcp",
@@ -564,7 +589,13 @@ def main() -> int:
     parser.add_argument("--asm", default=None, type=Path)
     args = parser.parse_args()
     repo = args.repo.resolve()
-    asm = (args.asm or (repo / "pi" / "meta-bridge" / ".assembled")).resolve()
+    # The live artifact always lives under the XDG data dir — dev clone and
+    # installed package alike (mirror meta-bridge-install.sh's ASM resolution).
+    # install/doctor pass --asm explicitly; this default is the same XDG path so a
+    # bare invocation never falls back to a repo-internal marketplace source.
+    xdg_data = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    default_asm = xdg_data / "entwurf" / "meta-bridge" / ".assembled"
+    asm = (args.asm or default_asm).resolve()
     try:
         if args.command == "prepare":
             prepare(repo, asm)
@@ -574,6 +605,13 @@ def main() -> int:
             preflight_uninstall()
         elif args.command == "uninstall":
             uninstall()
+        elif args.command == "assembled-path":
+            # Print the RECORDED assembled marketplace path so the honest inverse
+            # (uninstall) removes exactly what install created — not a path
+            # recomputed from a possibly-changed XDG_DATA_HOME. Requires state.
+            state = load_state(required=True)
+            assert state is not None  # load_state(required=True) dies otherwise
+            print(state.get("assembledMarketplacePath", ""))
         elif args.command == "check":
             check(repo, asm)
         elif args.command == "managed-keys":

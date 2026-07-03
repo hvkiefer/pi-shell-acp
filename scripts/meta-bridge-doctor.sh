@@ -17,18 +17,22 @@ MKT_NAME="meta-bridge-local"
 PLUGIN="entwurf-meta-receive"
 CLAUDE_CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# LIB_EXT tracks the hook artifact mode (0.12.5): installed packages ship the
+# The live artifact lives under the XDG data dir (dev clone and installed package
+# alike — never the checkout). Prefer the path RECORDED in install-state so a doctor
+# run under a different XDG_DATA_HOME than install still hashes the REAL assembled
+# bundle (and state.py check compares the same recorded marketplace path); fall back
+# to the current-XDG computation only when no state exists yet (fresh host).
+# LIB_EXT still tracks the hook artifact mode (0.12.5): installed packages ship the
 # tsc-emitted `.js` closure (node_modules-safe), dev clones run the `.ts` source.
 # The writer-version parity below hashes meta-session.<LIB_EXT> so an installed
 # `.js` bundle is compared against the SAME-pipeline dist `.js`, never against the
 # `.ts` source (which would hash-mismatch and false-STALE).
+ASM="${XDG_DATA_HOME:-$HOME/.local/share}/entwurf/meta-bridge/.assembled"
+RECORDED_ASM="$(python3 "$REPO/scripts/meta-bridge-state.py" assembled-path --repo "$REPO" 2>/dev/null || true)"
+[ -n "$RECORDED_ASM" ] && ASM="$RECORDED_ASM"
 case "$REPO" in
-  */node_modules/@junghanacs/entwurf)
-    ASM="${XDG_DATA_HOME:-$HOME/.local/share}/entwurf/meta-bridge/.assembled"
-    LIB_EXT="js" ;;
-  *)
-    ASM="$REPO/pi/meta-bridge/.assembled"
-    LIB_EXT="ts" ;;
+  */node_modules/@junghanacs/entwurf) LIB_EXT="js" ;;
+  *)                                  LIB_EXT="ts" ;;
 esac
 # shellcheck source=scripts/meta-bridge-hook-log.sh
 source "$REPO/scripts/meta-bridge-hook-log.sh"

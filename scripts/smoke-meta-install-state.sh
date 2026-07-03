@@ -22,22 +22,58 @@ TMP="$(mktemp -d -t psa-meta-install-state.XXXXXX)"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
-# ⓪ 설치 경계 회귀 게이트: 이 smoke는 아래에서 dev wrapper-uninstall을 돌리므로,
-# 실제 체크아웃의 live marketplace source(pi/meta-bridge/.assembled)를 절대 만지지
-# 않았음을 스스로 증명한다. 시작/종료 fingerprint가 다르면 봉쇄가 뚫린 것이다
-# (2026-07-03 `?` 사건 = "검증이 실제 개발자 배선을 파괴한 impurity bug"의 정확한
-# 재발 방지선). .assembled 부재 상태에선 ABSENT로 약하게, setup 복구 후부터
-# 내용까지 byte 단위로 잡는다.
-REAL_ASM="$REPO/pi/meta-bridge/.assembled"
+# ⓪ 설치 경계 봉쇄 (2026-07-03 `?` 사건의 구조적 소멸): source origin(repo/npm)과
+# live artifact(XDG)를 분리한다. dev clone과 installed 소비자는 같은 user-scope
+# install이고, 둘 다 marketplace source를 XDG data dir에 조립한다 — 절대 checkout
+# 내부가 아니다. 이 smoke의 어떤 단계도 repo 안에 live source를 만들지 않음을
+# top/bottom fingerprint로 감싸 증명하고, 아래 fake-install로 "install → XDG"를 직접 건다.
+# present/absent만 보면 present→present 덮어쓰기를 놓치므로 내용 해시까지 비교한다.
 asm_fingerprint() {
-  if [ -e "$REAL_ASM" ]; then (cd "$REAL_ASM" && find . -type f -exec sha256sum {} + 2>/dev/null | sort); else echo ABSENT; fi
+  if [ -e "$REPO/pi/meta-bridge/.assembled" ]; then (cd "$REPO/pi/meta-bridge/.assembled" && find . -type f -exec sha256sum {} + 2>/dev/null | sort); else echo ABSENT; fi
 }
-FP_START="$(asm_fingerprint)"
+REPO_ASM_FP_START="$(asm_fingerprint)"
+
+# 실제 meta-bridge-install.sh를 격리된 HOME + XDG_DATA_HOME + fake claude로 돌려
+# live marketplace source가 XDG 아래에 조립되고 `plugin marketplace add`가 그 XDG
+# 경로를 받는지 직접 증명한다(오프라인: 실제 claude 없음).
+INS_HOME="$TMP/ins-home"; INS_XDG="$TMP/ins-xdg"; INS_BIN="$TMP/ins-bin"
+mkdir -p "$INS_HOME/.claude" "$INS_BIN"
+echo '{}' > "$INS_HOME/.claude/settings.json"
+echo '{}' > "$INS_HOME/.claude.json"
+INS_LOG="$TMP/ins-claude.log"
+cat > "$INS_BIN/claude" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_CLAUDE_LOG"
+case "$1${2:+ $2}" in
+  "plugin list") printf '%s\n' "entwurf-meta-receive@meta-bridge-local" "  Status: enabled" ;;
+  "mcp get")     printf '%s\n' "Scope: User config" "Status: Connected" ;;
+  *) : ;;
+esac
+exit 0
+SH
+chmod +x "$INS_BIN/claude"
+if env HOME="$INS_HOME" CLAUDE_CONFIG_DIR="$INS_HOME/.claude" XDG_DATA_HOME="$INS_XDG" \
+       FAKE_CLAUDE_LOG="$INS_LOG" PATH="$INS_BIN:$PATH" \
+       bash "$REPO/scripts/meta-bridge-install.sh" >/dev/null 2>&1; then
+  if [ -e "$INS_XDG/entwurf/meta-bridge/.assembled/entwurf-meta-receive" ]; then ok "dev install assembles the live marketplace source under XDG (not the checkout)"; else bad "dev install did not assemble under XDG_DATA_HOME"; fi
+  MKT_ADD="$(grep '^plugin marketplace add ' "$INS_LOG" | head -1 || true)"
+  if printf '%s' "$MKT_ADD" | grep -Fq "$INS_XDG/entwurf/meta-bridge/.assembled"; then ok "claude plugin marketplace add received the XDG artifact path"; else bad "marketplace add did not point at XDG: $MKT_ADD"; fi
+else
+  bad "real install-meta-bridge failed under isolated HOME/XDG/fake-claude:"$'\n'"$(cat "$INS_LOG" 2>/dev/null)"
+fi
 
 export HOME="$TMP/home"
+# The wrapper-uninstall below removes ${XDG_DATA_HOME:-$HOME/.local/share}/entwurf/
+# meta-bridge. Pin XDG_DATA_HOME into the sandbox too, so a developer who runs this
+# smoke with XDG_DATA_HOME set in their shell can never have their real live
+# artifact removed — the boundary that keeps check/smoke off global user wiring.
+export XDG_DATA_HOME="$TMP/xdg"
 export CLAUDE_CONFIG_DIR="$HOME/.claude"
 mkdir -p "$CLAUDE_CONFIG_DIR"
-ASM="$TMP/assembled-marketplace"
+# Canonical-suffix asm: production install ALWAYS records a path ending in
+# …/entwurf/meta-bridge/.assembled, and state.py check now shape-validates that
+# suffix — so the survival harness must use a realistic path, not a bare stub.
+ASM="$TMP/asm-xdg/entwurf/meta-bridge/.assembled"
 export ASM
 mkdir -p "$ASM"
 
@@ -225,20 +261,10 @@ then ok "uninstall restores scalars/maps and removes only managed array addition
 
 if py uninstall >/dev/null 2>&1; then bad "state manager uninstall without state should not guess"; else ok "state manager uninstall without state fails instead of guessing"; fi
 
-# ⓪ 봉쇄: wrapper-uninstall은 실제 $REPO가 아니라 사본 repo에서 실행한다.
-# meta-bridge-uninstall.sh는 REPO를 자기 위치(HERE/..)에서 재계산하고 dev-clone
-# 분기에서 rm -rf "$REPO/pi/meta-bridge/.assembled"를 돈다 — 실제 $REPO의 wrapper를
-# 직접 실행하면 이 smoke가 live marketplace source를 삭제한다(2026-07-03 `?`). 사본
-# repo에서 돌리면 그 rm이 사본의 sentinel .assembled만 지운다. state.py는 순수
-# stdlib(sibling 스크립트 import 없음)라 두 파일 복사로 충분하다.
-TMPREPO="$TMP/repo"
-mkdir -p "$TMPREPO/scripts" "$TMPREPO/pi/meta-bridge/.assembled"
-cp "$REPO/scripts/meta-bridge-uninstall.sh" "$REPO/scripts/meta-bridge-state.py" "$TMPREPO/scripts/"
-: > "$TMPREPO/pi/meta-bridge/.assembled/.sentinel"
-pyt() { python3 "$STATE" "$@" --repo "$TMPREPO" --asm "$ASM"; }
-
-# The wrapper must ALSO refuse before side effects. A fake claude records whether
-# plugin/MCP removals were attempted; no state means the log must stay empty.
+# ⓪ 봉쇄: wrapper-uninstall을 실제 $REPO 스크립트로 직접 돌린다. 이제 uninstall이
+# 지우는 live artifact는 ${XDG_DATA_HOME}/entwurf/meta-bridge 하나뿐이고, 위에서
+# HOME + XDG_DATA_HOME를 샌드박스로 고정했으므로 실제 개발자 배선/체크아웃에는
+# 닿을 수 없다(2026-07-03 `?` 사건의 구조적 소멸 — 사본 repo 우회가 더는 불필요).
 FAKE_BIN="$TMP/fake-bin"; mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/claude" <<'SH'
 #!/usr/bin/env bash
@@ -246,30 +272,121 @@ printf '%s\n' "$*" >> "$FAKE_CLAUDE_LOG"
 exit 0
 SH
 chmod +x "$FAKE_BIN/claude"
+
+# The wrapper must refuse before side effects. A fake claude records whether
+# plugin/MCP removals were attempted; no state means the log must stay empty.
 FAKE_CLAUDE_LOG="$TMP/fake-claude-nostate.log"
-if PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$FAKE_CLAUDE_LOG" bash "$TMPREPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
+if PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$FAKE_CLAUDE_LOG" bash "$REPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
   bad "wrapper uninstall without state should fail"
 else
   if [ ! -s "$FAKE_CLAUDE_LOG" ]; then ok "wrapper uninstall without state has zero Claude side effects"; else bad "wrapper uninstall without state touched Claude: $(cat "$FAKE_CLAUDE_LOG")"; fi
 fi
 
-# With valid state, the wrapper may remove Claude registrations and then restore
-# JSON state. This proves the preflight gate is ordered before side effects.
-pyt prepare >/dev/null
-pyt apply >/dev/null
+# With valid state, the wrapper removes Claude registrations, restores JSON state,
+# AND removes the XDG live artifact RECORDED in state — never the checkout, never a
+# path recomputed from the env. Record an XDG-structured assembled path and seed the
+# sentinel artifact so we can prove uninstall drops exactly the recorded tree.
+WASM="$XDG_DATA_HOME/entwurf/meta-bridge/.assembled"
+python3 "$STATE" prepare --repo "$REPO" --asm "$WASM" >/dev/null
+python3 "$STATE" apply   --repo "$REPO" --asm "$WASM" >/dev/null
+mkdir -p "$WASM"; : > "$WASM/.sentinel"
 FAKE_CLAUDE_LOG="$TMP/fake-claude-state.log"
-if PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$FAKE_CLAUDE_LOG" bash "$TMPREPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
+if PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$FAKE_CLAUDE_LOG" bash "$REPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
   if grep -q 'plugin uninstall entwurf-meta-receive@meta-bridge-local' "$FAKE_CLAUDE_LOG" && grep -q 'mcp remove entwurf-bridge -s user' "$FAKE_CLAUDE_LOG" && [ ! -f "$STATE_FILE" ]; then
     ok "wrapper uninstall with valid state removes Claude registrations and restores state"
   else
     bad "wrapper uninstall with state missed expected side effects/state removal"
   fi
-  # 봉쇄가 회피가 아니라 격리임을 증명: dev-clone rm 경로는 실제로 탔고, 사본의
-  # sentinel .assembled가 지워졌다(실제 $REPO였다면 이게 파괴였다).
-  if [ ! -e "$TMPREPO/pi/meta-bridge/.assembled" ]; then ok "wrapper dev-clone rm hit the sandbox copy .assembled, not the real checkout"; else bad "wrapper did not drop the copy .assembled — dev-clone rm path not exercised"; fi
+  # 봉쇄가 회피가 아니라 구조임을 증명: uninstall이 지우는 건 recorded XDG artifact뿐.
+  if [ ! -e "$XDG_DATA_HOME/entwurf/meta-bridge" ]; then ok "wrapper removes the recorded XDG live artifact tree, not the checkout"; else bad "wrapper did not remove the recorded XDG live artifact"; fi
 else
   bad "wrapper uninstall with valid state failed"
 fi
+
+# Honest inverse under a CHANGED XDG_DATA_HOME (GPT hardening): uninstall must remove
+# the RECORDED artifact path, never one recomputed from the current env. Record A,
+# run uninstall with the env pointing at B, and prove A is gone while B is untouched.
+XDGA="$TMP/xdgA"; XDGB="$TMP/xdgB"
+ASM_A="$XDGA/entwurf/meta-bridge/.assembled"
+python3 "$STATE" prepare --repo "$REPO" --asm "$ASM_A" >/dev/null
+python3 "$STATE" apply   --repo "$REPO" --asm "$ASM_A" >/dev/null
+mkdir -p "$ASM_A"; : > "$ASM_A/.sentinel"
+mkdir -p "$XDGB/entwurf/meta-bridge/.assembled"; : > "$XDGB/entwurf/meta-bridge/.assembled/.sentinel"
+if XDG_DATA_HOME="$XDGB" PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$TMP/fake-claude-mismatch.log" bash "$REPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
+  if [ ! -e "$XDGA/entwurf/meta-bridge" ]; then ok "uninstall removes the RECORDED artifact (XDG A) even when env XDG_DATA_HOME differs"; else bad "uninstall did not remove the recorded artifact A — recomputed from env instead"; fi
+  if [ -e "$XDGB/entwurf/meta-bridge/.assembled/.sentinel" ]; then ok "uninstall leaves the current-env XDG (B) untouched (no env recompute)"; else bad "uninstall wrongly removed the current-env XDG B"; fi
+else
+  bad "wrapper uninstall (recorded-path mismatch case) failed"
+fi
+
+# GPT hardening: a corrupt recorded assembledMarketplacePath must fail the wrapper
+# uninstall LOUD and BEFORE any side effect — no Claude removal, state file intact
+# (honest inverse never guesses / never partially uninstalls / never WARN-then-DONE).
+# Two corrupt shapes: a trivially-bad "/" AND the basename-corrupt case that a
+# PARENT-ONLY guard would silently pass (…/entwurf/meta-bridge/not-assembled) — the
+# rm targets the parent meta-bridge dir, so that shape must be refused by the FULL
+# suffix guard or it nukes the real artifact + Claude registrations (2026-07-03).
+for CORRUPT in "/" "$XDG_DATA_HOME/entwurf/meta-bridge/not-assembled"; do
+  python3 "$STATE" prepare --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+  python3 "$STATE" apply   --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+  # seed the real artifact so an over-broad rm would be observable as its removal
+  mkdir -p "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled"; : > "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled/.sentinel"
+  CORRUPT="$CORRUPT" python3 - <<'PY'
+import json, os
+p = os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'
+s = json.load(open(p)); s['assembledMarketplacePath'] = os.environ['CORRUPT']
+json.dump(s, open(p, 'w'), indent=2)
+PY
+  FAKE_CLAUDE_LOG="$TMP/fake-claude-corrupt.log"; : > "$FAKE_CLAUDE_LOG"
+  if PATH="$FAKE_BIN:$PATH" FAKE_CLAUDE_LOG="$FAKE_CLAUDE_LOG" bash "$REPO/scripts/meta-bridge-uninstall.sh" >/dev/null 2>&1; then
+    bad "wrapper uninstall with corrupt recorded path '$CORRUPT' should fail loud"
+  elif [ -s "$FAKE_CLAUDE_LOG" ] || [ ! -f "$STATE_FILE" ] || [ ! -e "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled/.sentinel" ]; then
+    bad "corrupt-path uninstall '$CORRUPT' leaked side effects/removed artifact: claude_log=[$(cat "$FAKE_CLAUDE_LOG")] state_exists=$([ -f "$STATE_FILE" ] && echo yes || echo no) artifact=$([ -e "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled/.sentinel" ] && echo intact || echo REMOVED)"
+  else
+    ok "corrupt recorded path '$CORRUPT' → uninstall fails BEFORE side effects (no Claude removal, state + artifact intact)"
+  fi
+  rm -f "$STATE_FILE"; rm -rf "$XDG_DATA_HOME/entwurf/meta-bridge"
+done
+
+# GPT hardening: state.py check must compare the RECORDED marketplace path, not the
+# --asm handed in. Install/apply with A, then check with a DIFFERENT --asm B: it must
+# still PASS (Claude settings + state both hold A; only the caller's XDG differs).
+CKA="$TMP/ck-xdgA/entwurf/meta-bridge/.assembled"
+CKB="$TMP/ck-xdgB/entwurf/meta-bridge/.assembled"
+python3 "$STATE" prepare --repo "$REPO" --asm "$CKA" >/dev/null
+python3 "$STATE" apply   --repo "$REPO" --asm "$CKA" >/dev/null
+if python3 "$STATE" check --repo "$REPO" --asm "$CKB" >/dev/null 2>&1; then ok "state.py check passes when --asm differs from the recorded path (compares recorded, no XDG false-fail)"; else bad "state.py check false-FAILed on a recorded≠--asm mismatch"; fi
+rm -f "$STATE_FILE"
+
+# GPT hardening: check must shape-validate the recorded path, not just compare it to
+# settings. Corrupt BOTH state + settings to the same basename-bad value: a pure
+# consistency compare would PASS (both agree) and greenlight a bogus marketplace
+# source. The suffix guard must FAIL it instead.
+python3 "$STATE" prepare --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+python3 "$STATE" apply   --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+python3 - <<'PY'
+import json, os
+xdg = os.environ['XDG_DATA_HOME']; corrupt = xdg + '/entwurf/meta-bridge/not-assembled'
+sp = os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'
+s = json.load(open(sp)); s['assembledMarketplacePath'] = corrupt; json.dump(s, open(sp, 'w'), indent=2)
+cp = os.environ['CLAUDE_CONFIG_DIR'] + '/settings.json'
+c = json.load(open(cp)); c['extraKnownMarketplaces']['meta-bridge-local'] = {'source': {'source': 'directory', 'path': corrupt}}; json.dump(c, open(cp, 'w'), indent=2)
+PY
+if python3 "$STATE" check --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null 2>&1; then bad "state.py check greenlit a both-corrupt (state+settings) malformed marketplace path"; else ok "state.py check fails a malformed recorded path even when settings agree (shape guard, not just consistency)"; fi
+rm -f "$STATE_FILE"
+
+# GPT hardening: a MISSING/empty recorded path is corruption too — every state our
+# code writes carries the field, so check must NOT fall back to --asm and PASS.
+# Delete the field with settings still valid; the shape guard must FAIL, not greenlight.
+python3 "$STATE" prepare --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+python3 "$STATE" apply   --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null
+python3 - <<'PY'
+import json, os
+sp = os.environ['CLAUDE_CONFIG_DIR'] + '/entwurf.install-state.json'
+s = json.load(open(sp)); s.pop('assembledMarketplacePath', None); json.dump(s, open(sp, 'w'), indent=2)
+PY
+if python3 "$STATE" check --repo "$REPO" --asm "$XDG_DATA_HOME/entwurf/meta-bridge/.assembled" >/dev/null 2>&1; then bad "state.py check PASSed with a MISSING recorded assembledMarketplacePath (fell back to --asm)"; else ok "state.py check fails a missing/empty recorded path (no --asm fallback greenlight)"; fi
+rm -f "$STATE_FILE"
 
 # Doctor hook-log recovery predicate: only a later `INFO armed watch` clears an
 # ERROR. A UserPromptSubmit `INFO attach record` is degraded backfill, not wake
@@ -392,7 +509,7 @@ if node --experimental-strip-types "$STORE_DOCTOR" "$STORE" >/dev/null 2>&1; the
 # chain to its final summary line — i.e. no early set -e death anywhere.
 DOC_HOME="$TMP/doctor-home"; DOC_CFG="$DOC_HOME/.claude"
 DOC_AGENT="$TMP/doctor-agent"; DOC_STORE="$DOC_AGENT/meta-sessions"
-DOC_BIN="$TMP/doctor-bin"; DOC_ASM="$REPO/pi/meta-bridge/.assembled"  # SAME asm the doctor's check uses, so only the MCP drifts
+DOC_BIN="$TMP/doctor-bin"; DOC_ASM="$XDG_DATA_HOME/entwurf/meta-bridge/.assembled"  # SAME asm the doctor computes (XDG), so only the MCP drifts
 mkdir -p "$DOC_CFG" "$DOC_STORE" "$DOC_BIN"
 echo '{}' > "$DOC_CFG/settings.json"
 echo '{}' > "$DOC_HOME/.claude.json"
@@ -432,10 +549,11 @@ if printf '%s\n' "$DOC_OUT" | grep -q 'user MCP entwurf-bridge'; then ok "doctor
 if printf '%s\n' "$DOC_OUT" | grep -q '\[plugin install'; then ok "doctor continues to a later section after the drift (no early set -e death)"; else bad "doctor did not reach a later section header after the drift:"$'\n'"$DOC_OUT"; fi
 if printf '%s\n' "$DOC_OUT" | grep -q 'meta-bridge doctor: FAIL'; then ok "doctor runs the whole chain to its final summary line"; else bad "doctor did not reach its final summary line (mid-run death):"$'\n'"$DOC_OUT"; fi
 
-# ⓪ 회귀 게이트 종료 단언: check가 실제 개발자 배선(.assembled)을 만졌으면 여기서
-# 잡는다 — "check는 live developer wiring을 절대 만지지 않는다"를 check 스스로 증명.
-FP_END="$(asm_fingerprint)"
-if [ "$FP_START" = "$FP_END" ]; then ok "real checkout .assembled is byte-identical before/after (check never touched live wiring)"; else bad "real checkout .assembled CHANGED during check — sandbox escaped: was [$FP_START] now [$FP_END]"; fi
+# ⓪ 경계 종료 단언: 이 smoke 전체(install 조립 + state + wrapper-uninstall + doctor)가
+# 끝난 뒤에도 checkout 안에는 live marketplace source가 생기지 않았다 — source
+# origin(repo)과 live artifact(XDG)가 구조적으로 분리됐다는 최종 증명. 미래 회귀가
+# repo 내부 ASM을 되살리거나 덮어쓰면(내용 해시 변화 포함) 여기서 잡힌다.
+if [ "$(asm_fingerprint)" = "$REPO_ASM_FP_START" ]; then ok "checkout-internal marketplace source is byte-identical before/after — no op created or mutated \$REPO/.assembled (source origin ≠ live artifact)"; else bad "a meta-bridge operation created/mutated \$REPO/pi/meta-bridge/.assembled — repo boundary breached"; fi
 
 echo
 if [ "$fail" -eq 0 ]; then echo "smoke-meta-install-state: PASS"; else echo "smoke-meta-install-state: FAIL (see above)"; exit 1; fi

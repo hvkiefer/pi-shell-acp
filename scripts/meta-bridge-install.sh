@@ -4,7 +4,8 @@
 # needs, so a user never hand-edits hook/plugin settings or passes --plugin-dir.
 #
 # Mechanism (all proven on 2026-06-05):
-#   1. ASSEMBLE a self-contained plugin under pi/meta-bridge/.assembled/ (gitignored):
+#   1. ASSEMBLE a self-contained plugin under the version-stable XDG data dir
+#      ($XDG_DATA_HOME/entwurf/meta-bridge/.assembled) — NEVER inside the checkout:
 #      copy the committed skeleton, copy the entry shell + its lib (so
 #      ${CLAUDE_PLUGIN_ROOT} self-locates them), and BAKE the node abspath into
 #      hooks.json. The node path is the ONLY templated surface — the mailbox /
@@ -13,9 +14,10 @@
 #      entwurf_inbox_read tool comes from USER-scope entwurf-bridge MCP wiring
 #      (`claude mcp add -s user ...`). Project-scoped .mcp.json is deliberately
 #      not enough: a /tmp native session would wake without a receipt tool.
-#   2. marketplace add <stable .assembled>  (dev: repo-local; installed package:
-#      version-stable XDG data dir; NOT /tmp — ephemeral source would break
-#      `claude plugin marketplace update`).
+#   2. marketplace add <stable XDG .assembled>  (both dev clone and installed
+#      package assemble into the same version-stable XDG data dir; NOT /tmp —
+#      ephemeral source would break `claude plugin marketplace update`, and NOT
+#      the checkout — repo housekeeping must never cut the live user-scope wiring).
 #   3. install entwurf-meta-receive@meta-bridge-local --scope user  (= global:
 #      every native session auto-loads it; no manual --plugin-dir).
 #   4. install/update USER-scope entwurf-bridge MCP, so every native session has
@@ -31,26 +33,27 @@ REPO="$(cd "$HERE/.." && pwd)"
 MKT_NAME="meta-bridge-local"
 PLUGIN="entwurf-meta-receive"
 SRC="$REPO/pi/meta-bridge"
-# Dev clone: keep the marketplace source inside the checkout for transparent
-# inspection. Installed package: assemble into a version-stable operator path;
-# Claude settings store this directory path and package-manager upgrades do not
-# rewrite it, so a pnpm-store path would go stale on version/peer churn.
-#
-# The SAME installed-vs-dev split also picks the hook artifact (0.12.5): an
-# installed marketplace source lives below node_modules, where Node REFUSES
-# `--experimental-strip-types` on `.ts` (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING),
-# so installed packages run the tsc-emitted `meta-bridge-hook.js` closure (mirrors
-# start.sh/store-doctor). Dev clones live outside node_modules and run the `.ts`
-# source directly for transparent editing. HOOK_ENTRY is baked into hooks.json.
+# The live marketplace artifact ALWAYS assembles under the version-stable XDG data
+# dir — dev clone and installed package alike. Claude settings store this directory
+# path and package-manager upgrades do not rewrite it (a pnpm-store path would go
+# stale on version/peer churn). Critically it lives OUTSIDE the checkout, so repo
+# housekeeping (git clean -xfd, check/smoke) can never cut the global user-scope
+# wiring: dev vs installed is a difference of SOURCE ORIGIN (repo tree vs npm
+# package we assemble FROM), never of where the live artifact lands.
+ASM="${XDG_DATA_HOME:-$HOME/.local/share}/entwurf/meta-bridge/.assembled"
+# The hook ARTIFACT form still splits by install shape (0.12.5): an installed
+# package lives below node_modules, where Node REFUSES `--experimental-strip-types`
+# on `.ts` (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING), so it runs the tsc-emitted
+# `meta-bridge-hook.js` closure (mirrors start.sh/store-doctor). A dev clone lives
+# outside node_modules — and so does the XDG artifact — so it runs the `.ts` source
+# directly. HOOK_ENTRY is baked into hooks.json.
 case "$REPO" in
   */node_modules/@junghanacs/entwurf)
-    ASM="${XDG_DATA_HOME:-$HOME/.local/share}/entwurf/meta-bridge/.assembled"
     HOOK_ENTRY="meta-bridge-hook.js"
     HOOK_SRC="$REPO/mcp/entwurf-bridge/dist/pi-extensions/meta-bridge-hook.js"
     LIB_SRC="$REPO/mcp/entwurf-bridge/dist/pi-extensions/lib/meta-session.js"
     LIB_EXT="js" ;;
   *)
-    ASM="$SRC/.assembled"
     HOOK_ENTRY="meta-bridge-hook.ts"
     HOOK_SRC="$REPO/pi-extensions/meta-bridge-hook.ts"
     LIB_SRC="$REPO/pi-extensions/lib/meta-session.ts"
