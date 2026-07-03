@@ -60,7 +60,9 @@
 		"VERIFY.md",
 		"DELIVERY.md",
 		"CONTRIBUTING.md",
-		"CHANGELOG.md"
+		"CHANGELOG.md",
+		"!**/__pycache__",
+		"!**/*.pyc"
 	],
 	"engines": {
 		"node": ">=22.6.0"
@@ -90,7 +92,7 @@
 	"scripts": {
 		"prepare": "husky 2>/dev/null || true; npm run --silent build-bridge",
 		"postinstall": "node scripts/postinstall-chmod.cjs",
-		"build-bridge": "rm -rf mcp/entwurf-bridge/dist && tsc -p mcp/entwurf-bridge/tsconfig.build.json",
+		"build-bridge": "bash scripts/with-dist-lock.sh bash scripts/build-bridge.sh",
 		"prepack": "pnpm --silent run build-bridge",
 		"prepublishOnly": "pnpm run check && pnpm run check-pack-install",
 		"setup": "./run.sh setup",

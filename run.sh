@@ -109,7 +109,8 @@ Usage:
   ./run.sh sync-auth                  # copy ~/.pi/agent/auth.json anthropic OAuth credentials to entwurf alias
   ./run.sh install [project-dir]      # INTERNAL part of `setup` (project .pi/settings.json wiring) + npm-consumer entry — prefer `setup`, don't call directly for dev
   ./run.sh setup:links [--force]      # repair ~/.pi/agent/entwurf-targets.json link (use --force to replace a stale operator file or wrong symlink; a .bak is taken)
-  ./run.sh remove [project-dir]       # remove entwurf entries from project .pi/settings.json
+  ./run.sh remove [project-dir]       # remove entwurf entries from project .pi/settings.json (project scope only; global user-scope citizen left intact)
+  ./run.sh remove-user-scope          # explicit GLOBAL inverse of install's user-scope citizen: drop entwurf from ~/.pi/agent/settings.json packages[] (affects ALL cwds — shared entry, not per-project)
 
 Notes:
   - project-dir defaults to current directory
@@ -395,6 +396,21 @@ register_user_scope_citizen() {
   python3 "$REPO_DIR/scripts/register-pi-package.py" "$agent_dir/settings.json" "$REPO_DIR"
 }
 
+# The honest inverse of register_user_scope_citizen: drop entwurf from the GLOBAL
+# ~/.pi/agent/settings.json packages[]. Deliberately NOT folded into `run.sh remove`
+# (project scope): the user-scope citizen is a single GLOBAL entry keyed on this
+# checkout and SHARED by every project + every foreign cwd, so tearing it down as a
+# side effect of one project's remove would break `--entwurf-control` everywhere else
+# (the exact "install → just works from any cwd" invariant register_user_scope_citizen
+# exists to hold). Same explicit-global-lifecycle shape as install/uninstall-meta-bridge.
+# Uses the same is_entwurf_source SSOT + --remove, so it never over-deletes a look-alike
+# (entwurf-notes, openclaw-entwurf) and preserves every other package/key. Idempotent:
+# no entwurf entry → no-op.
+remove_user_scope_citizen() {
+  local agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+  python3 "$REPO_DIR/scripts/register-pi-package.py" "$agent_dir/settings.json" "$REPO_DIR" --remove
+}
+
 # Ensure agent-level resources that entwurf code reads from
 # ~/.pi/agent/ are wired up at install time. Currently:
 #   - entwurf-targets.json — pi-extensions/lib/entwurf-core.ts reads
@@ -537,6 +553,16 @@ if isinstance(provider, dict):
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"remove: removed {mcp_removed} mcpServers entries from {settings_path}")
 PY
+  # `remove` is project-scope only. The GLOBAL user-scope citizen in
+  # ~/.pi/agent/settings.json (written by install's register_user_scope_citizen)
+  # is shared across every project + foreign cwd, so it is left intact here to
+  # avoid breaking `--entwurf-control` elsewhere. Point the operator at the
+  # explicit global inverse so the install↔remove asymmetry is never silent.
+  local agent_settings="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/settings.json"
+  if python3 "$REPO_DIR/scripts/register-pi-package.py" "$agent_settings" "$REPO_DIR" --remove --dry-run 2>/dev/null | grep -q 'would remove'; then
+    log "note: global user-scope citizen still registered in $agent_settings"
+    log "      run './run.sh remove-user-scope' to remove it (affects ALL cwds)"
+  fi
 }
 
 check_model_lock() {
@@ -1808,7 +1834,11 @@ check_pack() {
   # npm's own lifecycle banner stay off stdout; otherwise they pollute the --json
   # payload this parses. prepack runs on dry-run too, which is how dist lands in
   # this gate's file list.
-  json=$(cd "$REPO_DIR" && npm pack --dry-run --json --silent 2>/dev/null) || {
+  # with-dist-lock wraps the WHOLE pack (prepack build-bridge emit + npm's
+  # post-build dist read) so a concurrent pack/build can't `rm -rf dist` mid-read
+  # (the 2026-07-03 phantom "dist missing" race). The nested prepack build-bridge
+  # is reentrant via ENTWURF_BUILD_LOCK_HELD.
+  json=$(cd "$REPO_DIR" && bash scripts/with-dist-lock.sh npm pack --dry-run --json --silent 2>/dev/null) || {
     fail "[check-pack] npm pack --dry-run failed"
     return 1
   }
@@ -1904,6 +1934,13 @@ check_pack() {
     '\.tmp-verify/'
     '\.agent-(reports|shell)/'
     'pi/meta-bridge/\.assembled/'
+    # Python bytecode residue — `scripts/` ships whole via the files allowlist,
+    # which BYPASSES .gitignore/.npmignore for its contents, so a `pnpm check`
+    # run's generated scripts/__pycache__/*.pyc rode into the 0.12.6 tarball. The
+    # files-array `!**/__pycache__` / `!**/*.pyc` negations exclude it; this is the
+    # tripwire that fails loud if that negation is ever dropped (결합 규칙).
+    '__pycache__'
+    '\.pyc$'
   )
 
   local pass=1 f pat hit
@@ -1965,8 +2002,15 @@ check_pack_install() {
   # that lands as `junghanacs-entwurf-<version>.tgz`. Hardcoded against
   # the scope above so a name change cannot silently slide past this gate.
   tgz_name="junghanacs-entwurf-${version}.tgz"
-  tgz_path="${REPO_DIR}/${tgz_name}"
-  rm -f "$tgz_path"
+  # Pack into a UNIQUE per-run dir, never the repo root. Writing/removing a fixed
+  # ${REPO_DIR}/<tgz> pollutes the working tree (a crash leaves a stray tarball) AND
+  # lets two concurrent packs corrupt/delete each other's artifact ("tarball data
+  # seems corrupted" / ENOENT; a half-installed package then fails the later
+  # install-meta-bridge check downstream). A per-run pack dir makes the tarball
+  # instance-private end-to-end — every consumer below + the trap follow $pack_tmp.
+  local pack_tmp
+  pack_tmp=$(mktemp -d -t entwurf-pack.XXXXXX)
+  tgz_path="${pack_tmp}/${tgz_name}"
 
   # 0.12.1 C — stale-dist guard. `tsc` emit does NOT prune orphaned files from
   # outDir, and `files: ["mcp/"]` would carry any leftover dist file into the
@@ -1978,7 +2022,11 @@ check_pack_install() {
   printf 'module.exports = "stale";\n' > "$stale_probe"
 
   echo "[check-pack-install] npm pack -> ${tgz_name}"
-  (cd "$REPO_DIR" && npm pack --dry-run=false 2>&1 | tail -1) || {
+  # with-dist-lock: same whole-pack serialization as check-pack — this heavy gate
+  # and a background check-pack (via `pnpm check`) both pack, and unserialized they
+  # race the shared dist dir. The stale-dist sentinel planted just above still
+  # proves build-bridge's own `rm -rf dist` clean step under the lock.
+  (cd "$REPO_DIR" && bash scripts/with-dist-lock.sh npm pack --dry-run=false --pack-destination "$pack_tmp" 2>&1 | tail -1) || {
     fail "[check-pack-install] npm pack failed"
     return 1
   }
@@ -1999,7 +2047,7 @@ check_pack_install() {
   # If it did, build-bridge's `rm -rf dist` clean step regressed and stale/orphan
   # emit can ship. (See the plant just before npm pack above.)
   if grep -qxF "mcp/entwurf-bridge/dist/__stale_probe__.js" <<<"$tar_files"; then
-    rm -f "$tgz_path"
+    rm -rf "$pack_tmp"
     fail "[check-pack-install] stale dist file shipped — build-bridge did not clean dist before emit (orphan-emit publish risk)"
     return 1
   fi
@@ -2056,6 +2104,10 @@ check_pack_install() {
     '^plugins/' '^node_modules/'
     '\.tmp-verify/' '\.agent-(reports|shell)/'
     'pi/meta-bridge/\.assembled/'
+    # Python bytecode residue (see check-pack forbidden note): scripts/ ships
+    # whole, so generated pyc bypasses ignore files — this cross-checks the actual
+    # tarball, not just the dry-run resolver.
+    '__pycache__' '\.pyc$'
   )
   for pat in "${tar_forbidden[@]}"; do
     local hit
@@ -2068,7 +2120,7 @@ check_pack_install() {
   done
 
   if [ "$pass" != "1" ]; then
-    rm -f "$tgz_path"
+    rm -rf "$pack_tmp"
     fail "[check-pack-install] tar -tf invariants violated"
     return 1
   fi
@@ -2087,7 +2139,7 @@ check_pack_install() {
   # nested under $tmp, whose pnpm-add node_modules/package.json would make npm
   # climb the parent and choke ("Cannot read properties of null").
   npm_tmp=$(mktemp -d -t entwurf-npm-managed.XXXXXX)
-  trap 'rm -rf "$tmp" "$npm_tmp" "$tgz_path"' RETURN
+  trap 'rm -rf "$tmp" "$npm_tmp" "$pack_tmp"' RETURN
 
   printf '%s\n' '{ "name": "entwurf-install-smoke", "version": "0.0.0", "private": true }' > "$tmp/package.json"
 
@@ -3317,6 +3369,9 @@ case "$cmd" in
     ;;
   remove)
     remove_local_package "$TARGET_PROJECT_DIR"
+    ;;
+  remove-user-scope)
+    remove_user_scope_citizen
     ;;
   -h|--help|help|"")
     usage

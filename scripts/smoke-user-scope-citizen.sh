@@ -125,5 +125,52 @@ assert '../../repos/gh/andenken' in p, 'andenken over-removed'
 assert '/home/me/entwurf-notes' in p, 'entwurf-notes over-removed (substring over-delete)'
 " 2>/dev/null; then ok "--remove drops entwurf, preserves unrelated + look-alikes (symmetric with install)"; else bad "--remove over-deleted a look-alike or missed entwurf"; fi
 
+# 9. --dry-run remove REPORTS the count and writes NOTHING (backs run.sh's project
+#    `remove` pointer note that suggests the global inverse only when relevant).
+cat > "$S" <<JSON
+{"packages": ["$RESOLVED", "../../repos/gh/andenken"]}
+JSON
+MT_DR="$(stat -c %Y "$S")"; sleep 1
+OUT_DR="$(python3 "$REG" "$S" "$FAKE_REPO" --remove --dry-run)"
+MT_DR2="$(stat -c %Y "$S")"
+if printf '%s' "$OUT_DR" | grep -q 'would remove 1'; then ok "--dry-run reports 'would remove' count"; else bad "--dry-run did not report the would-remove count: $OUT_DR"; fi
+if [ "$MT_DR" = "$MT_DR2" ] && has_pkg "$RESOLVED"; then ok "--dry-run writes nothing (entry intact, mtime stable)"; else bad "--dry-run mutated settings (mtime $MT_DR -> $MT_DR2)"; fi
+OUT_DR_NONE="$(python3 "$REG" "$TMP/absent.json" "$FAKE_REPO" --remove --dry-run)"
+if printf '%s' "$OUT_DR_NONE" | grep -q 'no entwurf'; then ok "--dry-run on an entwurf-free file reports nothing to remove"; else bad "--dry-run false-positive on absent entry: $OUT_DR_NONE"; fi
+
+# 9b. --dry-run WITHOUT --remove must FAIL LOUD and write nothing. A flag named
+#     "dry-run" that falls through to the register write path and mutates settings
+#     is an install-hygiene footgun (GPT blocker, 2026-07-03).
+cat > "$S" <<'JSON'
+{"packages": ["../../repos/gh/andenken"]}
+JSON
+MT_DRR="$(stat -c %Y "$S")"; sleep 1
+if python3 "$REG" "$S" "$FAKE_REPO" --dry-run >/dev/null 2>&1; then bad "--dry-run without --remove should fail loud, not register"; else ok "--dry-run without --remove fails loud (never a silent write)"; fi
+MT_DRR2="$(stat -c %Y "$S")"
+if [ "$MT_DRR" = "$MT_DRR2" ] && ! has_pkg "$RESOLVED"; then ok "--dry-run without --remove wrote nothing (mtime stable, no entwurf entry added)"; else bad "--dry-run without --remove mutated settings (mtime $MT_DRR -> $MT_DRR2)"; fi
+if python3 "$REG" "$S" "$FAKE_REPO" --bogus >/dev/null 2>&1; then bad "unknown flag should be rejected"; else ok "unknown flag rejected (fail-loud parser)"; fi
+
+# 10. the run.sh SHELL path `remove-user-scope` reaches the SAME SSOT against a
+#     PI_CODING_AGENT_DIR-overridden ~/.pi/agent — proves install's user-scope
+#     inverse is REACHABLE from run.sh, not only from the python SSOT (the gap GPT
+#     flagged: remove symmetry existed at the SSOT but no run.sh path exercised it).
+#     REPO_DIR (run.sh's own dir) is the real checkout, so seed THAT as the entry.
+RUN="$REPO/run.sh"
+AGENT_DIR="$TMP/agent"; mkdir -p "$AGENT_DIR"
+US="$AGENT_DIR/settings.json"
+cat > "$US" <<JSON
+{"defaultProvider": "openai-codex", "packages": ["$REPO", "../../repos/gh/andenken"]}
+JSON
+PI_CODING_AGENT_DIR="$AGENT_DIR" bash "$RUN" remove-user-scope >/dev/null 2>&1 || bad "run.sh remove-user-scope exited non-zero"
+if python3 -c "
+import json
+d=json.load(open('$US')); p=d['packages']
+assert '$REPO' not in p, 'run.sh remove-user-scope did not drop the global entwurf entry'
+assert '../../repos/gh/andenken' in p, 'run.sh remove-user-scope over-removed an unrelated package'
+assert d['defaultProvider']=='openai-codex', 'run.sh remove-user-scope dropped an unrelated key'
+" 2>/dev/null; then ok "run.sh remove-user-scope drops the global citizen, preserves unrelated (SSOT reached via shell)"; else bad "run.sh remove-user-scope path failed"; fi
+# idempotent: a second remove-user-scope is a clean no-op (no crash on absent entry)
+if PI_CODING_AGENT_DIR="$AGENT_DIR" bash "$RUN" remove-user-scope >/dev/null 2>&1; then ok "run.sh remove-user-scope is idempotent (no-op second run)"; else bad "run.sh remove-user-scope second run crashed"; fi
+
 echo
 if [ "$fail" -eq 0 ]; then echo "smoke-user-scope-citizen: PASS"; else echo "smoke-user-scope-citizen: FAIL (see above)"; exit 1; fi

@@ -119,16 +119,50 @@ def remove(settings_path: Path, repo_dir_arg: str) -> int:
     return len(entwurf_entries)
 
 
+def would_remove(settings_path: Path, repo_dir_arg: str) -> int:
+    """Count the entwurf entries a --remove WOULD drop, writing NOTHING.
+
+    Read-only companion to remove() for --dry-run — lets a caller (e.g. run.sh's
+    project `remove` pointer note) decide whether the global user-scope inverse is
+    worth suggesting without mutating the operator's settings.
+    """
+    repo_dir = str(Path(repo_dir_arg).resolve())
+    if not settings_path.exists():
+        return 0
+    data = _load(settings_path)
+    packages = _packages(settings_path, data)
+    return len(_entwurf_matches(packages, repo_dir))
+
+
 def main(argv: list[str]) -> int:
-    args = [a for a in argv[1:] if a != "--remove"]
-    do_remove = "--remove" in argv[1:]
+    flags = {a for a in argv[1:] if a.startswith("--")}
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    do_remove = "--remove" in flags
+    dry_run = "--dry-run" in flags
+    known = {"--remove", "--dry-run"}
+    unknown = flags - known
+    if unknown:
+        raise SystemExit(f"unknown flag(s): {', '.join(sorted(unknown))}")
+    # --dry-run is a REMOVE-only preview. Without --remove it would otherwise fall
+    # through to the register path and WRITE — a flag literally named "dry-run"
+    # mutating settings is an install-hygiene footgun, so reject it loud instead of
+    # silently registering.
+    if dry_run and not do_remove:
+        raise SystemExit("--dry-run is only supported with --remove")
     if len(args) != 2:
-        raise SystemExit("usage: register-pi-package.py <settings.json> <repo_dir> [--remove]")
+        raise SystemExit("usage: register-pi-package.py <settings.json> <repo_dir> [--remove] [--dry-run]")
     settings_path = Path(args[0])
     repo_dir_arg = args[1]
     resolved = str(Path(repo_dir_arg).resolve())
 
     if do_remove:
+        if dry_run:
+            n = would_remove(settings_path, repo_dir_arg)
+            if n:
+                print(f"remove: would remove {n} entwurf packages[] entr{'y' if n == 1 else 'ies'} from {settings_path}")
+            else:
+                print(f"remove: no entwurf packages[] entry to remove ({settings_path})")
+            return 0
         n = remove(settings_path, repo_dir_arg)
         if n:
             print(f"remove: removed {n} entwurf packages[] entr{'y' if n == 1 else 'ies'} from {settings_path}")

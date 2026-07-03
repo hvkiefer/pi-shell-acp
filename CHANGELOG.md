@@ -4,6 +4,10 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## Unreleased
 
+### Fixed
+
+- **Install/package hygiene guards now seal three post-0.12.6 edges.** Package tarballs exclude Python bytecode residue even though `scripts/` ships as a whole, pack gates serialize the full `npm pack` dist-read window and use per-run tarball destinations, and the user-scope pi package inverse is exposed as explicit `remove-user-scope` with a read-only `--remove --dry-run` preview.
+
 ## 0.12.6 — 2026-07-03
 
 ### Fixed
