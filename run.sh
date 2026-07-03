@@ -91,6 +91,7 @@ Usage:
   ./run.sh smoke-meta-async-drift     # 1.0.0 meta-bridge step 1: drift sentinel — version pins + Claude binary undocumented-behavior markers (LIVE=1 adds plugin watch-arm probe)
   ./run.sh smoke-meta-honesty         # 1.0.0 meta-bridge: honesty regression gate (#30 blockers) — doorbell counts ALL msgs honestly + hook logs failures as ERROR (best-effort, no scream). Offline/deterministic (deps: bash+node+python3)
   ./run.sh smoke-meta-install-state   # 1.0.0 meta-bridge Phase 2: stateful install/uninstall + store-doctor regression gate. Offline/deterministic (deps: bash+node+python3)
+  ./run.sh smoke-user-scope-citizen   # 0.12.6 install-boundary: pi packages[] registration SSOT (register-pi-package.py) — idempotent + preserves unrelated + normalizes stale + remove symmetry + fails loud. Offline/hermetic (deps: bash+python3)
   ./run.sh smoke-meta-prune           # 1.0.0 meta-bridge Phase 4: listing-only store janitor regression gate — classify keep/orphan/stale/ambiguous, delete nothing. Offline/deterministic (deps: bash+node)
   ./run.sh smoke-meta-keyset-guard    # 0.10.0 meta-bridge: keyset-owner guard regression — check-keyset-overlap + managed-keys SSOT (disjoint passes, collisions fail). Offline/hermetic (deps: bash+python3)
   ./run.sh check-meta-manifest-schema # 0.12.2 meta-bridge: CLI-version-INDEPENDENT static guard — plugin manifests pinned to the minimal keyset that validates on the lowest supported Claude (closed-schema regression that broke 0.12.1 install on floor) + desired_mcp installed-vs-clone dual-mode. Offline (deps: python3)
@@ -239,11 +240,67 @@ preflight_dep_integrity() {
   fi
 }
 
+preflight_pi_settings_shapes() {
+  local project_settings="$1"
+  local user_settings="$2"
+  python3 - "$project_settings" "$user_settings" <<'PY'
+import json, sys
+from pathlib import Path
+
+project = Path(sys.argv[1])
+user = Path(sys.argv[2])
+
+def load_object(path: Path, label: str):
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise SystemExit(f"{label} settings is not a JSON object: {path}")
+    return data
+
+def check_packages(data, path: Path, label: str):
+    if data is None:
+        return
+    packages = data.get("packages")
+    if packages is not None and not isinstance(packages, list):
+        raise SystemExit(f"{label} settings packages is not a JSON array: {path}")
+
+def check_project_provider(data, path: Path):
+    if data is None:
+        return
+    provider = data.get("entwurfProvider")
+    if provider is None:
+        return
+    if not isinstance(provider, dict):
+        raise SystemExit(f"project settings entwurfProvider is not an object: {path}")
+    servers = provider.get("mcpServers")
+    if servers is not None and not isinstance(servers, dict):
+        raise SystemExit(f"project settings entwurfProvider.mcpServers is not an object: {path}")
+
+project_data = load_object(project, "project")
+user_data = load_object(user, "user")
+check_packages(project_data, project, "project")
+check_packages(user_data, user, "user")
+check_project_provider(project_data, project)
+PY
+}
+
 install_local_package() {
-  local project_dir
+  local project_dir agent_dir
   project_dir=$(normalize_project_dir "$1")
+  agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
   preflight_dep_integrity
+  # Fail BEFORE any settings write if either target config already has a corrupt
+  # shape. The packages[] SSOT and provider writer run in two separate steps, so
+  # without this preflight a bad entwurfProvider could leave a half-installed
+  # packages[] entry behind (2026-07-03 install-boundary hardening).
+  preflight_pi_settings_shapes "$project_dir/.pi/settings.json" "$agent_dir/settings.json"
   mkdir -p "$project_dir/.pi"
+  # packages[] registration via the shared SSOT — same is_entwurf_source
+  # predicate + idempotency as user-scope and remove (not a substring match).
+  python3 "$REPO_DIR/scripts/register-pi-package.py" "$project_dir/.pi/settings.json" "$REPO_DIR"
+  # entwurfProvider.mcpServers + legacy prune (project-scope only; packages[] was
+  # already written above by register-pi-package.py).
   python3 - "$project_dir/.pi/settings.json" "$REPO_DIR" <<'PY'
 import json, sys
 from pathlib import Path
@@ -257,23 +314,6 @@ if settings_path.exists():
         raise SystemExit("settings.json is not an object")
 else:
     data = {}
-
-# --- packages[] registration --------------------------------------------------
-packages = data.get("packages")
-if not isinstance(packages, list):
-    packages = []
-
-filtered = []
-for item in packages:
-    source = item.get("source") if isinstance(item, dict) else item
-    if isinstance(source, str) and ("entwurf" in source) and source != repo_dir:
-        continue
-    filtered.append(item)
-
-if repo_dir not in filtered:
-    filtered.append(repo_dir)
-
-data["packages"] = filtered
 
 # --- entwurfProvider.mcpServers bundled entries ---------------------------
 # Ship the two in-repo MCP adapters pre-wired so `pi install` produces a
@@ -334,9 +374,25 @@ for name, reason in LEGACY_BUNDLED.items():
 
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
 print(f"install: updated {settings_path}")
-print(f"install: package source -> {repo_dir}")
 PY
   ensure_agent_dir_symlinks
+  register_user_scope_citizen
+}
+
+# Register entwurf as a pi USER-SCOPE citizen so its extensions
+# (entwurf-control.ts → --entwurf-control / --emacs-agent-socket) load from ANY
+# cwd, not only inside the entwurf checkout. project-scope `.pi/settings.json`
+# only applies when pi runs inside the repo; the `pit`/`pia`/`pihome` global
+# launchers and the npm consumer's "installs → just works" both need the entry
+# in ~/.pi/agent/settings.json's packages[]. This is the wiring that dropped when
+# `pi install` was removed from setup (2026-07-03: `--entwurf-control` unknown in
+# a foreign cwd). Idempotent: absent → append, present → no-op; a stale entwurf
+# entry at a different path is normalized to REPO_DIR. Every other package and key
+# in the operator's user settings is preserved untouched.
+register_user_scope_citizen() {
+  local agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+  # Shared idempotent implementation (also driven by smoke-user-scope-citizen).
+  python3 "$REPO_DIR/scripts/register-pi-package.py" "$agent_dir/settings.json" "$REPO_DIR"
 }
 
 # Ensure agent-level resources that entwurf code reads from
@@ -424,6 +480,14 @@ ensure_agent_dir_symlinks() {
 remove_local_package() {
   local project_dir
   project_dir=$(normalize_project_dir "$1")
+  # Same fail-before-write rule as install: remove has two writers too
+  # (packages[] SSOT, then entwurfProvider cleanup), so a malformed provider must
+  # not leave a half-removed packages[] entry behind.
+  preflight_pi_settings_shapes "$project_dir/.pi/settings.json" "$(mktemp -u)"
+  # packages[] cleanup via the shared SSOT — same is_entwurf_source predicate as
+  # install, so remove never over-deletes a look-alike repo (entwurf-notes, …)
+  # that install would never have registered.
+  python3 "$REPO_DIR/scripts/register-pi-package.py" "$project_dir/.pi/settings.json" "$REPO_DIR" --remove
   python3 - "$project_dir/.pi/settings.json" "$REPO_DIR" <<'PY'
 import json, sys
 from pathlib import Path
@@ -437,19 +501,6 @@ if not settings_path.exists():
 data = json.loads(settings_path.read_text())
 if not isinstance(data, dict):
     raise SystemExit("settings.json is not an object")
-
-# --- packages[] cleanup -------------------------------------------------------
-packages = data.get("packages")
-pkg_removed = 0
-if isinstance(packages, list):
-    filtered = []
-    for item in packages:
-        source = item.get("source") if isinstance(item, dict) else item
-        if isinstance(source, str) and ("entwurf" in source):
-            pkg_removed += 1
-            continue
-        filtered.append(item)
-    data["packages"] = filtered
 
 # --- entwurfProvider.mcpServers cleanup ------------------------------------
 # Only remove entries that look like they came from ./run.sh install: either
@@ -484,7 +535,7 @@ if isinstance(provider, dict):
         data.pop("entwurfProvider", None)
 
 settings_path.write_text(json.dumps(data, indent=2) + "\n")
-print(f"remove: removed {pkg_removed} packages[] entries, {mcp_removed} mcpServers entries from {settings_path}")
+print(f"remove: removed {mcp_removed} mcpServers entries from {settings_path}")
 PY
 }
 
@@ -1469,6 +1520,87 @@ check_install_preflight() {
   fi
   rm -rf "$fake" "$proj"
   ok "[check-install-preflight] representative dangling symlink (test -d blind spot) → fails before writing settings, names the dep"
+
+  # negative 3 — corrupt project provider shape. install_local_package now has a
+  # two-step writer (packages[] SSOT, then entwurfProvider.mcpServers), so a
+  # malformed provider MUST fail before the packages[] step writes anything.
+  fake=$(mktemp -d); proj=$(mktemp -d)
+  mkdir -p "$proj/.pi" "$fake/home"
+  printf '{"entwurfProvider": []}\n' > "$proj/.pi/settings.json"
+  local before after
+  before=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  rc=0; out=$(HOME="$fake/home" PI_CODING_AGENT_DIR="$fake/home/.pi/agent" "$REPO_DIR/run.sh" install "$proj" 2>&1) || rc=$?
+  after=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] corrupt entwurfProvider did NOT fail install"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ "$before" != "$after" ]; then
+    fail "[check-install-preflight] corrupt entwurfProvider was partially rewritten (packages[] leak)"; echo "$out"; cat "$proj/.pi/settings.json"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "entwurfProvider is not an object"; then
+    fail "[check-install-preflight] corrupt entwurfProvider failed for the WRONG reason:"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ -f "$fake/home/.pi/agent/settings.json" ]; then
+    fail "[check-install-preflight] corrupt project provider still wrote user-scope settings"; cat "$fake/home/.pi/agent/settings.json"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  rm -rf "$fake" "$proj"
+  ok "[check-install-preflight] corrupt project entwurfProvider → fails before any project/user settings write"
+
+  # negative 4 — corrupt project mcpServers shape, same no-partial-write contract.
+  fake=$(mktemp -d); proj=$(mktemp -d)
+  mkdir -p "$proj/.pi" "$fake/home"
+  printf '{"entwurfProvider": {"mcpServers": []}}\n' > "$proj/.pi/settings.json"
+  before=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  rc=0; out=$(HOME="$fake/home" PI_CODING_AGENT_DIR="$fake/home/.pi/agent" "$REPO_DIR/run.sh" install "$proj" 2>&1) || rc=$?
+  after=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] corrupt entwurfProvider.mcpServers did NOT fail install"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ "$before" != "$after" ]; then
+    fail "[check-install-preflight] corrupt mcpServers was partially rewritten (packages[] leak)"; echo "$out"; cat "$proj/.pi/settings.json"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "entwurfProvider.mcpServers is not an object"; then
+    fail "[check-install-preflight] corrupt mcpServers failed for the WRONG reason:"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  rm -rf "$fake" "$proj"
+  ok "[check-install-preflight] corrupt project entwurfProvider.mcpServers → fails before any project settings write"
+
+  # negative 5 — corrupt user-scope packages shape. Since install writes project
+  # settings before user registration, this preflight must catch the user file up
+  # front so a bad ~/.pi/agent/settings.json cannot leave the project half-wired.
+  fake=$(mktemp -d); proj=$(mktemp -d)
+  mkdir -p "$fake/home/.pi/agent"
+  printf '{"packages": {"broken": true}}\n' > "$fake/home/.pi/agent/settings.json"
+  rc=0; out=$(HOME="$fake/home" PI_CODING_AGENT_DIR="$fake/home/.pi/agent" "$REPO_DIR/run.sh" install "$proj" 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] corrupt user packages did NOT fail install"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if [ -f "$proj/.pi/settings.json" ]; then
+    fail "[check-install-preflight] corrupt user packages still wrote project settings (partial install)"; echo "$out"; cat "$proj/.pi/settings.json"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  if ! printf '%s' "$out" | grep -q "user settings packages is not a JSON array"; then
+    fail "[check-install-preflight] corrupt user packages failed for the WRONG reason:"; echo "$out"; rm -rf "$fake" "$proj"; exit 1
+  fi
+  rm -rf "$fake" "$proj"
+  ok "[check-install-preflight] corrupt user-scope packages → fails before project settings write"
+
+  # negative 6 — remove has the same two-step write risk (packages[] remove,
+  # then provider cleanup). A corrupt provider must fail before packages[] is
+  # altered, otherwise uninstall becomes a partial destructive write.
+  proj=$(mktemp -d)
+  mkdir -p "$proj/.pi"
+  printf '{"entwurfProvider": [], "packages": ["%s"]}\n' "$REPO_DIR" > "$proj/.pi/settings.json"
+  before=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  rc=0; out=$("$REPO_DIR/run.sh" remove "$proj" 2>&1) || rc=$?
+  after=$(sha256sum "$proj/.pi/settings.json" | cut -d' ' -f1)
+  if [ "$rc" -eq 0 ]; then
+    fail "[check-install-preflight] corrupt provider did NOT fail remove"; echo "$out"; rm -rf "$proj"; exit 1
+  fi
+  if [ "$before" != "$after" ]; then
+    fail "[check-install-preflight] corrupt provider remove partially rewrote packages[]"; echo "$out"; cat "$proj/.pi/settings.json"; rm -rf "$proj"; exit 1
+  fi
+  rm -rf "$proj"
+  ok "[check-install-preflight] remove with corrupt provider → fails before packages[] removal"
 }
 
 check_pi_preflight() {
@@ -2002,8 +2134,14 @@ check_pack_install() {
     return 1
   fi
 
-  local loader_out
-  loader_out=$(cd "$tmp" && pi -e "$tmp/node_modules/@junghanacs/entwurf" --list-models entwurf 2>&1) || {
+  # HOME/PI_CODING_AGENT_DIR redirected to a throwaway dir: this loader smoke must
+  # depend ONLY on the -e package path, never on the operator's real
+  # ~/.pi/agent/settings.json — otherwise a live-config change could silently
+  # pass/fail the gate (the exact "check must not depend on live wiring" impurity
+  # this whole lane is about).
+  local loader_out loader_home="$tmp/loader-home"
+  mkdir -p "$loader_home/.pi/agent"
+  loader_out=$(cd "$tmp" && HOME="$loader_home" PI_CODING_AGENT_DIR="$loader_home/.pi/agent" pi -e "$tmp/node_modules/@junghanacs/entwurf" --list-models entwurf 2>&1) || {
     fail "[check-pack-install] pi loader smoke failed (exit non-zero):"
     echo "$loader_out" | tail -10 | sed 's/^/    /' >&2
     return 1
@@ -2074,6 +2212,43 @@ check_pack_install() {
     return 1
   fi
   echo "[check-pack-install] npm-managed install regression pass (hoisted-dep run.sh install wrote settings)"
+
+  # THE 2026-07-03 regression gate: removing `pi install` from setup dropped
+  # user-scope citizen registration, so `--entwurf-control` was Unknown in a
+  # foreign cwd. Prove the npm consumer path closes it end-to-end: run.sh install
+  # (run above under HOME="$npmhome") must have registered the package in the USER
+  # settings, and pi must then load the entwurf extension + its flags from a cwd
+  # OUTSIDE the project. Fully isolated in the temp HOME — never touches ~/.pi.
+  local npm_user_settings="$npmhome/.pi/agent/settings.json"
+  if [ ! -f "$npm_user_settings" ]; then
+    fail "[check-pack-install] npm-managed install did not register a user-scope citizen at $npm_user_settings"
+    return 1
+  fi
+  if ! python3 -c "
+import json,sys
+p=json.load(open('$npm_user_settings')).get('packages',[])
+srcs=[(x if isinstance(x,str) else x.get('source')) for x in p]
+sys.exit(0 if any(isinstance(s,str) and s.endswith('/node_modules/@junghanacs/entwurf') for s in srcs) else 1)
+"; then
+    fail "[check-pack-install] user-scope settings.json lacks the npm entwurf package in packages[]:"
+    sed 's/^/    /' "$npm_user_settings" >&2
+    return 1
+  fi
+  # Foreign cwd ($tmp — NOT the project, no project .pi): --entwurf-control must be
+  # a KNOWN flag and the entwurf provider must load, sourced only from user scope.
+  # Before the fix this printed "Unknown options: --entwurf-control".
+  local foreign_out
+  foreign_out=$(cd "$tmp" && HOME="$npmhome" PI_CODING_AGENT_DIR="$npmhome/.pi/agent" pi --entwurf-control --list-models entwurf 2>&1) || {
+    fail "[check-pack-install] foreign-cwd --entwurf-control smoke failed (user-scope citizen not loading?):"
+    echo "$foreign_out" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  }
+  if grep -qi "Unknown option" <<<"$foreign_out" || ! grep -q "claude-opus-4-8" <<<"$foreign_out"; then
+    fail "[check-pack-install] foreign-cwd --entwurf-control did not load the entwurf extension from user scope:"
+    echo "$foreign_out" | tail -10 | sed 's/^/    /' >&2
+    return 1
+  fi
+  echo "[check-pack-install] user-scope citizen regression pass (npm consumer: --entwurf-control loads from a foreign cwd)"
 
   # Installed meta-bridge ownership regression (0.12.5): package upgrades must not
   # bake versioned pnpm-store paths into Claude settings. MCP already uses the
@@ -2997,6 +3172,14 @@ case "$cmd" in
     # to guess without state, and the doctor store scan fails on corrupt/
     # duplicate/drift records. Offline + deterministic (deps bash+node+python3).
     (cd "$REPO_DIR" && bash scripts/smoke-meta-install-state.sh)
+    ;;
+  smoke-user-scope-citizen)
+    # 0.12.6 install-boundary gate: register-pi-package.py is the shared
+    # packages[] SSOT for project/user install and remove; user scope makes
+    # --entwurf-control load from any cwd. Idempotent, preserves unrelated
+    # packages/keys, normalizes stale entries, remove is symmetric, and corrupt
+    # settings fail loud. The tripwire the 2026-07-03 `pi install` removal lacked.
+    (cd "$REPO_DIR" && bash scripts/smoke-user-scope-citizen.sh)
     ;;
   smoke-claude-native-resume-live)
     # LIVE-only Detour A probe: two real Claude Code native turns (fresh +
