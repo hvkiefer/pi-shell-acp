@@ -24,6 +24,8 @@ import { fileURLToPath } from "node:url";
 import {
 	computeMetaReceiverActive,
 	mailboxConversationalDeliverable,
+	type NativePushDeliverabilityFacts,
+	nativePushDeliverable,
 	receiverMarkerMatchesIdentity,
 } from "../pi-extensions/lib/entwurf-deliverability.ts";
 
@@ -143,6 +145,38 @@ ok(
 );
 ok("null marker → false (fail-closed)", !receiverMarkerMatchesIdentity(null, ID));
 ok("undefined marker → false (fail-closed)", !receiverMarkerMatchesIdentity(undefined, ID));
+
+// ── nativePushDeliverable: the SEPARATE native-push axis (봉인 6) ────────────
+// deliverable ⟺ recordBacked ∧ probeAlive. Distinct axis from the mailbox gate: it
+// must NOT depend on watchArmed (the mailbox-only atom), so a native-push target's
+// deliverability is unaffected by any watch/ownerAlive signal.
+const NP = (f: Parameters<typeof nativePushDeliverable>[0]) => nativePushDeliverable(f).deliverable;
+
+ok("native-push: record backed + probe alive → deliverable", NP({ recordBacked: true, probeAlive: true }) === true);
+ok(
+	"native-push: no record → NOT deliverable (record-less native id)",
+	NP({ recordBacked: false, probeAlive: true }) === false,
+);
+ok(
+	"native-push: probe not alive → NOT deliverable (no live conversation)",
+	NP({ recordBacked: true, probeAlive: false }) === false,
+);
+ok("native-push: undefined axes → fail-closed inactive", NP({ recordBacked: true }) === false);
+ok("native-push: both undefined → fail-closed inactive", NP({}) === false);
+// axis separation (보정①): the native-push predicate has NO watchArmed/ownerAlive
+// concept — its shape carries only recordBacked/probeAlive, so a mailbox liveness
+// fact cannot be smuggled into it.
+ok(
+	"native-push: reason distinguishes record-less from dead-probe",
+	nativePushDeliverable({ recordBacked: false, probeAlive: true }).reason !==
+		nativePushDeliverable({ recordBacked: true, probeAlive: false }).reason,
+);
+// Type-level guard: the fact keyset is EXACTLY recordBacked|probeAlive — if a future
+// edit added `watchArmed`/`ownerAlive` (the mailbox atom fields), this stops compiling,
+// so the mailbox atom can never be smuggled into the native-push axis (보정①).
+type NativePushFactKeys = keyof NativePushDeliverabilityFacts;
+const _nativePushKeysGuard: NativePushFactKeys extends "recordBacked" | "probeAlive" ? true : never = true;
+void _nativePushKeysGuard;
 
 // ── WIRING: self-addressability shares the SAME atom ────────────────────────
 const selfSrc = readFileSync(path.join(REPO_DIR, "pi-extensions", "lib", "entwurf-self-address.ts"), "utf8");

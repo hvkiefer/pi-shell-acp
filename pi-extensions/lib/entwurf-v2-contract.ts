@@ -67,12 +67,19 @@ export const DISPATCH_LIVENESSES = ["live", "dormant", "indeterminate"] as const
 export type DispatchLiveness = (typeof DISPATCH_LIVENESSES)[number];
 
 // ── Backend liveness domain (R1 + F4) ──────────────────────────────────────
-// Backends whose liveness predicate is DEFINED. Initial = pi only (control-socket
-// connect + RPC `get_info`, entwurf-control.ts). claude-code (self-fetch, no
-// socket) and codex/antigravity (direct-inject without a probe surface yet) are
-// OUT of domain → `unsupported`. Widening this set is a deliberate future
-// decision (Stage 1+), gated by a REAL liveness predicate for that backend —
-// never by silently mapping its sessions to dead/indeterminate (R1 핵심).
+// Backends whose SOCKET liveness predicate is DEFINED — the pi control-socket
+// domain ONLY (connect + RPC `get_info`, entwurf-control.ts). It stays ["pi"].
+// claude-code (self-fetch, no socket) has no liveness predicate at all → `unsupported`.
+// codex/antigravity are direct-inject; antigravity's liveness IS measured, but by the
+// SEPARATE native-push adapter rail (a live app-server conversation probe), NOT this
+// pi-socket domain — so it must NEVER be added here. Adding it would pull agy into the
+// pi socket table (inspectSocket/probeSocket are socket-only); the fact layer keeps
+// reporting agy `unsupported` = "outside the pi-socket liveness domain", NOT
+// unreachable (the native-push rail measures it — entwurf-v2-decider.ts). Widening
+// THIS set is a deliberate future decision (Stage 1+), gated by a REAL pi-shaped
+// control-socket predicate — never by silently mapping sessions to dead/indeterminate
+// (R1 핵심). check-entwurf-facts pins this == ["pi"] and asserts the native-push
+// domain is disjoint from it.
 export const LIVENESS_DOMAIN_BACKENDS = ["pi"] as const;
 export type LivenessDomainBackend = (typeof LIVENESS_DOMAIN_BACKENDS)[number];
 
@@ -220,10 +227,13 @@ export const DISPATCH_TABLE: Record<EntwurfIntent, Record<DispatchLiveness, Disp
 };
 
 // ── The unsupported-backend mailbox mini-table (F-mailbox) ─────────────────
-// SEPARATE from the in-domain 6-cell DISPATCH_TABLE (Fable (i)): an `unsupported`
-// backend (claude-code self-fetch, codex/agy without a probe surface) has NO
-// liveness predicate, so it never enters the liveness-keyed table. Instead the
-// domain guard routes it here, keyed on intent alone:
+// SEPARATE from the in-domain 6-cell DISPATCH_TABLE (Fable (i)): a backend with no
+// pi-socket liveness predicate never enters the liveness-keyed table. Instead the
+// domain guard routes it here, keyed on intent alone. Reaches here: claude-code
+// (self-fetch mailbox) and codex (no adapter yet). Does NOT reach here: antigravity —
+// the decider intercepts a native-push backend in its own rail BEFORE this mailbox
+// mini-table (entwurf-v2-decider.ts), so agy is `unsupported` at the fact level yet
+// never falls through to a mailbox it does not have. The cells, keyed on intent alone:
 //  - fire-and-forget needs no liveness — the 0.10.0 meta-bridge mailbox delivers
 //    to any DELIVERABLE citizen. This cell is the deliverable path; resolveDispatch
 //    downgrades it to `mailbox-undeliverable` when the separate mailboxDeliverable
