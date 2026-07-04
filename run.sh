@@ -93,6 +93,7 @@ Usage:
   ./run.sh smoke-meta-async-drift     # 1.0.0 meta-bridge step 1: drift sentinel — version pins + Claude binary undocumented-behavior markers (LIVE=1 adds plugin watch-arm probe)
   ./run.sh smoke-meta-honesty         # 1.0.0 meta-bridge: honesty regression gate (#30 blockers) — doorbell counts ALL msgs honestly + hook logs failures as ERROR (best-effort, no scream). Offline/deterministic (deps: bash+node+python3)
   ./run.sh smoke-meta-install-state   # 1.0.0 meta-bridge Phase 2: stateful install/uninstall + store-doctor regression gate. Offline/deterministic (deps: bash+node+python3)
+  ./run.sh smoke-agy-install-state    # 봉인 8: agy MCP install adapter regression — isolated HOME+XDG, fake bin/pgrep/ss; adopt+state, doctor static/live-SKIP, honest uninstall, symlink refuse, dangling FAIL, checkout impurity 0. Offline/deterministic (deps: bash+python3)
   ./run.sh smoke-user-scope-citizen   # 0.12.6 install-boundary: pi packages[] registration SSOT (register-pi-package.py) — idempotent + preserves unrelated + normalizes stale + remove symmetry + fails loud. Offline/hermetic (deps: bash+python3)
   ./run.sh smoke-meta-prune           # 1.0.0 meta-bridge Phase 4: listing-only store janitor regression gate — classify keep/orphan/stale/ambiguous, delete nothing. Offline/deterministic (deps: bash+node)
   ./run.sh smoke-meta-keyset-guard    # 0.10.0 meta-bridge: keyset-owner guard regression — check-keyset-overlap + managed-keys SSOT (disjoint passes, collisions fail). Offline/hermetic (deps: bash+python3)
@@ -102,6 +103,9 @@ Usage:
   ./run.sh install-meta-bridge        # INTERNAL part of `setup` (native-harness plugin) + doctor recovery path — prefer `setup`; stateful GLOBAL install (plugin + USER MCP + settings keyset, honest uninstall state)
   ./run.sh uninstall-meta-bridge      # 1.0.0 meta-bridge Phase 2: stateful GLOBAL uninstall (restore only keys/items captured in install-state)
   ./run.sh doctor-meta-bridge         # 1.0.0 meta-bridge Phase 2: fail-loud doctor — toolchain + state + plugin/MCP + store scan + hook errors + SessionStart evidence + writer-version parity (source↔assembled↔installed: FAIL on a stale deployed meta-record writer)
+  ./run.sh install-agy-bridge         # 봉인 7: agy MCP install adapter — register ONE entwurf-bridge server in the agy mcp_config (adopt file / create / REFUSE symlink), stable bin command, install-state under $XDG_DATA_HOME/entwurf/agy-bridge/
+  ./run.sh uninstall-agy-bridge       # 봉인 7: honest inverse of install-agy-bridge from install-state (restore preimage / remove key; refuse if config became a symlink)
+  ./run.sh doctor-agy-bridge          # 봉인 7: 2-tier fail-loud doctor — static (documented+observed candidates resolve/parse/command-resolvable, dangling FAILs) + live (agy present → runtime-effective, else honest SKIP)
   ./run.sh meta-bridge-prune          # 1.0.0 meta-bridge Phase 4: LISTING-ONLY store hygiene — classify orphan/stale/ambiguous/keep, print manual rm commands, delete NOTHING ([dir] [--ttl-days N])
   ./run.sh meta-bridge-managed-keys   # 0.10.0 meta-bridge: print the SSOT of settings keys entwurf OWNS (consumers read this to stay disjoint — keyset-owner invariant)
   ./run.sh check-keyset-overlap <fragment.json...>  # 0.10.0 meta-bridge: PREVENTIVE keyset guard — fail if a consumer fragment collides with any pi-owned key (cross-repo; not in pnpm check)
@@ -3271,6 +3275,14 @@ case "$cmd" in
     # duplicate/drift records. Offline + deterministic (deps bash+node+python3).
     (cd "$REPO_DIR" && bash scripts/smoke-meta-install-state.sh)
     ;;
+  smoke-agy-install-state)
+    # 봉인 8 regression gate for the agy MCP install adapter: install→doctor→uninstall in an
+    # ISOLATED HOME+XDG with a fake stable bin + fake pgrep/ss — adopt (preserve unrelated) +
+    # state, doctor static-clean/live-SKIP (+live-PASS with a fake agy), honest-inverse
+    # uninstall, symlink refuse, dangling FAIL, create-new inverse, and ⓪ checkout impurity 0.
+    # Offline + deterministic (deps: bash+python3).
+    (cd "$REPO_DIR" && bash scripts/smoke-agy-install-state.sh)
+    ;;
   smoke-user-scope-citizen)
     # 0.12.6 install-boundary gate: register-pi-package.py is the shared
     # packages[] SSOT for project/user install and remove; user scope makes
@@ -3308,6 +3320,28 @@ case "$cmd" in
     # no-ERROR, and actual SessionStart creation evidence. A plugin present with
     # zero claude-code meta-records is a SILENT MISS -> non-zero exit.
     (cd "$REPO_DIR" && bash scripts/meta-bridge-doctor.sh "$@")
+    ;;
+  install-agy-bridge)
+    # 봉인 7: the agy (Antigravity) MCP install ADAPTER (SEPARATE from the Claude
+    # marketplace install — only runner/reporting is shared). Registers ONE entwurf-bridge
+    # server entry in the agy mcp_config: adopt a regular file / create a new one / REFUSE a
+    # symlink (someone else's SSOT). Records an install-state under $XDG_DATA_HOME/entwurf/
+    # agy-bridge/ for an honest inverse. The command written is a STABLE bin (entwurf-bridge),
+    # never a repo/git-hash path (the oracle dangling lesson).
+    (cd "$REPO_DIR" && bash scripts/agy-bridge.sh install "$@")
+    ;;
+  uninstall-agy-bridge)
+    # 봉인 7: honest inverse of install-agy-bridge from the install-state (restore the
+    # captured preimage / remove our key; remove the file if we created it empty). Refuses if
+    # the managed config became a symlink since install; no state → nothing to undo.
+    (cd "$REPO_DIR" && bash scripts/agy-bridge.sh uninstall "$@")
+    ;;
+  doctor-agy-bridge)
+    # 봉인 7: 2-tier fail-loud doctor. STATIC proves both candidate configs (documented
+    # ~/.gemini/antigravity-cli + observed ~/.gemini/config) resolve, parse, and carry a
+    # RESOLVABLE command (a dangling command FAILS). LIVE proves runtime-effectiveness only
+    # when an agy process exists; with no agy it is an honest SKIP (never a PASS in disguise).
+    (cd "$REPO_DIR" && bash scripts/agy-bridge.sh doctor "$@")
     ;;
   meta-bridge-prune)
     # 1.0.0 meta-bridge Phase 4: LISTING-ONLY janitor for the meta-session store.
