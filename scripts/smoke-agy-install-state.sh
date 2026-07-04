@@ -9,6 +9,10 @@
 #   - SYMLINK target → install REFUSES + writes NO state (someone else's SSOT).
 #   - DANGLING command → doctor FAILS (the oracle lesson, structurally reproduced).
 #   - CREATE-NEW → uninstall removes the file it created.
+#   - SETUP INTEGRATION (막힘 ①): the `wire_agy_bridge` wrapper folded into `./run.sh setup` —
+#     agy absent → honest skip + NO state; agy present + regular → idempotent install + state;
+#     agy present + symlink/corrupt → NON-FATAL WARN + continue (exit 0, reason-specific, no
+#     clobber, no state). Driven via the hidden `wire-agy-bridge` subcommand with AGY_BIN pinned.
 #   - ⓪ discipline day-one: the checkout stays byte-identical (nothing written under $REPO).
 # Offline + deterministic (deps: bash + python3).
 set -euo pipefail
@@ -124,6 +128,58 @@ want "create-new: state removed" "[ ! -f '$STATE' ]"
 # ── H: uninstall with no state is idempotent (a note, not a failure) ──────────
 bash "$BRIDGE" uninstall >/dev/null 2>&1
 ok "idempotent: uninstall with no state exits 0 (nothing to undo)"
+
+# ── I: setup integration — wire_agy_bridge (막힘 ①: detection-gated, NON-FATAL) ─────
+# The setup wrapper folded into `./run.sh setup`. Driven here via the hidden `wire-agy-bridge`
+# subcommand with AGY_BIN pinned (a fake agy / a nonexistent path) so detection is hermetic
+# regardless of the CI/dev host's real agy. Locks: agy absent → honest skip + NO state; agy
+# present + regular → idempotent install + state; agy present + symlink/corrupt → NON-FATAL
+# WARN + continue (exit 0 — an optional harness must never brick a pi/Claude setup), reason-
+# specific, no clobber, no state. Clean slate here (H left no config/state).
+rm -f "$GEM_DOC" "$GEM_OBS" "$STATE"
+printf '#!/usr/bin/env bash\necho fake-agy\n' > "$SB/bin/agy"; chmod +x "$SB/bin/agy"
+
+# I-1: agy ABSENT → honest skip, no state, exit 0 (AGY_BIN → a nonexistent path)
+set +e; OUT="$(AGY_BIN="$SB/no-such-agy" bash "$REPO_DIR/run.sh" wire-agy-bridge 2>&1)"; RC=$?; set -e
+want "wire(no-agy): exits 0 (non-fatal skip)" "[ '$RC' -eq 0 ]"
+want "wire(no-agy): honest skip message" "printf '%s' \"\$OUT\" | grep -q 'skipping agy bridge wiring'"
+want "wire(no-agy): NO state written" "[ ! -f '$STATE' ]"
+want "wire(no-agy): NO config created" "[ ! -e '$GEM_DOC' ]"
+
+# I-2: agy PRESENT + regular config → idempotent install + state, exit 0
+printf '{\n  "mcpServers": { "other": { "command": "keepme" } }\n}\n' > "$GEM_DOC"
+set +e; OUT="$(AGY_BIN="$SB/bin/agy" bash "$REPO_DIR/run.sh" wire-agy-bridge 2>&1)"; RC=$?; set -e
+want "wire(agy+regular): exits 0" "[ '$RC' -eq 0 ]"
+want "wire(agy+regular): entwurf-bridge registered" "grep -q '\"entwurf-bridge\"' '$GEM_DOC'"
+want "wire(agy+regular): unrelated server preserved" "grep -q '\"other\"' '$GEM_DOC'"
+want "wire(agy+regular): state written" "[ -f '$STATE' ]"
+set +e; OUT="$(AGY_BIN="$SB/bin/agy" bash "$REPO_DIR/run.sh" wire-agy-bridge 2>&1)"; RC=$?; set -e
+want "wire(agy+regular, re-run): idempotent exit 0" "[ '$RC' -eq 0 ]"
+want "wire(agy+regular, re-run): config still valid + entwurf-bridge present" \
+  "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if \"entwurf-bridge\" in d[\"mcpServers\"] else 1)' '$GEM_DOC'"
+want "wire(agy+regular, re-run): unrelated server still preserved" "grep -q '\"other\"' '$GEM_DOC'"
+bash "$BRIDGE" uninstall >/dev/null; rm -f "$GEM_DOC"
+
+# I-3: agy PRESENT + SYMLINK config → NON-FATAL WARN + continue (exit 0), no clobber, no state
+printf '{"mcpServers":{}}\n' > "$SB/real_wire_cfg.json"
+ln -s "$SB/real_wire_cfg.json" "$GEM_DOC"
+set +e; OUT="$(AGY_BIN="$SB/bin/agy" bash "$REPO_DIR/run.sh" wire-agy-bridge 2>&1)"; RC=$?; set -e
+want "wire(agy+symlink): exits 0 (NON-FATAL — setup not bricked)" "[ '$RC' -eq 0 ]"
+want "wire(agy+symlink): reason-specific WARN names the symlink/SSOT" \
+  "printf '%s' \"\$OUT\" | grep -qi 'symlink'"
+want "wire(agy+symlink): linked SSOT NOT clobbered" \
+  "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d[\"mcpServers\"]=={} else 1)' '$SB/real_wire_cfg.json'"
+want "wire(agy+symlink): NO state written" "[ ! -f '$STATE' ]"
+rm -f "$GEM_DOC"
+
+# I-4: agy PRESENT + CORRUPT config (invalid JSON) → NON-FATAL WARN + continue, corrupt-specific
+printf 'this is not json{{{' > "$GEM_DOC"
+set +e; OUT="$(AGY_BIN="$SB/bin/agy" bash "$REPO_DIR/run.sh" wire-agy-bridge 2>&1)"; RC=$?; set -e
+want "wire(agy+corrupt): exits 0 (NON-FATAL)" "[ '$RC' -eq 0 ]"
+want "wire(agy+corrupt): reason-specific WARN flags invalid JSON (not a silent skip)" \
+  "printf '%s' \"\$OUT\" | grep -qi 'invalid JSON'"
+want "wire(agy+corrupt): NO state written" "[ ! -f '$STATE' ]"
+rm -f "$GEM_DOC" "$SB/bin/agy"
 
 # ── ⓪ checkout purity: the working tree is byte-identical (nothing under $REPO) ─
 REPO_AFTER="$(cd "$REPO_DIR" && git status --porcelain)"

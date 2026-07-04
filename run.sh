@@ -2740,6 +2740,12 @@ setup_all() {
     echo "[setup] no native harness (claude) on PATH — skipping meta-bridge wiring (pi-only host)"
   fi
 
+  # Fold agy (Antigravity) MCP bridge wiring into setup (막힘 ①, GLG 2026-07-04: install
+  # ownership moves to entwurf). Same detection-gated, idempotent, NON-FATAL posture as the
+  # meta-bridge block above — agy is an OPTIONAL harness, so a refused/corrupt agy config warns
+  # but never bricks a pi/Claude setup. The hard gate stays doctor-agy-bridge.
+  wire_agy_bridge
+
   # Deterministic preflight lives in `pnpm check`; live substrate acceptance lives
   # in `LIVE=1 ./run.sh release-gate <scratch>`. Setup is the install path, so it
   # verifies the installed MCP bridge boundary only and does NOT run the legacy
@@ -2752,7 +2758,57 @@ setup_all() {
   if command -v claude >/dev/null 2>&1; then
     echo "Verify native-harness wiring with: ./run.sh doctor-meta-bridge"
   fi
+  if command -v agy >/dev/null 2>&1; then
+    echo "Verify agy-harness wiring with:    ./run.sh doctor-agy-bridge"
+  fi
   echo "Run 'LIVE=1 ./run.sh release-gate <scratch>' for live substrate acceptance."
+}
+
+# wire_agy_bridge — detection-gated, NON-FATAL agy (Antigravity) MCP bridge wiring, folded into
+# setup so a relocate/clone needs ONE idempotent command (막힘 ①). Mirrors the meta-bridge
+# block: agy on PATH → idempotent install-agy-bridge; no agy → honest skip, NO state ("있으면
+# 설정, 없으면 담아준다"). NON-FATAL by contract: agy is an OPTIONAL harness, so a refused/corrupt
+# agy config must NOT brick a pi/Claude setup — the hard gate is doctor-agy-bridge (issue #45:
+# the '?' surfaces in doctor, not by killing setup). WARNs are reason-specific so a transitional
+# symlink (someone else's SSOT) and a corrupt config (invalid JSON) are never conflated.
+wire_agy_bridge() {
+  # Detection = the agy binary on PATH. AGY_BIN pins the target (default `agy`) so the
+  # hermetic smoke can point at a fake agy or a definitely-absent path without depending on
+  # whatever agy the CI/dev host happens to have — production leaves it unset (= `command -v
+  # agy`, no regression). Same override spirit as agy-bridge.sh's AGY_MCP_CONFIG/AGY_BRIDGE_COMMAND.
+  if ! command -v "${AGY_BIN:-agy}" >/dev/null 2>&1; then
+    echo "[setup] no agy on PATH — skipping agy bridge wiring (no state; pi/Claude-only host)"
+    return 0
+  fi
+  section "agy bridge install (native harness detected: Antigravity)"
+  local out rc
+  set +e
+  out="$(bash "$REPO_DIR/scripts/agy-bridge.sh" install 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$out"
+  if [ "$rc" -eq 0 ]; then
+    echo "[setup] agy bridge wired (idempotent). Verify with: ./run.sh doctor-agy-bridge"
+    return 0
+  fi
+  # NON-FATAL: keep setup alive, surface the reason honestly (never a silent pass).
+  case "$out" in
+    *"refused (symlink)"*)
+      echo "[setup] WARN: agy mcp_config is a symlink — someone else's SSOT (transitional)." >&2
+      echo "[setup]       Bridge NOT wired; expected until install ownership moves to entwurf." >&2
+      echo "[setup]       Re-run setup once the symlink is dropped. setup continues." >&2
+      ;;
+    *"invalid JSON"*)
+      echo "[setup] WARN: your agy mcp_config is CORRUPT (invalid JSON) — bridge NOT wired." >&2
+      echo "[setup]       doctor-agy-bridge will KEEP FAILING until you repair that file." >&2
+      echo "[setup]       (Not a silent skip — fix the config, then re-run setup.) setup continues." >&2
+      ;;
+    *)
+      echo "[setup] WARN: agy bridge install did not complete (rc=$rc; see the line above)." >&2
+      echo "[setup]       Bridge NOT wired; verify with ./run.sh doctor-agy-bridge. setup continues." >&2
+      ;;
+  esac
+  return 0
 }
 
 # release-gate — the single command that, when GREEN, is sufficient to cut
@@ -3342,6 +3398,14 @@ case "$cmd" in
     # RESOLVABLE command (a dangling command FAILS). LIVE proves runtime-effectiveness only
     # when an agy process exists; with no agy it is an honest SKIP (never a PASS in disguise).
     (cd "$REPO_DIR" && bash scripts/agy-bridge.sh doctor "$@")
+    ;;
+  wire-agy-bridge)
+    # 막힘 ①: the detection-gated, NON-FATAL setup wrapper around install-agy-bridge (agy on
+    # PATH → idempotent install; no agy → honest skip, no state). HIDDEN/internal — setup calls
+    # this; it is exposed as a subcommand only so smoke-agy-install-state can drive it
+    # deterministically. The hard gate stays doctor-agy-bridge (issue #45: the '?' is a doctor
+    # signal, not a setup-killer).
+    wire_agy_bridge
     ;;
   meta-bridge-prune)
     # 1.0.0 meta-bridge Phase 4: LISTING-ONLY janitor for the meta-session store.
