@@ -84,6 +84,7 @@ Usage:
   ./run.sh check-entwurf-self-address # deterministic gate (SE-1/SE-2 slice 1): self-addressability honesty predicate computeSelfAddressability — pi replyable ⟺ live socket; meta ⟺ recordBacked ∧ ownerAlive ∧ watchArmed (regression-proof record-present rows); SOURCE GUARD buildStrictPiSenderEnvelope drops hardcoded replyable:true + existsSync-probes socket, entwurf_self renders alive vs expected. meta watchArmed wired in slice 2 (same release block)
   ./run.sh check-entwurf-deliverability # deterministic gate (SE-1/SE-2 slice 2c): conversational-mailbox deliverability predicate — computeMetaReceiverActive (recordBacked ∧ ownerAlive ∧ watchArmed) + mailboxConversationalDeliverable (self-fetch AND active); direct-inject pi refused (SE-1), self-fetch dead/unarmed refused (SE-2); self-address shares the same atom
   ./run.sh check-entwurf-mailbox-guard # deterministic gate (SE-1/SE-2 slice 2d): guarded mailbox enqueue — PURE 0-call (undeliverable target leaves injected enqueue uncalled) + TMPDIR snapshot (refused send leaves mailbox byte-identical, accepted writes one .msg) + fact gathering from record/capability/receiver-marker
+  ./run.sh check-native-push-adapter # deterministic gate (봉인 3/8): native-push adapter leaf (antigravity) via a FAKE runner — FULL pid scan (not head -1), dead vs indeterminate, VOLATILE route re-discovery (no cache), send argv+ANTIGRAVITY_LS_ADDRESS env, non-zero exit throws, NO adapter-level retry (executor-owned), resolveNativePushAdapter fail-fast
   ./run.sh check-package-source-routing # deterministic gate (#29): package-source -> install-root mapping + fail-fast routing (local/git/npm/missing/project/no-source × local+remote, self-root, resume), no backend
   ./run.sh smoke-session-id-name      # live 3-turn substrate smoke (Phase 3a): Pi 0.78 --session-id/--name through the bridge — header id/cwd, session_info name, append-not-recreate, spawn-only name, wrong-cwd footgun evidence
   ./run.sh new-session-id             # print one fresh garden-native session id for operator launchers (--session-id)
@@ -1263,6 +1264,18 @@ check_entwurf_mailbox_guard() {
   # send leaves the mailbox tree byte-identical (file list + content hash, not just mtime),
   # an accepted send writes exactly one .msg; plus fact gathering from record/capability/marker.
   (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-entwurf-mailbox-guard.ts)
+}
+
+check_native_push_adapter() {
+  # Deterministic gate for the native-push adapter LEAF (봉인 3/8). Drives
+  # createAntigravityAdapter with a FAKE runner (no real agy/ss/pgrep). Asserts: FULL pid
+  # scan (only the 2nd host pid serves the conv → probe still finds the route; raw-agy-send
+  # head -1 corrected); dead (no host) vs indeterminate (host alive, no LS port served the
+  # conv, never coerced to dead); VOLATILE route / no cache (a repeated probe re-discovers a
+  # CHANGED route); send argv === [binary,agentapi,send-message,conv,body] with
+  # ANTIGRAVITY_LS_ADDRESS env, non-zero exit THROWS; NO retry in the adapter (single send,
+  # no re-probe — retry is the executor hand's job, step ⑥); resolveNativePushAdapter fail-fast.
+  (cd "$REPO_DIR" && node --experimental-strip-types scripts/check-native-push-adapter.ts)
 }
 
 
@@ -3165,6 +3178,9 @@ case "$cmd" in
     ;;
   check-entwurf-mailbox-guard)
     check_entwurf_mailbox_guard
+    ;;
+  check-native-push-adapter)
+    check_native_push_adapter
     ;;
   new-session-id)
     # Garden launcher helper: print one fresh garden sessionId (SSOT:
