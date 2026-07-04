@@ -21,7 +21,12 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+	AGY_METADATA_TIMEOUT_MS,
+	AGY_SEND_TIMEOUT_MS,
 	antigravityAdapter,
 	createAntigravityAdapter,
 	type NativePushRunner,
@@ -46,6 +51,7 @@ const CONV = "conv-abc-123";
 interface ExecCall {
 	argv: string[];
 	env?: Record<string, string>;
+	timeoutMs?: number;
 }
 
 /** A recorded ss -lntp fixture line for a localhost listener owned by `pid`. */
@@ -60,6 +66,8 @@ interface FakeConfig {
 	serving: (lsAddress: string, conv: string) => boolean;
 	/** exit codes for successive send-message calls (default: all 0). */
 	sendCodes?: number[];
+	/** simulate a TIMEOUT kill (code 124) on every get-conversation-metadata call. */
+	metadataTimeout?: boolean;
 }
 
 function makeFakeRunner(config: FakeConfig): { runner: NativePushRunner; calls: ExecCall[] } {
@@ -67,7 +75,7 @@ function makeFakeRunner(config: FakeConfig): { runner: NativePushRunner; calls: 
 	let sendIdx = 0;
 	const runner: NativePushRunner = {
 		async exec(argv, opts) {
-			calls.push({ argv: [...argv], env: opts?.env });
+			calls.push({ argv: [...argv], env: opts?.env, timeoutMs: opts?.timeoutMs });
 			const a = [...argv];
 			if (a[0] === "pgrep") {
 				const code = config.pids.length > 0 ? 0 : 1;
@@ -77,6 +85,9 @@ function makeFakeRunner(config: FakeConfig): { runner: NativePushRunner; calls: 
 				return { code: 0, stdout: config.ss, stderr: "" };
 			}
 			if (a.includes("get-conversation-metadata")) {
+				if (config.metadataTimeout) {
+					return { code: 124, stdout: "", stderr: "" }; // timeout kill (bounded, no hang)
+				}
 				const conv = a[a.length - 1];
 				const ls = opts?.env?.ANTIGRAVITY_LS_ADDRESS ?? "";
 				const serves = config.serving(ls, conv);
@@ -224,6 +235,50 @@ function makeFakeRunner(config: FakeConfig): { runner: NativePushRunner; calls: 
 	);
 }
 
+// ── Q12: bounded agy calls — no hang on a stalled LS route ───────────────────
+{
+	// every get-conversation-metadata + send-message call carries a timeout bound.
+	const { runner, calls } = makeFakeRunner({ pids: [123], ss: ssLine(5002, 123), serving: () => true });
+	const adapter = createAntigravityAdapter({ runner, binary: FAKE_BINARY });
+	await adapter.probe(CONV);
+	await adapter.send({ lsAddress: "127.0.0.1:5002" }, CONV, "hi");
+	const metaCall = calls.find((c) => c.argv.includes("get-conversation-metadata"));
+	const sendCall = calls.find((c) => c.argv.includes("send-message"));
+	eq("timeout: get-conversation-metadata carries the metadata timeout", metaCall?.timeoutMs, AGY_METADATA_TIMEOUT_MS);
+	eq("timeout: send-message carries the send timeout", sendCall?.timeoutMs, AGY_SEND_TIMEOUT_MS);
+	ok(
+		"timeout: pgrep is unbounded (fast local scan)",
+		calls.find((c) => c.argv[0] === "pgrep")?.timeoutMs === undefined,
+	);
+}
+{
+	// a metadata TIMEOUT (code 124) on the only port → probe INDETERMINATE (never hangs, never dead).
+	const { runner } = makeFakeRunner({
+		pids: [123],
+		ss: ssLine(5002, 123),
+		serving: () => true,
+		metadataTimeout: true,
+	});
+	const adapter = createAntigravityAdapter({ runner, binary: FAKE_BINARY });
+	const result = await adapter.probe(CONV);
+	ok(
+		"timeout: metadata timeout → probe indeterminate (bounded, not a hang, not dead)",
+		result.status === "indeterminate",
+	);
+}
+{
+	// a send TIMEOUT (code 124) → throws (fail-loud; executor owns the 1-shot re-probe).
+	const { runner } = makeFakeRunner({ pids: [123], ss: ssLine(5002, 123), serving: () => true, sendCodes: [124] });
+	const adapter = createAntigravityAdapter({ runner, binary: FAKE_BINARY });
+	let threw = false;
+	try {
+		await adapter.send({ lsAddress: "127.0.0.1:5002" }, CONV, "hi");
+	} catch {
+		threw = true;
+	}
+	ok("timeout: send timeout (124) → throws (fail-loud)", threw);
+}
+
 // ── resolver fail-fast (mirror resolveAcpBackendAdapter) ─────────────────────
 eq("resolve: antigravity → the antigravity adapter", resolveNativePushAdapter("antigravity").id, "antigravity");
 eq("adapter id: antigravityAdapter.id === antigravity", antigravityAdapter.id, "antigravity");
@@ -244,6 +299,21 @@ eq("adapter id: antigravityAdapter.id === antigravity", antigravityAdapter.id, "
 		threw = true;
 	}
 	ok("resolve: bogus backend → throw", threw);
+}
+
+// ── Q13 (보정① long-term defense): the native-push file group never reaches for a ──
+// mailbox atom. If either the adapter leaf OR the send hand imported
+// computeMetaReceiverActive / readMetaReceiverMarker / mailboxConversationalDeliverable, a
+// future edit could quietly fold mailbox liveness (watchArmed) into the native-push axis.
+{
+	const libDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "pi-extensions", "lib");
+	const FORBIDDEN = ["computeMetaReceiverActive", "readMetaReceiverMarker", "mailboxConversationalDeliverable"];
+	for (const rel of ["native-push/adapter.ts", "entwurf-v2-native-push.ts", "native-push/register.ts"]) {
+		const src = readFileSync(path.join(libDir, rel), "utf8");
+		for (const atom of FORBIDDEN) {
+			ok(`axis-guard: ${rel} does NOT reference the mailbox atom ${atom} (보정①)`, !src.includes(atom));
+		}
+	}
 }
 
 console.log(`\ncheck-native-push-adapter: ${passed} assertions passed`);

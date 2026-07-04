@@ -39,14 +39,25 @@ export interface NativePushExecResult {
 export interface NativePushRunner {
 	/**
 	 * Run `argv[0]` with `argv[1..]`, optionally with an env overlay merged over
-	 * process.env. Resolves with the exit code + captured output; it NEVER rejects on a
-	 * non-zero exit — a non-zero code is DATA the adapter interprets (e.g. "no live agy"),
-	 * not an exception. (A genuine spawn failure resolves with code 127.)
+	 * process.env and a `timeoutMs` bound. Resolves with the exit code + captured output; it
+	 * NEVER rejects on a non-zero exit — a non-zero code is DATA the adapter interprets (e.g.
+	 * "no live agy"), not an exception. A genuine spawn failure resolves with code 127; a
+	 * timeout kill resolves with code 124 (the `timeout(1)` convention), so a stalled LS
+	 * route / hung `agy agentapi` call can NEVER wedge an entwurf_v2 dispatch (Q12).
 	 */
-	exec(argv: readonly string[], opts?: { env?: Record<string, string> }): Promise<NativePushExecResult>;
+	exec(
+		argv: readonly string[],
+		opts?: { env?: Record<string, string>; timeoutMs?: number },
+	): Promise<NativePushExecResult>;
 }
 
-/** The production runner — `execFile` (no shell), env overlay, output captured. */
+// The agy agentapi calls are bounded so a dead/stalled LS route cannot hang a dispatch
+// (raw-agy-send.sh used `timeout 8` — production had lost that; Q12 restores it). pgrep/ss
+// are fast local scans and stay unbounded.
+export const AGY_METADATA_TIMEOUT_MS = 8000;
+export const AGY_SEND_TIMEOUT_MS = 8000;
+
+/** The production runner — `execFile` (no shell), env overlay, bounded, output captured. */
 export const realNativePushRunner: NativePushRunner = {
 	exec(argv, opts) {
 		return new Promise((resolve) => {
@@ -57,14 +68,13 @@ export const realNativePushRunner: NativePushRunner = {
 				{
 					env: opts?.env ? { ...process.env, ...opts.env } : process.env,
 					maxBuffer: 8 * 1024 * 1024,
+					timeout: opts?.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 0,
 				},
 				(err, stdout, stderr) => {
-					const code =
-						err == null
-							? 0
-							: typeof (err as { code?: unknown }).code === "number"
-								? (err as { code: number }).code
-								: 127;
+					const e = err as (NodeJS.ErrnoException & { killed?: boolean }) | null;
+					// A timeout kill surfaces as `killed` — map it to 124 (timeout convention) so
+					// probe reads it as "no serve" (→ indeterminate) and send reads it as failure.
+					const code = e == null ? 0 : e.killed ? 124 : typeof e.code === "number" ? (e.code as number) : 127;
 					resolve({ code, stdout: stdout ?? "", stderr: stderr ?? "" });
 				},
 			);
@@ -166,7 +176,10 @@ export function createAntigravityAdapter(deps: AntigravityAdapterDeps): NativePu
 	async function servesConversation(lsAddress: string, conversationId: string): Promise<boolean> {
 		const r = await runner.exec([binary, "agentapi", "get-conversation-metadata", conversationId], {
 			env: { ANTIGRAVITY_LS_ADDRESS: lsAddress },
+			timeoutMs: AGY_METADATA_TIMEOUT_MS,
 		});
+		// A non-zero code — not-found, error, OR a timeout kill (124) — means this port does not
+		// serve the conversation; the scan moves on (a timeout never blocks the whole probe).
 		return r.code === 0 && r.stdout.includes("conversationMetadata");
 	}
 
@@ -202,7 +215,10 @@ export function createAntigravityAdapter(deps: AntigravityAdapterDeps): NativePu
 		async send(route, nativeSessionId, content) {
 			const r = await runner.exec([binary, "agentapi", "send-message", nativeSessionId, content], {
 				env: { ANTIGRAVITY_LS_ADDRESS: route.lsAddress },
+				timeoutMs: AGY_SEND_TIMEOUT_MS,
 			});
+			// A non-zero code — including a timeout kill (124) on a stalled route — THROWS
+			// (fail-loud); the executor hand owns the 1-shot re-probe→re-send on that throw.
 			if (r.code !== 0) {
 				throw new Error(
 					`native-push send failed (agentapi send-message exit ${r.code}) via ${route.lsAddress}: ${

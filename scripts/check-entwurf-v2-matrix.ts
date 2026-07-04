@@ -404,9 +404,13 @@ async function main(): Promise<void> {
 		await runRow(row);
 	}
 
-	// ── COVERAGE: the table must span every transport + lock class + pre-probe ──
-	// reject, or the "matrix is closed" claim is a lie. A dropped decider cell makes
-	// one of these sets shrink → fail (not a silent green).
+	// ── COVERAGE: the table must span every matrix-owned transport + lock class + ──
+	// pre-probe reject, or the "matrix is closed" claim is a lie. A dropped decider cell
+	// makes one of these sets shrink → fail (not a silent green). NOTE: native-push is NOT
+	// a matrix-owned transport — it is a SEPARATE NATIVE_PUSH_DISPATCH_TABLE (check-entwurf-
+	// v2-contract round-trip + check-entwurf-v2-decider branch), so it is deliberately absent
+	// from this coverage set (adding an antigravity row would blur the matrix's lock-class /
+	// transport semantics — GPT R8).
 	console.log("\n── coverage (table completeness)");
 	const transports = new Set<string>();
 	const lockClasses = new Set<LockClass>();
