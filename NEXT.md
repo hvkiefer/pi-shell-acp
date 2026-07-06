@@ -11,36 +11,39 @@
 - **0.12.4 hotfix 완료** — 일반설치 floor(`node_modules`)에서 `doctor-meta-bridge`가 raw `.ts` helper를 strip-types 실행해 가짜 FAIL 내던 버그 수정. hejdev6 실측: pre-fix `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` 재현, patched tarball 설치 후 compiled store-doctor plain-node scan + v2-surface defer 통과. tag/GitHub release/npm publish 완료.
 - **0.12.2/0.12.1** — 이전 릴리즈(메타브리지 install 이식성 + `check-meta-manifest-schema`, 오라클 설치검증). 상세는 CHANGELOG.
 
-## NOW — agy 설치면을 Claude Code 급으로 닫기 (#46 stem) — pi-provider는 분리/대기
+## NOW — agy를 Claude Code 급으로 닫기 (#46 stem): display는 됐고, **자동 birth**가 남았다
 
-**Stem:** 지금 닫을 것은 **agy**다. #45의 기준(설치면=본질, 문제는 `?`로 즉시 드러남)에 맞춰 agy를 Claude Code와 같은 급의 설치면으로 세운 뒤에야 #47(mux)로 간다. 2026-07-06 GLG 재정렬: **pi-provider Task2는 별도 후반부/대기 전선이며, agy 완료판정의 blocker가 아니다.** 지금 섞지 말 것.
+**Stem:** 지금 닫을 것은 **agy**다. GLG 재정렬: Claude Code는 SessionStart hook으로 켜자마자 garden id가 붙는다. agy도 "Claude Code 급"이라 말하려면 **누가 수동으로 `entwurf_register_native`를 실행해주면 안 된다.** 새 agy conversation이 정상 launch 경로에서 자동으로 meta-record를 만들고 statusline에 gid가 떠야 한다. pi-provider Task2는 별도 후반부/대기 전선이며 agy blocker가 아니다.
 
-### agy 완료판정 — 현재 상태
+### 현재 사실 — 끝난 것과 안 끝난 것
 
-- **Task 0 — thinkpad agy MCP 인수 완료.** 떠난 agent-config dangling symlink 2개는 `smoke-agy-install-state` E2로 봉인한 뒤 제거했고, `./run.sh setup`이 `~/.gemini/antigravity-cli/mcp_config.json`에 bare `entwurf-bridge`를 기록했다. `doctor-agy-bridge` static+state OK, live는 agy 유무에 따라 honest label. `~/.gemini/config/mcp_config.json` 0-byte는 agy가 재생성하는 부산물로, entwurf-bridge가 그 안에 configured로 나타날 때만 drift로 본다.
-- **Task 1 — agy statusline 이관 완료.** `entwurf-agy-statusline` bare bin, `statusLine` subtree 통째 소유, 별도 XDG state, symlink refuse, honest inverse, dev-bin 다중화, `doctor-agy-statusline`, setup non-fatal 편입. Smoke: `smoke-agy-statusline-state` 53 checks. Live: GLG agy 재기동 → `🪛 ? agy`(미등록 honest) → `entwurf_register_native` → `🪛 20260706T170557-323f00 agy` 육안 확인.
-- **정체성 계약:** agy에는 Claude Code의 SessionStart hook 같은 자동 각인이 없다. 새 conversation은 `?`가 정답이고, `entwurf_register_native(conversation_id,cwd)` 후 garden id가 붙는다. 등록된 conversation을 resume하면 meta-record 때문에 바로 gid가 보일 수 있다. 자동 register/launcher는 별도 레인이다.
-- **Claude Code 급의 의미:** 자동 hook 동형이 아니라, 설치면의 동등한 규율이다 — stable bin, state-backed install/uninstall, doctor, honest `?`, explicit identity authority, live proof. 이 기준에서 agy MCP + statusline은 닫혔다.
+- **끝남: agy MCP install 인수.** 떠난 agent-config dangling symlink 2개는 `smoke-agy-install-state` E2로 봉인 후 제거. `./run.sh setup`이 `~/.gemini/antigravity-cli/mcp_config.json`에 bare `entwurf-bridge`를 기록. `doctor-agy-bridge` static/state OK.
+- **끝남: agy statusline 표시/조회 면.** `entwurf-agy-statusline` bare bin, `statusLine` subtree 통째 소유, 별도 XDG state, symlink refuse, honest inverse, dev-bin 다중화, `doctor-agy-statusline`, setup non-fatal 편입. Smoke: `smoke-agy-statusline-state` 53 checks. Statusline stdin에는 `conversation_id == session_id`가 실재하고 cwd도 있다.
+- **미흡: birth 자동화.** 현재 live 실증은 `🪛 ? agy` → 사람이/형제가 `entwurf_register_native` 실행 → `🪛 <gid> agy`였다. 이것은 표시·역조회 사슬의 증거일 뿐, Claude Code 급 자동 각인이 아니다. 새 conversation에서 `?`가 계속 남으면 agy 레인은 아직 닫힌 게 아니다.
 
-### 다음 한 수 — agy 레인 문 닫기
+### 다음 한 수 — PreInvocation imprint 훅으로 수동 register를 없애라 (설계 확정)
 
-1. **문서 정합만 남김:** `DELIVERY.md`에 agy ambient-status 축을 추가하고, #46에 완료 코멘트 남긴다. 문구는 “agy statusline/MCP 설치면 완료; 새 conversation 자동 gid 아님; register 후 gid; pi-provider는 별도 후반부”로 정직하게 쓴다.
-2. **최종 확인 라벨:** `./run.sh doctor-agy-bridge` + `./run.sh doctor-agy-statusline` + `./run.sh smoke-agy-install-state` + `./run.sh smoke-agy-statusline-state`를 agy close gate로 본다. 이미 실증된 live `?→register→gid`는 재현 강제하지 말고 증거로 기록한다.
-3. **선택적 전체 바닥:** push/merge 전에는 `pnpm check`를 한 번 더 찍는다. 단 `pnpm check`는 전체 repo floor이지 agy만의 blocker label이 아니다.
-4. **그 다음에만** #47 mux 또는 pi-provider 후반부를 재개한다. GLG가 “agy 끝내”라고 하면 pi-provider를 만지지 않는다.
+**birth surface 확정:** agy에 lifecycle hook surface가 실재한다 — `agy-customizations/docs/hooks.md`. 단 **`SessionStart`가 없고**(이벤트는 PreToolUse/PostToolUse/**PreInvocation**/PostInvocation/Stop), 가장 이른 트리거가 `PreInvocation`(첫 모델 호출 직전)이다. payload common fields에 `conversationId` + `workspacePaths`(cwd) + `transcriptPath`가 camelCase(protojson)로 실린다. 전역 hook root = `~/.gemini/config/`(json_configs.md: "or `~/.gemini/config/` globally"). 이게 CC SessionStart와 동종의 birth authority다.
+
+1. **`entwurf-agy-imprint` bare bin 신설.** PreInvocation stdin → `conversationId`+`workspacePaths[0]` 읽어 CC와 **동일한** `upsertMetaSession({backend:"antigravity", nativeSessionId:conversationId, cwd})` 호출(scan-by-nativeId → idempotent create/attach). best-effort + log(agy 루프 절대 안 막음), stdout `{}`. 빈 `conversationId` 등록 금지. hook이 live invocation 안에서 도니 **probe 불필요**(외부 `entwurf_register_native`만 probe가 필요). meta-bridge-hook.ts의 claude-code 판을 미러(dist 아티팩트 layout 선택 동일).
+2. **installer 배선:** `~/.gemini/config/hooks.json`에 PreInvocation → `entwurf-agy-imprint` 배선. statusline과 **동일 계약** — adopt-and-preserve(다른 hook 키 보존), honest inverse(우리가 넣은 키만 제거), stable bin only(repo/checkout 경로 금지), symlink refuse, 별도 XDG install-state, setup non-fatal.
+3. **doctor + smoke:** `doctor-agy-imprint`(static/state/live 분리, hook 배선·resolvable·state 정합) + `smoke-agy-imprint-state`(멱등, symlink refuse, honest inverse, corrupt refuse, checkout impurity 0, 빈 id 등록거부).
+4. **수동 도구 호출은 acceptance가 아니다.** `entwurf_register_native`는 debug/외부 명시 등록 경로로 남기되, agy close gate는 새 conversation에서 사람/형제의 tool call 없이 gid가 붙는지다.
+5. **live close gate:** 새 agy conversation launch → 첫 invocation 후 meta-record 자동 생성 → 같은 conversation statusline에 `🪛 <gid> agy`(수동 register 0). 첫 메시지 전 짧은 `?`는 timing상 허용(SessionStart 부재). meta-record body의 `backend=antigravity`, `nativeSessionId=<conversationId>`, `cwd` 정합 확인.
+6. **문서:** `DELIVERY.md` ambient-status 축은 이미 "auto-birth pending → PreInvocation imprint" 확정형으로 정정됨(이 커밋). 훅 배선 후 "완료"로 승격.
 
 ### Parked — pi-provider Task2 (agy blocker 아님)
 
-- 코드 `7240023`은 user/project `entwurfProvider.mcpServers.entwurf-bridge`를 bare `entwurf-bridge`로 이관하는 후반부다. 현재 thinkpad live는 아직 legacy repo path라 `./run.sh setup` 재실행이 필요하지만, 이것은 **pi/ACP provider 설치면** 문제이지 agy statusline/MCP 완료판정이 아니다.
-- 알려진 trap: `doctor-pi-provider` rc0는 완료가 아니다. pre-migration legacy도 rc0로 honest note를 낸다. 또한 malformed project shadow false-green gap이 있어, pi-provider를 다시 열 때 먼저 doctor/smoke를 보강한다.
-- agent-config에서 pi `packages[]`/`entwurfProvider` 제거도 pi-provider live 이관 뒤의 별도 repo 후속이다. agy close 중에는 손대지 않는다.
+- 코드 `7240023`은 user/project `entwurfProvider.mcpServers.entwurf-bridge`를 bare `entwurf-bridge`로 이관하는 pi/ACP provider 후반부다. 현재 thinkpad live는 아직 legacy repo path일 수 있지만, 이것은 agy 완료판정이 아니다.
+- trap: `doctor-pi-provider` rc0는 완료가 아니며 malformed project shadow false-green gap이 있다. pi-provider를 다시 열 때 먼저 doctor/smoke를 보강한다.
+- agent-config의 pi `packages[]`/`entwurfProvider` 제거도 pi-provider live 이관 뒤의 별도 repo 후속이다. agy close 중에는 손대지 않는다.
 
 ### 넘으면 안 되는 선 (이 stem 한정)
 
-- agy를 자동 garden citizen으로 설명하지 말 것. “register 후 citizen”이 정본이다.
+- agy를 “register 후 citizen이 정본”으로 닫지 말 것. 그건 현재 격차를 덮는 말이다. Claude Code 급이면 **자동 birth**가 필요하다.
 - cwd 역매칭으로 gid를 발명하지 말 것. `conversation_id/nativeSessionId`만 권위다.
 - pi-provider / mux / spawn을 agy close blocker로 끌고 오지 말 것.
-- `doctor` rc0를 “green”으로 과장하지 말 것. 라벨은 static/state/live/effective를 분리한다.
+- statusline birth를 넣더라도 렌더가 느려지거나 깨지면 안 된다: bounded, lock, best-effort, 실패 시 honest `?`.
 
 **agy delivery 레인 이월 잔여(blocker 아님):** 기존 meta-record `20260704T201811-071ba8` prune은 GLG 확인 대기. smoke-owned agy launch / dead reject / transcript content-receipt는 mux/launch 생애주기 필요 시 후속으로 다룬다.
 

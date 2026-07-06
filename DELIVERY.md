@@ -179,17 +179,33 @@ bare stable bin only (never a repo/checkout path), state-backed install/uninstal
 fail-loud `doctor-agy-statusline`, and an honest `?` when the runtime can't answer.
 
 Identity authority is the native `conversation_id` (== `session_id`) looked up
-against the meta-session record bodies — the same authority the MCP install uses.
-No cwd back-match, no gid invention: an unregistered conversation renders `🪛 ?
-agy`, and only after `entwurf_register_native(conversation_id, cwd)` does a garden
-id appear (`🪛 <gid> agy`). **There is no Claude-Code-style SessionStart auto-imprint
-on agy** — "register, then citizen" is canonical; a resumed already-registered
-conversation shows its gid immediately because the meta-record persists. Auto-register
-/ launcher wiring is a separate lane, not part of this install surface.
+against the meta-session record bodies. No cwd back-match, no gid invention.
+The display half is verified: an unregistered conversation renders `🪛 ? agy`,
+and after `entwurf_register_native(conversation_id, cwd)` a garden id appears
+(`🪛 <gid> agy`).
 
-Verified: `smoke-agy-statusline-state` (53 checks) + `smoke-agy-install-state`
-(76 checks) + both `doctor-agy-*` static/state green with honest live SKIP when no
-agy process; live `?` → register → gid observed by GLG.
+**Open to reach Claude-Code parity:** Claude Code has a SessionStart hook that
+births the meta-record automatically (`upsertMetaSession(claude-code)`), so the
+gid is present before the statusline first renders. agy does not yet have an
+equivalent birth path in this lane. Manual `entwurf_register_native` is a debug /
+explicit-register path, not the final "Claude Code level" UX. agy DOES expose a
+lifecycle-hook surface (`hooks.json`), but with **no `SessionStart`** — the
+earliest trigger is `PreInvocation` (before the first model call), whose payload
+carries `conversationId` + `workspacePaths` (cwd). The confirmed close design is
+an agy `PreInvocation` imprint hook that reads those and calls the SAME
+`upsertMetaSession({backend:"antigravity", nativeSessionId:conversationId, cwd})`
+CC uses — best-effort + log (never blocks the agy loop), empty `conversationId`
+refused, no probe needed (the hook runs inside a live invocation). This is a
+real record mint by an authoritative native id, NOT a cwd back-match or gid
+invention, so it completes sealed-contract 3 rather than violating it. The only
+difference from CC is timing (SessionStart vs first PreInvocation → a brief `?`
+before the first turn). Until this hook is wired + installed (adopt-and-preserve
+in agy's hook root, honest inverse, stable bin, doctor + smoke), a new agy
+conversation stays honest `?`.
+
+Verified so far: `smoke-agy-statusline-state` (53 checks) + `smoke-agy-install-state`
+(76 checks) + both `doctor-agy-*` static/state green with honest live labels;
+live `?` → manual register → gid observed by GLG. Auto-birth is still pending.
 
 ### Codex — split by launch mode, not by "Codex"
 
