@@ -20,10 +20,15 @@
 //      SNOWFLAKE_HOME (Hard Rule #8: no cred copy/proxy);
 //   6. CORTEX_ACP_COMMAND override quoting — operator connection/model tokens
 //      with shell metacharacters are single-quoted into the `bash -lc` string.
+//   7. carrier-less augment (§9-4) — cortex has no `_meta.systemPrompt`, so the
+//      operator engraving OVERRIDE rides the first-user augment: it LEADS the
+//      cortex augment with {{backend}}/{{mcp_servers}} substituted, a carrier
+//      backend (claude) never folds it in, and no-override → no engraving in the
+//      augment (the shipped claude default is never injected).
 //
 // Two layers, mirroring the family convention:
-//   - Layer A (direct strip-types imports): models.ts + overlay.ts are
-//     strip-types-safe (node builtins / @earendil-works/pi-ai/compat).
+//   - Layer A (direct strip-types imports): models.ts + overlay.ts + augment.ts
+//     are strip-types-safe (node builtins / @earendil-works/pi-ai/compat).
 //   - Layer B (compiled backend-adapter.js): backend-adapter.ts imports its
 //     siblings with `.js` suffixes, which plain strip-types can't resolve — so
 //     we tsc-emit the project to a temp dir and import the compiled artifact
@@ -35,6 +40,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, w
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { buildPiContextAugment } from "../pi-extensions/lib/acp/augment.ts";
 import {
 	CORTEX_MODEL_PREFIX,
 	curatedClaudeModels,
@@ -153,6 +159,65 @@ for (const row of cortexRows) {
 		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Layer A.3 — carrier-less augment (augment.ts, temp engraving file)
+// ---------------------------------------------------------------------------
+//
+// Cortex is carrier-less: loadCarrier()→null / buildSessionMeta()→undefined
+// (§9-4), so the operator engraving must ride the FIRST-USER augment instead of
+// a `_meta.systemPrompt`. This is the one genuinely new cortex behavior and it
+// shipped in augment.ts (CARRIER_LESS_BACKENDS + loadCarrierlessOperatorEngraving);
+// the 결합 규칙 (source + gate land together) puts its deterministic assertion
+// HERE, on the cortex axis. Locks: (a) an operator engraving OVERRIDE
+// (ENTWURF_ACP_ENGRAVING_PATH) LEADS the cortex augment with {{backend}} /
+// {{mcp_servers}} substituted; (b) claude (a carrier backend) NEVER folds that
+// override into its augment (the override rides the claude _meta carrier, not the
+// augment); (c) no override configured → the cortex augment carries NO engraving
+// (the shipped claude default is never injected into a carrier-less augment).
+{
+	const root = mkdtempSync(join(tmpdir(), "entwurf-cortex-augment-"));
+	const engravingFile = join(root, "engraving.md");
+	writeFileSync(engravingFile, "OPERATOR ENGRAVING backend={{backend}} mcp={{mcp_servers}}", "utf8");
+	const savedEngravingEnv = process.env.ENTWURF_ACP_ENGRAVING_PATH;
+	try {
+		const augParams = { cwd: root, mcpServerNames: ["zebra", "alpha"], homeDir: root } as const;
+
+		// (a) override set → cortex augment LEADS with the rendered engraving.
+		process.env.ENTWURF_ACP_ENGRAVING_PATH = engravingFile;
+		const cortexAug = buildPiContextAugment({ backend: "cortex", ...augParams });
+		const rendered = "OPERATOR ENGRAVING backend=cortex mcp=alpha, zebra";
+		assert.ok(
+			cortexAug.startsWith(rendered),
+			`carrier-less cortex augment must LEAD with the rendered operator engraving (got head: ${cortexAug.slice(0, 80)})`,
+		);
+
+		// (b) claude is a CARRIER backend → the override never enters its augment
+		// (it rides claude's _meta.systemPrompt carrier via loadEngraving instead).
+		const claudeAug = buildPiContextAugment({ backend: "claude", ...augParams });
+		assert.ok(
+			!claudeAug.includes("OPERATOR ENGRAVING"),
+			"a carrier backend (claude) must NOT fold the operator engraving into its augment (it rides the _meta carrier)",
+		);
+
+		// (c) no override → the cortex augment carries NO engraving (the shipped
+		// claude default is never injected into a carrier-less augment).
+		delete process.env.ENTWURF_ACP_ENGRAVING_PATH;
+		const cortexAugNoOverride = buildPiContextAugment({ backend: "cortex", ...augParams });
+		assert.ok(
+			!cortexAugNoOverride.includes("OPERATOR ENGRAVING"),
+			"no override configured → carrier-less cortex augment carries no engraving (shipped default never injected)",
+		);
+		assert.ok(
+			cortexAugNoOverride.includes("Backend: cortex."),
+			"cortex augment still carries the bridge-identity section when no engraving override is set",
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+		if (savedEngravingEnv === undefined) delete process.env.ENTWURF_ACP_ENGRAVING_PATH;
+		else process.env.ENTWURF_ACP_ENGRAVING_PATH = savedEngravingEnv;
 	}
 }
 
@@ -282,5 +347,6 @@ console.log(
 	`[check-acp-cortex] ok — cortex curated rows (${cortexRowIds.join(", ")}) register through the real registry path; ` +
 		`the cortex- prefix routes to cortexAdapter, prefix-strip recovers the native -m (cortex-auto → no -m); ` +
 		`the config overlay symlinks auth (connections/config/cache/skills) through without copying and hides operator ` +
-		`state; CORTEX_ACP_COMMAND override single-quotes connection/model tokens`,
+		`state; the carrier-less cortex augment leads with the operator engraving override (claude never does) and ` +
+		`carries none when unset; CORTEX_ACP_COMMAND override single-quotes connection/model tokens`,
 );
