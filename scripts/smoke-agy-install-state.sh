@@ -118,6 +118,28 @@ want "symlink: NO state written on refusal" "[ ! -f '$STATE' ]"
 want "symlink: the linked SSOT was NOT clobbered" "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d[\"mcpServers\"]=={} else 1)' '$SB/real_config.json'"
 rm -f "$GEM_DOC"
 
+# ── E2: DANGLING SYMLINK (departed owner) → install REFUSES + NO state ─────────
+# The thinkpad specimen: ~/.gemini/*/mcp_config.json is a symlink to a DEPARTED owner's path
+# (agent-config removed the target), so the link dangles. os.path.islink() is true even with an
+# absent target, so install must refuse it the SAME as a live symlink — write NO state, and (the
+# real point) NEVER follow the link to re-materialize the departed owner's file. The link itself
+# is left intact: it is a specimen the device-adoption step removes by hand, not ours to clobber.
+rm -f "$GEM_DOC"
+DEPARTED="$SB/departed-owner/mcp_config.json"   # target dir/file does NOT exist (departed owner)
+ln -s "$DEPARTED" "$GEM_DOC"
+want "dangling-symlink: precondition — link is dangling (target absent)" \
+  "[ -L '$GEM_DOC' ] && [ ! -e '$GEM_DOC' ]"
+set +e; OUT="$(bash "$BRIDGE" install 2>&1)"; RC=$?; set -e
+want "dangling-symlink: install exits nonzero (refused)" "[ '$RC' -ne 0 ]"
+want "dangling-symlink: refusal is the SYMLINK reason (not invalid-json / other)" \
+  "printf '%s' \"\$OUT\" | grep -qi 'refused (symlink)'"
+want "dangling-symlink: NO state written on refusal" "[ ! -f '$STATE' ]"
+want "dangling-symlink: link NOT followed — departed target still absent (no re-materialize)" \
+  "[ ! -e '$DEPARTED' ]"
+want "dangling-symlink: the dangling link left intact (a specimen, not silently removed)" \
+  "[ -L '$GEM_DOC' ]"
+rm -f "$GEM_DOC"
+
 # ── F: DANGLING command → doctor FAILS ────────────────────────────────────────
 printf '{"mcpServers":{"entwurf-bridge":{"command":"/nonexistent/dangling/start.sh"}}}\n' > "$GEM_OBS"
 if bash "$BRIDGE" doctor >/dev/null 2>&1; then die "dangling: doctor should have FAILED"; fi
