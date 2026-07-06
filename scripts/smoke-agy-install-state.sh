@@ -7,6 +7,10 @@
 #   - doctor STATIC clean + LIVE SKIP with no agy; LIVE PASS with a fake agy present.
 #   - uninstall honest-inverse: unrelated servers survive, entwurf-bridge + state removed.
 #   - SYMLINK target → install REFUSES + writes NO state (someone else's SSOT).
+#   - DANGLING SYMLINK (departed owner) → install REFUSES the same (islink() is true even when
+#     the target is gone), writes NO state, NEVER follows the link to re-materialize the departed
+#     file, and leaves the link itself intact (it is a specimen, not ours to silently remove).
+#     Structurally reproduces the thinkpad ~/.gemini/*/mcp_config.json → removed agent-config path.
 #   - DANGLING command → doctor FAILS (the oracle lesson, structurally reproduced).
 #   - CREATE-NEW → uninstall removes the file it created.
 #   - SETUP INTEGRATION (막힘 ①): the `wire_agy_bridge` wrapper folded into `./run.sh setup` —
