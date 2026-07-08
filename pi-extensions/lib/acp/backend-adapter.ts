@@ -317,7 +317,7 @@ export const cortexAdapter: AcpBackendAdapter = {
 	backend: "cortex",
 
 	// Cortex owns the reserved `cortex-` prefix (§9-1). routeModel strips it to the
-	// native id: `cortex-auto` → "auto", `cortex-claude-sonnet-5` → "claude-sonnet-5".
+	// native id: `cortex-auto` → "auto", `cortex-claude-sonnet-4-6` → "claude-sonnet-4-6".
 	routeModel(modelId) {
 		if (!SUPPORTED_CORTEX_IDS.has(modelId)) return undefined;
 		return { nativeModelId: modelId.slice(CORTEX_MODEL_PREFIX.length) };

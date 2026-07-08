@@ -7,7 +7,7 @@
 >
 > **Cortex is now the first SHIPPED non-claude adapter on this rail** — it landed exactly as the rail predicted:
 > `cortexAdapter` in `pi-extensions/lib/acp/backend-adapter.ts` (registered in `ADAPTERS = [claudeAdapter,
-> cortexAdapter]`), a hand-curated cortex model surface (`cortex-auto`, `cortex-claude-sonnet-5`) in `models.ts`,
+> cortexAdapter]`), a hand-curated cortex model surface (`cortex-auto`, `cortex-claude-opus-4-6`, `cortex-claude-haiku-4-5`, `cortex-claude-sonnet-4-6`, `cortex-openai-gpt-5.2`) in `models.ts`,
 > `ensureCortexConfigOverlay` in `overlay.ts`, and a deterministic gate `scripts/check-acp-cortex.ts` wired into
 > `pnpm check` (green) + `run.sh`. **The common turn loop was not touched** — cortex added zero to the common
 > layer, which is the proof the rail holds.
@@ -74,7 +74,7 @@ export interface AcpBackendAdapter {
   readonly backend: string;                                   // "claude" | "cortex"
 
   /** Owns modelId? → backend-native id (prefix stripped), else undefined.
-   *  cortex-claude-sonnet-5 → { nativeModelId: "claude-sonnet-5" }. */
+   *  cortex-claude-sonnet-4-6 → { nativeModelId: "claude-sonnet-4-6" }. */
   routeModel(modelId: string): { nativeModelId: string } | undefined;
 
   /** Curated model rows this backend contributes to the single `entwurf` provider. */
@@ -123,7 +123,7 @@ export function resolveAcpBackendAdapter(modelId: string): { adapter: AcpBackend
 
 | seam (adapter method) | claude (shipped, 0.12) | cortex (shipped, PR #40 → 0.12 rail) |
 |---|---|---|
-| **routeModel + curatedModels** | unprefixed `getModels("anthropic")` rows (`claude-sonnet-5`, `claude-opus-4-8`); native id == curated id | hand-curated `cortex-auto` / `cortex-claude-sonnet-5` (pi-ai has no cortex source); `cortex-` prefix routes via `routeModel`; launch strips the prefix to recover the native `-m` value |
+| **routeModel + curatedModels** | unprefixed `getModels("anthropic")` rows (`claude-sonnet-5`, `claude-opus-4-8`); native id == curated id | hand-curated `cortex-auto` / `cortex-claude-opus-4-6` / `cortex-claude-haiku-4-5` / `cortex-claude-sonnet-4-6` / `cortex-openai-gpt-5.2` (pi-ai has no cortex source); `cortex-` prefix routes via `routeModel`; launch strips the prefix to recover the native `-m` value |
 | **resolveAdapterSettings + configSignatureFields** | both no-op (`undefined` / `{}`) — claude has no own settings | parse `cortexConnection` off the raw block → opaque `adapterSettings`; fold `{ cortexConnection: conn ?? null }` into the signature (a connection change invalidates a reused session) |
 | **resolveLaunch** | `@agentclientprotocol/claude-agent-acp` npm bin resolve; `CLAUDE_AGENT_ACP_COMMAND` override | `cortex acp serve` resolved from PATH (+ `-c <conn>` `-m <native>`); `CORTEX_ACP_COMMAND` override via `bash -lc`, selection flags appended so the bridge's choice wins |
 | **launchEnvDefaults** | `claudeLaunchEnvDefaults()` (`CLAUDE_CONFIG_DIR`) | `SNOWFLAKE_HOME` = overlay, `CORTEX_DISABLE_AUTO_APPLY_PROFILES=1` |
@@ -171,7 +171,7 @@ cortex gate**. Real namespace = `pi-extensions/lib/acp/`. What shipped:
 - **Registered** in the `ADAPTERS` array (`const ADAPTERS = [claudeAdapter, cortexAdapter]`, `:407`). Because
   `routeModel` owns the `cortex-` prefix, `resolveAcpBackendAdapter` and `allCuratedModels` pick it up
   automatically and fail-fast on any prefix collision or unowned id.
-- **Curated models** — the cortex rows (`cortex-auto`, `cortex-claude-sonnet-5`) live in `models.ts`
+- **Curated models** — the cortex rows (`cortex-auto`, `cortex-claude-opus-4-6`, `cortex-claude-haiku-4-5`, `cortex-claude-sonnet-4-6`, `cortex-openai-gpt-5.2`) live in `models.ts`
   (`curatedCortexModels`, `CORTEX_MODEL_PREFIX`, `SUPPORTED_CORTEX_MODEL_IDS`) and are returned from
   `cortexAdapter.curatedModels()`. Hand-curated, since pi-ai carries no cortex/snowflake source. The `cortex-`
   prefix keeps the ids from colliding with the Claude ids Cortex routes to. `resolveLaunch` strips the prefix to

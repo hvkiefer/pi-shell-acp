@@ -88,13 +88,19 @@ function claudeContextWindow(model: { id: string; contextWindow: number }): numb
 // snowflake/cortex model source, so this surface is HAND-CURATED. Every id
 // carries the reserved `cortex-` prefix (§9-1): the prefix is the SINGLE routing
 // authority (backend-adapter.ts `routeModel`) and keeps the ids off the Claude
-// native ids Cortex routes to (`cortex-claude-sonnet-5` vs the unprefixed
+// native ids Cortex routes to (`cortex-claude-sonnet-4-6` vs the unprefixed
 // `claude-sonnet-5` the claude adapter owns). `resolveLaunch` strips the prefix
 // to recover the native `-m` value (`cortex-auto` → no -m; Cortex picks its own
 // default). Adding an id here is the same verify-both-axes commitment as the
 // Claude set — do not extend casually.
 export const CORTEX_MODEL_PREFIX = "cortex-";
-export const SUPPORTED_CORTEX_MODEL_IDS = ["cortex-auto", "cortex-claude-sonnet-5"] as const;
+export const SUPPORTED_CORTEX_MODEL_IDS = [
+	"cortex-auto",
+	"cortex-claude-opus-4-6",
+	"cortex-claude-haiku-4-5",
+	"cortex-claude-sonnet-4-6",
+	"cortex-openai-gpt-5.2",
+] as const;
 
 // Hand-set conservative context window. Cortex reports the LIVE window via its
 // own ACP session config, not this curated metadata — this is a floor for the
@@ -119,7 +125,13 @@ export function curatedCortexModels() {
 		contextWindow: CORTEX_CONTEXT_DEFAULT,
 		maxTokens: base.maxTokens,
 	});
-	return [row("cortex-auto", "Cortex · Auto"), row("cortex-claude-sonnet-5", "Cortex · Claude Sonnet 5")];
+	return [
+		row("cortex-auto", "Cortex · Auto"),
+		row("cortex-claude-opus-4-6", "Cortex · Claude Opus 4.6"),
+		row("cortex-claude-haiku-4-5", "Cortex · Claude Haiku 4.5"),
+		row("cortex-claude-sonnet-4-6", "Cortex · Claude Sonnet 4.6"),
+		row("cortex-openai-gpt-5.2", "Cortex · OpenAI GPT-5.2"),
+	];
 }
 
 /**

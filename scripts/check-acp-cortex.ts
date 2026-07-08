@@ -12,7 +12,7 @@
 //      alongside claude WITHOUT throwing, i.e. every cortex id routes to exactly
 //      one adapter and collides with none;
 //   2. the `cortex-` prefix routes to cortexAdapter (routeModel / the resolver);
-//   3. prefix-strip recovers the native `-m` (cortex-claude-sonnet-5 → claude-sonnet-5)
+//   3. prefix-strip recovers the native `-m` (cortex-claude-sonnet-4-6 → claude-sonnet-4-6)
 //      and resolveLaunch emits `-m <native>`;
 //   4. cortex-auto yields NO `-m` (Cortex picks its own default);
 //   5. overlay auth-through — connections.toml / config.toml / credential cache
@@ -56,7 +56,7 @@ import { cortexLaunchEnvDefaults, ensureCortexConfigOverlay } from "../pi-extens
 assert.equal(CORTEX_MODEL_PREFIX, "cortex-", "cortex model prefix (routing authority) drifted");
 assert.deepEqual(
 	[...SUPPORTED_CORTEX_MODEL_IDS],
-	["cortex-auto", "cortex-claude-sonnet-5"],
+	["cortex-auto", "cortex-claude-opus-4-6", "cortex-claude-haiku-4-5", "cortex-claude-sonnet-4-6", "cortex-openai-gpt-5.2"],
 	"supported cortex model id set drifted",
 );
 for (const id of SUPPORTED_CORTEX_MODEL_IDS) {
@@ -255,18 +255,18 @@ try {
 	// every id routes to exactly one adapter (throws on 0/2+ matches). Its not
 	// throwing IS the registration proof; we also assert the rows are present.
 	const registered = mod.allCuratedModels().map((m) => m.id);
-	for (const want of ["claude-sonnet-5", "cortex-auto", "cortex-claude-sonnet-5"]) {
+	for (const want of ["claude-sonnet-5", "cortex-auto", "cortex-claude-sonnet-4-6"]) {
 		assert.ok(registered.includes(want), `allCuratedModels must register ${want} (got: ${registered.join(", ")})`);
 	}
 
 	// (2) the cortex- prefix routes to cortexAdapter (via the shared resolver).
-	const routedSonnet = mod.resolveAcpBackendAdapter("cortex-claude-sonnet-5");
-	assert.equal(routedSonnet.adapter.backend, "cortex", "cortex-claude-sonnet-5 must route to the cortex adapter");
+	const routedSonnet = mod.resolveAcpBackendAdapter("cortex-claude-sonnet-4-6");
+	assert.equal(routedSonnet.adapter.backend, "cortex", "cortex-claude-sonnet-4-6 must route to the cortex adapter");
 	// (3) prefix-strip recovers the native -m.
-	assert.equal(routedSonnet.nativeModelId, "claude-sonnet-5", "prefix strip must recover the native model id");
+	assert.equal(routedSonnet.nativeModelId, "claude-sonnet-4-6", "prefix strip must recover the native model id");
 	assert.equal(
-		mod.cortexAdapter.routeModel("cortex-claude-sonnet-5")?.nativeModelId,
-		"claude-sonnet-5",
+		mod.cortexAdapter.routeModel("cortex-claude-sonnet-4-6")?.nativeModelId,
+		"claude-sonnet-4-6",
 		"cortexAdapter.routeModel must strip the prefix",
 	);
 	assert.equal(
@@ -278,14 +278,14 @@ try {
 	// resolveLaunch emits `cortex acp serve -m <native>` for a concrete model.
 	const launchSonnet = mod.cortexAdapter.resolveLaunch({
 		cwd: process.cwd(),
-		modelId: "cortex-claude-sonnet-5",
-		nativeModelId: "claude-sonnet-5",
+		modelId: "cortex-claude-sonnet-4-6",
+		nativeModelId: "claude-sonnet-4-6",
 		config: { adapterSettings: { cortexConnection: null } },
 	});
 	assert.equal(launchSonnet.command, "cortex", "cortex launch command must be the `cortex` CLI (the ACP server)");
 	assert.deepEqual(
 		launchSonnet.args,
-		["acp", "serve", "-m", "claude-sonnet-5"],
+		["acp", "serve", "-m", "claude-sonnet-4-6"],
 		"cortex launch must emit `acp serve -m <native>` for a concrete model",
 	);
 
@@ -308,8 +308,8 @@ try {
 	process.env.CORTEX_ACP_COMMAND = "my-cortex --debug";
 	const launchOverride = mod.cortexAdapter.resolveLaunch({
 		cwd: process.cwd(),
-		modelId: "cortex-claude-sonnet-5",
-		nativeModelId: "claude-sonnet-5",
+		modelId: "cortex-claude-sonnet-4-6",
+		nativeModelId: "claude-sonnet-4-6",
 		config: { adapterSettings: { cortexConnection: "danger; rm -rf" } },
 	});
 	assert.equal(launchOverride.command, "bash", "override path must run via bash");
@@ -321,14 +321,14 @@ try {
 		`override must single-quote the connection with metacharacters (got: ${overrideCmd})`,
 	);
 	assert.ok(
-		overrideCmd.includes("'-m'") && overrideCmd.includes("'claude-sonnet-5'"),
+		overrideCmd.includes("'-m'") && overrideCmd.includes("'claude-sonnet-4-6'"),
 		"override must append quoted selection flags",
 	);
 	// Single-quote inside a token is escaped as '\'' (POSIX-safe), never left bare.
 	const launchQuote = mod.cortexAdapter.resolveLaunch({
 		cwd: process.cwd(),
-		modelId: "cortex-claude-sonnet-5",
-		nativeModelId: "claude-sonnet-5",
+		modelId: "cortex-claude-sonnet-4-6",
+		nativeModelId: "claude-sonnet-4-6",
 		config: { adapterSettings: { cortexConnection: "o'brien" } },
 	});
 	assert.ok(
